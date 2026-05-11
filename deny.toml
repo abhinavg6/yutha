@@ -31,13 +31,19 @@ ignore = [
     { id = "RUSTSEC-2026-0098", reason = "URI name constraints — rustls-webpki does not expose URI-name assertion APIs and we do not use them in our S3 client paths." },
     { id = "RUSTSEC-2026-0099", reason = "Wildcard + DNS name-constraint interaction — we do not author name-constrained certificates; S3 endpoints use standard *.s3.amazonaws.com wildcard certs without name-constraint subtrees." },
     { id = "RUSTSEC-2026-0104", reason = "CRL parsing panic — we do not parse certificate revocation lists in any code path." },
-    # Note: rsa (RUSTSEC-2023-0071) and lru (RUSTSEC-2026-0002) only appear
-    # in the *all-features* dep graph (rsa via sqlx-mysql, lru via aws-sdk
-    # internals). Since we dropped `[graph] all-features = true` above,
-    # cargo-deny no longer sees them, so listing them here triggers
-    # "advisory-not-detected" warnings. They remain in `.cargo/audit.toml`
-    # because cargo-audit reads the raw Cargo.lock without feature filtering.
-    # If we ever re-enable all-features on the deny graph, add them back here.
+    # lru 0.12.5 (RUSTSEC-2026-0002, IterMut unsoundness). aws-sdk-s3
+    # depends on lru non-optionally for its internal request-cache
+    # machinery — so this is in the default-feature dep graph, not just
+    # under --all-features. The unsoundness is in IterMut, which is
+    # called only inside the AWS SDK's cache code; we never construct an
+    # lru cache or call IterMut anywhere in our codebase.
+    { id = "RUSTSEC-2026-0002", reason = "Unsoundness in lru's IterMut, reachable only inside aws-sdk-s3's internal request-cache machinery; not exposed to our usage." },
+    # Note: rsa (RUSTSEC-2023-0071) is only in the *all-features* dep
+    # graph (transitive via sqlx-mysql, which our postgres-only feature
+    # set never enables). It's listed only in .cargo/audit.toml because
+    # cargo-audit reads the raw Cargo.lock without feature filtering;
+    # cargo-deny doesn't see it in the default graph, so listing it here
+    # would fire "advisory-not-detected".
 ]
 
 [licenses]

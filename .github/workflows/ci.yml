@@ -130,15 +130,20 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: EmbarkStudios/cargo-deny-action@v1
-        with:
-          log-level: warn
-          command: check
-          # No --all-features: krates 0.16.x (which cargo-deny uses to
-          # build the dep graph) panics when expanded with the AWS SDK's
-          # mix of legacy hyper-0.14/rustls-0.21 and modern hyper-1/
-          # rustls-0.23. Our actual feature surface is narrow (mostly
-          # serde derives) so the default-feature graph already captures
-          # the security-relevant transitive deps. Re-add --all-features
-          # once the krates panic is fixed upstream.
-          arguments: ""
+      - uses: dtolnay/rust-toolchain@stable
+      # We install cargo-deny directly instead of using
+      # EmbarkStudios/cargo-deny-action@v1, which pins an old binary that
+      # has two known issues against our dep graph:
+      #   (1) krates 0.16.x panics with "unable to locate aws_lc_rs for
+      #       rustls@0.21.12" on the AWS SDK's legacy hyper-0.14 /
+      #       rustls-0.21 stack (fixed in krates 0.17+, ships in
+      #       cargo-deny 0.16+).
+      #   (2) older rustsec parser doesn't understand CVSS 4.0, which the
+      #       RustSec DB started emitting in 2026 (e.g. RUSTSEC-2026-0073
+      #       for libcrux-poly1305). CVSS 4.0 support landed in rustsec
+      #       0.31+, which ships in cargo-deny 0.18+.
+      # Mirrors the cargo-audit job's "cargo install --locked" pattern.
+      - run: cargo install cargo-deny --locked --version ^0.18
+      # No --all-features for the same reason — the krates panic also
+      # fires when --all-features expands ring/aws-lc-rs alternatives.
+      - run: cargo deny check
