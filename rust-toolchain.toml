@@ -1,0 +1,6 @@
+[toolchain]
+# Per ADR 0001 §"Open questions": MSRV is latest stable minus three releases.
+# Pin to a recent stable here; CI verifies against MSRV separately.
+channel = "stable"
+components = ["rustfmt", "clippy"]
+profile = "default"

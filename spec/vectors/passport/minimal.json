@@ -1,0 +1,35 @@
+{
+  "name": "minimal",
+  "description": "Passport with only required fields plus a Minimal tier. No capabilities, no expiry, default resources, no model attribution.",
+  "kind": "passport",
+  "fields": {
+    "spec_version": "1.0.0",
+    "agent_id_hex": "0102030405060708090a0b0c0d0e0f10",
+    "swarm_id_hex": "1112131415161718191a1b1c1d1e1f20",
+    "agent_public_key": {
+      "algorithm": "ed25519",
+      "value_hex": "5050505050505050505050505050505050505050505050505050505050505050"
+    },
+    "owner": "",
+    "framework": "",
+    "framework_version": "",
+    "capabilities": [],
+    "accepted_constitution_version": "1.0.0",
+    "tier": "minimal",
+    "resources": {
+      "max_concurrent_actions": 0,
+      "max_messages_per_minute": 0,
+      "max_tool_calls_per_hour": 0,
+      "max_usd_per_day_cents": "",
+      "max_memory_bytes": 0
+    },
+    "issued_at": {
+      "wall_clock": "2026-05-10T00:00:00Z",
+      "monotonic_ns": 1000
+    },
+    "expires_at": null,
+    "default_model_provider": "",
+    "default_model_name": ""
+  },
+  "expected_canonical_hex": "0a070a05312e302e3012120a100102030405060708090a0b0c0d0e0f101a120a101112131415161718191a1b1c1d1e1f2022240801122050505050505050505050505050505050505050505050505050505050505050504a05312e302e3050015a0062190a14323032362d30352d31305430303a30303a30305a10e807"
+}

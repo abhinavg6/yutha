@@ -1,0 +1,176 @@
+// Yutha Passport spec — signed identity manifest an agent presents at swarm join.
+//
+// Spec version: v1.0 draft
+// Status: open for RFC review (RFC 0002)
+// Owners: Workstream A (Specs), with Workstream B (control plane), Workstream L (security)
+//
+// Depends on: /spec/common.proto
+// See: /spec/passport/rationale.md
+
+syntax = "proto3";
+
+package yutha.passport.v1;
+
+import "common.proto";
+
+// ---------------------------------------------------------------------------
+// Top-level passport
+// ---------------------------------------------------------------------------
+
+// Passport is what an agent presents to a registry to join a swarm. It is
+// signed by the agent's private key (the public counterpart is in
+// `agent_public_key`). On registration, the registry counter-signs the
+// passport's content-address; that countersignature is stored as a
+// registration receipt, not in this message.
+//
+// A Passport is content-addressable: hash(canonical_serialization(passport
+// with `agent_signature` cleared)) is the passport's identifier. Clients can
+// reference passports by content-address as well as by AgentId, which lets
+// passport revocation (issue a replacement) work without identifier churn.
+message Passport {
+  // Spec version this passport was authored against (e.g. "1.0.0"). Receivers
+  // that don't understand this version reject the passport.
+  yutha.common.v1.Version spec_version = 1;
+
+  // Stable agent identifier. UUID v7. Re-issuing a passport for the same
+  // agent_id under a new agent_public_key is allowed — that's a key rotation;
+  // see rationale §6.
+  yutha.common.v1.AgentId agent_id = 2;
+
+  // The swarm this passport is for. A passport is single-swarm; an agent that
+  // joins multiple swarms holds multiple passports.
+  yutha.common.v1.SwarmId swarm_id = 3;
+
+  // Public key the agent will use to sign envelopes and receipts. Algorithm
+  // and bytes; key fingerprint is derivable.
+  yutha.common.v1.PublicKey agent_public_key = 4;
+
+  // Human-readable owner identifier (org, team, individual). This is metadata
+  // for operators and auditors; not an authority claim.
+  string owner = 5;
+
+  // The framework the agent is built on, for adapter routing and for A2
+  // (compromised model) attribution. Free-form string; canonical values
+  // include "langgraph", "autogen", "crewai", "anthropic-agent-sdk",
+  // "custom".
+  string framework = 6;
+  string framework_version = 7;
+
+  // Capabilities this agent declares it can perform. The registry MAY accept
+  // the declaration as-is in closed mode, MAY require attestation in open
+  // mode, MAY apply periphery constraints in hybrid mode (see /spec/topology).
+  //
+  // Declaration is not authority. Authority comes from capability tokens
+  // (see /spec/capability) issued against this passport.
+  repeated CapabilityDeclaration capabilities = 8;
+
+  // The constitution version this agent commits to obey. The registry rejects
+  // a passport whose accepted_constitution_version does not match the
+  // currently-active constitution unless the topology mode permits a grace
+  // period (see /spec/topology).
+  string accepted_constitution_version = 9;
+
+  // Conformance / trust tier this agent is registering at. Open swarms may
+  // require attestation for higher tiers; closed swarms may accept any tier
+  // by operator policy.
+  PassportTier tier = 10;
+
+  // Resource declarations — what budget the agent expects to consume. The
+  // control plane uses these for admission and quota enforcement.
+  ResourceDeclaration resources = 11;
+
+  // Issuance and validity window. expires_at MAY be unset for non-expiring
+  // passports in closed deployments; MUST be set in open and hybrid swarms.
+  yutha.common.v1.Timestamp issued_at = 12;
+  yutha.common.v1.Timestamp expires_at = 13;
+
+  // Optional A2 (compromised model) attribution — what model provider the
+  // agent uses by default. May be overridden per-action in receipts. Primarily
+  // here so per-role envelope detection can correlate model providers across
+  // agents.
+  string default_model_provider = 14;
+  string default_model_name = 15;
+
+  // Forward-compatibility hatch.
+  yutha.common.v1.Extensions extensions = 200;
+
+  // Self-signature. Signed over canonical_serialization(passport with
+  // agent_signature cleared) using agent_public_key. This is the "I claim
+  // to be this agent" assertion.
+  yutha.common.v1.Signature agent_signature = 250;
+}
+
+// ---------------------------------------------------------------------------
+// Capability declarations
+// ---------------------------------------------------------------------------
+
+// CapabilityDeclaration is what the agent says it can do. The registry/control
+// plane decides whether to grant capability tokens (see /spec/capability)
+// matching these declarations.
+message CapabilityDeclaration {
+  // Canonical kind string. Examples: "send_message", "read_shared_memory",
+  // "write_shared_memory", "call_tool", "issue_refund", "escalate".
+  string kind = 1;
+
+  // Resource scope this capability applies to. Free-form structured tags;
+  // examples: "memory:scope=swarm", "tool:web_search",
+  // "action:refund:max=500". Constitution norms are evaluated against these
+  // tags at runtime.
+  repeated string resource_tags = 2;
+
+  // Maximum scope in numeric terms (where applicable). e.g. for refunds:
+  // {"usd_max": "500"}. String values for decimal precision.
+  map<string, string> bounds = 3;
+
+  // Human-readable description.
+  string description = 4;
+}
+
+// ---------------------------------------------------------------------------
+// Resource declarations
+// ---------------------------------------------------------------------------
+
+// ResourceDeclaration is what budget the agent expects. The control plane
+// MAY enforce these as caps; the constitution's `forbid` rules can additionally
+// constrain them.
+message ResourceDeclaration {
+  uint64 max_concurrent_actions = 1;
+  uint64 max_messages_per_minute = 2;
+  uint64 max_tool_calls_per_hour = 3;
+  string max_usd_per_day_cents = 4; // Decimal string. "100.00" = $100.
+  uint64 max_memory_bytes = 5;
+}
+
+// ---------------------------------------------------------------------------
+// Tiers
+// ---------------------------------------------------------------------------
+
+// PassportTier mirrors conformance tiers. Open swarms typically require
+// STANDARD or higher; verifiable deployments require VERIFIABLE.
+enum PassportTier {
+  PASSPORT_TIER_UNKNOWN = 0;
+  PASSPORT_TIER_MINIMAL = 1;     // Self-attested only. Closed swarms by default.
+  PASSPORT_TIER_STANDARD = 2;    // Operator-vetted; supports open / hybrid.
+  PASSPORT_TIER_VERIFIABLE = 3;  // Cryptographic attestation; required for verifiable backends.
+}
+
+// ---------------------------------------------------------------------------
+// Registration result
+// ---------------------------------------------------------------------------
+
+// RegistrationResult is the registry's response to a Register call. The
+// registration receipt itself is a Receipt (see /spec/receipt) of action_kind
+// "agent.register"; this message is the synchronous response carrying its
+// content-address.
+message RegistrationResult {
+  enum Status {
+    REGISTRATION_STATUS_UNKNOWN = 0;
+    REGISTRATION_STATUS_ACCEPTED = 1;
+    REGISTRATION_STATUS_REJECTED = 2;
+    REGISTRATION_STATUS_PENDING_REVIEW = 3; // Hybrid mode periphery may pend.
+  }
+  Status status = 1;
+  yutha.common.v1.AgentId agent_id = 2;
+  yutha.common.v1.Hash registration_receipt = 3; // Pointer into receipt store.
+  string rejection_reason = 4; // Set when status == REJECTED.
+}

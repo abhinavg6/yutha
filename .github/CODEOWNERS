@@ -1,0 +1,70 @@
+# Yutha CODEOWNERS
+#
+# Rules below assign default reviewers per area. Per /docs/community/CONTRIBUTING.md,
+# changes to security-critical paths require two-person review with at least
+# one reviewer from Workstream L (security).
+#
+# Until the project has a populated MAINTAINERS.md, owners are expressed as
+# placeholders and the project lead reviews everything.
+
+# Default fallback — project lead.
+*                                       @yutha/leads
+
+# Specs (Workstream A).
+/spec/                                  @yutha/spec @yutha/leads
+/spec/rfcs/                             @yutha/spec @yutha/leads
+
+# Build plan and decisions.
+/docs/build-plan.md                     @yutha/leads
+/docs/decisions/                        @yutha/leads @yutha/spec
+
+# Threat model and security docs (Workstream L).
+/docs/security/                         @yutha/security @yutha/leads
+/docs/community/SECURITY.md             @yutha/security @yutha/leads
+
+# Conformance suite (Workstream A + L co-own).
+/conformance/                           @yutha/spec @yutha/security
+/crates/yutha-conformance/              @yutha/spec @yutha/security
+
+# Receipt store (Workstream C) — load-bearing wall; security review required.
+/crates/yutha-receipt/                  @yutha/receipts @yutha/security
+/backends/postgres-receipt/             @yutha/receipts @yutha/security
+/backends/walrus-receipt/               @yutha/receipts @yutha/security
+/backends/seal-encrypt/                 @yutha/receipts @yutha/security
+/backends/nautilus-attest/              @yutha/receipts @yutha/security
+
+# Storage backends (Workstream C).
+/backends/s3-blob/                      @yutha/receipts
+
+# Crypto and core types (Workstream B + C joint; security review required).
+/crates/yutha-core/                     @yutha/control-plane @yutha/receipts @yutha/security
+/crates/yutha-crypto/                   @yutha/control-plane @yutha/security
+
+# Control plane crates (Workstream B; security review required for trust-boundary).
+/crates/yutha-passport/                 @yutha/control-plane @yutha/security
+/crates/yutha-capability/               @yutha/control-plane @yutha/security
+/crates/yutha-transport/                @yutha/control-plane @yutha/security
+/crates/yutha-registry/                 @yutha/control-plane @yutha/security
+/crates/yutha-control-plane/            @yutha/control-plane @yutha/security
+
+# Constitution engine (Workstream E; Phase 2; security review required).
+/crates/yutha-cedar-plus/               @yutha/constitution @yutha/security
+/crates/yutha-enforcement/              @yutha/constitution @yutha/security
+/crates/yutha-supervision/              @yutha/constitution @yutha/security
+
+# SDKs (Workstream D).
+/sdk/python/                            @yutha/sdk
+/sdk/typescript/                        @yutha/sdk
+
+# DX, docs, composer (Workstream G).
+/docs/community/CONTRIBUTING.md         @yutha/dx @yutha/leads
+/docs/community/CODE_OF_CONDUCT.md      @yutha/dx @yutha/leads
+/docs/community/RFC_PROCESS.md          @yutha/spec @yutha/dx
+/composer/                              @yutha/dx
+/examples/                              @yutha/dx
+
+# Top-level project files — leads only.
+/README.md                              @yutha/leads
+/LICENSE                                @yutha/leads
+/Cargo.toml                             @yutha/leads
+/.github/                               @yutha/leads

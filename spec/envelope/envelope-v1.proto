@@ -1,0 +1,188 @@
+// Yutha Envelope spec — typed message wrapper with performatives and causal metadata.
+//
+// Spec version: v1.0 draft
+// Status: open for RFC review (RFC 0003)
+// Owners: Workstream A (Specs), with Workstream B (transport)
+//
+// Depends on: /spec/common.proto
+// See: /spec/envelope/rationale.md
+
+syntax = "proto3";
+
+package yutha.envelope.v1;
+
+import "common.proto";
+
+// ---------------------------------------------------------------------------
+// Envelope
+// ---------------------------------------------------------------------------
+
+// Envelope is the typed wrapper around every agent-to-agent message. Untyped
+// content (LLM output, tool result, customer text) lives inside `payload`;
+// `performative` and other envelope fields are typed and signed and are what
+// the control plane reasons about.
+//
+// Envelopes are content-addressable. The hash of an envelope's canonical
+// serialization (with `agent_signature` cleared) is used as the message's
+// causal-DAG identifier and is what receipts reference.
+message Envelope {
+  // Spec version — receivers reject unknown versions.
+  yutha.common.v1.Version spec_version = 1;
+
+  // The swarm in which this envelope is valid. Cross-swarm transmission is
+  // a federation operation (Phase 4); a v1 envelope MUST NOT cross swarms
+  // without a federation handshake.
+  yutha.common.v1.SwarmId swarm_id = 2;
+
+  // Envelope identifier. UUID v7 for deduplication and ordering aids.
+  // Distinct from the content-address; envelope_id is for lookup, the hash
+  // of the envelope is for causal references and tamper detection.
+  bytes envelope_id = 3; // 16 bytes UUID v7.
+
+  // Sender. AgentId binds to the passport that holds the signing key.
+  yutha.common.v1.AgentId from_agent = 4;
+
+  // Recipient. Exactly one of recipient.* must be set.
+  Recipient recipient = 5;
+
+  // Performative — the speech-act kind (propose, counter, commit, etc.). The
+  // control plane may dispatch on this; the constitution may match against
+  // it; observability surfaces it.
+  Performative performative = 6;
+
+  // Payload is the application content. Typed by `payload_schema_id`.
+  // Payload bytes are NOT introspected by the control plane — they may be
+  // encrypted; only constitution norms operating on payload tags or
+  // payload-schema fields matter at the substrate layer.
+  bytes payload = 7;
+
+  // Identifier of the payload's schema (e.g. "yutha.support.v1.TicketUpdate"
+  // or operator-defined). The constitution and SDK adapters dispatch on this.
+  string payload_schema_id = 8;
+
+  // Tags applied to this envelope (e.g. "pii", "external", "high_risk").
+  // Constitution norms may match on tags. Tagging is the responsibility of
+  // the SDK adapter at envelope-construction time; tags are part of the
+  // signed surface and cannot be retroactively altered.
+  repeated string tags = 9;
+
+  // Causal predecessors — the receipts (or envelopes-as-receipts via their
+  // hashes) that this message depends on. The DAG is emitted, not
+  // reconstructed. Empty only for the genesis message of a chain.
+  yutha.common.v1.CausalRef causal = 10;
+
+  // Replay-prevention nonce. 16 random bytes from a CSPRNG. The receiver's
+  // replay window keeps recently-seen (envelope_id, nonce) pairs.
+  bytes nonce = 11;
+
+  // Replay-prevention epoch. Monotonically increasing per-sender; receivers
+  // reject envelopes whose epoch is more than `max_epoch_skew` behind the
+  // last-seen epoch from the same sender. Epoch is part of the signed
+  // surface.
+  uint64 epoch = 12;
+
+  // When the envelope was constructed. Wall-clock plus monotonic.
+  yutha.common.v1.Timestamp sent_at = 13;
+
+  // TTL beyond which the envelope MUST NOT be processed. Defends against
+  // long-delayed replay even when nonce / epoch have aged out of receiver
+  // state. Optional; if unset, the swarm's default TTL applies.
+  yutha.common.v1.Timestamp expires_at = 14;
+
+  // Optional reply-to. When set, this envelope is a response in a
+  // conversation; the value is the content-address of the envelope being
+  // replied to.
+  yutha.common.v1.Hash in_reply_to = 15;
+
+  // Forward-compatibility hatch.
+  yutha.common.v1.Extensions extensions = 200;
+
+  // Sender's signature over canonical_serialization(envelope with
+  // agent_signature cleared). Authority comes from this signature combined
+  // with the passport that holds the matching public key.
+  yutha.common.v1.Signature agent_signature = 250;
+}
+
+// ---------------------------------------------------------------------------
+// Recipient
+// ---------------------------------------------------------------------------
+
+// Recipient is one of: a single agent (unicast), a role (role-based broadcast),
+// a swarm-wide broadcast (rare, gated by capability), or an external endpoint
+// (only allowed for performatives that explicitly target external systems and
+// only if a capability token authorizes).
+message Recipient {
+  oneof to {
+    yutha.common.v1.AgentId agent = 1;
+    string role = 2; // e.g. "supervisor", "billing", "router"
+    SwarmBroadcast swarm = 3;
+    ExternalEndpoint external = 4;
+  }
+}
+
+message SwarmBroadcast {
+  // Optional filter; if set, only agents matching all tags receive.
+  repeated string filter_tags = 1;
+}
+
+message ExternalEndpoint {
+  string scheme = 1;     // e.g. "https", "smtp"
+  string authority = 2;  // e.g. "api.example.com"
+  string path_hint = 3;  // Coarse routing hint; never the full URL (capability decides).
+}
+
+// ---------------------------------------------------------------------------
+// Performatives
+// ---------------------------------------------------------------------------
+
+// Performative enumerates the speech-act kinds. New performatives require an
+// RFC and a minor-version bump. Unknown performatives MUST be treated as
+// PERFORMATIVE_UNKNOWN and surfaced; receivers MUST NOT silently ignore.
+enum Performative {
+  PERFORMATIVE_UNKNOWN = 0;
+
+  // Negotiation primitives (Phase 1 carries them; Phase 2 builds typed state
+  // machines on top).
+  PERFORMATIVE_PROPOSE = 1;   // "I propose action X under terms T"
+  PERFORMATIVE_COUNTER = 2;   // "I counter with terms T'"
+  PERFORMATIVE_COMMIT = 3;    // "I commit to terms T"
+  PERFORMATIVE_ABORT = 4;     // "I abort this exchange"
+  PERFORMATIVE_RELEASE = 5;   // "I release a resource I held"
+
+  // Information primitives.
+  PERFORMATIVE_QUERY = 6;     // "What is the current state of X?"
+  PERFORMATIVE_INFORM = 7;    // "X is now Y"
+  PERFORMATIVE_ERROR = 8;     // "An error occurred; details inside payload"
+
+  // Coordination primitives (Phase 1 carries them; enforcement in Phase 2).
+  PERFORMATIVE_REQUEST_ACTION = 9;  // "Please perform X"
+  PERFORMATIVE_CONFIRM = 10;        // "I confirm X happened"
+  PERFORMATIVE_DECLINE = 11;        // "I decline to perform X"
+
+  // Reserved range for v1.x additions: 12–15.
+}
+
+// ---------------------------------------------------------------------------
+// Decoding errors
+// ---------------------------------------------------------------------------
+
+// EnvelopeError is what the receiver returns when an envelope is rejected at
+// the substrate layer (signature failure, unknown spec version, replay
+// detected, expired, malformed). Application-level errors are carried as
+// PERFORMATIVE_ERROR envelopes.
+message EnvelopeError {
+  enum Reason {
+    ENVELOPE_ERROR_UNKNOWN = 0;
+    ENVELOPE_ERROR_SIGNATURE_INVALID = 1;
+    ENVELOPE_ERROR_UNKNOWN_SPEC_VERSION = 2;
+    ENVELOPE_ERROR_REPLAY_DETECTED = 3;
+    ENVELOPE_ERROR_EXPIRED = 4;
+    ENVELOPE_ERROR_MALFORMED = 5;
+    ENVELOPE_ERROR_UNKNOWN_PERFORMATIVE = 6;
+    ENVELOPE_ERROR_RECIPIENT_UNKNOWN = 7;
+    ENVELOPE_ERROR_CAPABILITY_DENIED = 8; // For cross-swarm or external-endpoint sends.
+  }
+  Reason reason = 1;
+  string detail = 2;
+  bytes envelope_id = 3;
+}

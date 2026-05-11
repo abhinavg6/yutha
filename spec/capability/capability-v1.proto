@@ -1,0 +1,269 @@
+// Yutha Capability spec — macaroon-style attenuable authority tokens.
+//
+// Spec version: v1.0 draft
+// Status: open for RFC review (RFC 0005)
+// Owners: Workstream A (Specs), with Workstream B (control plane), Workstream L (security)
+//
+// Depends on: /spec/common.proto
+// See: /spec/capability/rationale.md
+
+syntax = "proto3";
+
+package yutha.capability.v1;
+
+import "common.proto";
+
+// ---------------------------------------------------------------------------
+// Capability
+// ---------------------------------------------------------------------------
+
+// Capability is an authority token. Holding a valid Capability with
+// appropriate scope authorizes its subject to perform actions matching its
+// scope. Capabilities are minted by issuers (operators, supervisors, the
+// control plane, or other capability holders via attenuation), signed by the
+// issuer, and verified by the control plane at every action point.
+//
+// No ambient authority. Every action requires an explicit Capability check.
+// PRD §13.2: "Default-deny on ambiguity. When norms are silent, the system
+// errs toward inaction."
+//
+// Capabilities are content-addressable: hash(canonical_serialization with
+// `signatures` cleared) is the capability's identifier. Attenuated children
+// reference their parent by content-address.
+message Capability {
+  // Spec version.
+  yutha.common.v1.Version spec_version = 1;
+
+  // Stable capability identifier. UUID v7. Distinct from content-address;
+  // capability_id is for revocation lookup (the revocation list keys on
+  // capability_id), the content-address is for tamper detection and parent
+  // pointers.
+  bytes capability_id = 2; // 16 bytes UUID v7.
+
+  // Swarm in which this capability is valid. Cross-swarm capabilities are a
+  // federation construct (Phase 4) with explicit handshake, never an
+  // implicit cross-swarm token.
+  yutha.common.v1.SwarmId swarm_id = 3;
+
+  // Issuer. Either an AgentId (when an agent attenuates a capability they
+  // hold) or an operator key fingerprint (when the operator mints a fresh
+  // capability). The issuer's public key must be resolvable for verification.
+  Issuer issuer = 4;
+
+  // Subject. The agent that this capability authorizes. Subject is bound
+  // tightly: the agent presenting the capability MUST sign their action
+  // envelope with the key whose fingerprint matches the subject's passport.
+  yutha.common.v1.AgentId subject = 5;
+
+  // Scope. What actions, on what resources, under what conditions, the
+  // subject is authorized to perform.
+  Scope scope = 6;
+
+  // Parent. When this capability is attenuated from another, the parent's
+  // content-address is here. Verifiers walk the parent chain to the root
+  // (an operator-minted capability) to verify the chain of authority.
+  // Empty for root capabilities.
+  yutha.common.v1.Hash parent = 7;
+
+  // Validity window. valid_until MUST be set; long-lived capabilities are
+  // a security risk. The control plane rejects capabilities outside their
+  // window with a CAPABILITY_DENIED receipt.
+  yutha.common.v1.Timestamp valid_from = 8;
+  yutha.common.v1.Timestamp valid_until = 9;
+
+  // Caveats are additional conditions that further constrain when the
+  // capability is valid. Caveats are evaluated by the control plane at
+  // check time; failed caveats deny the action.
+  repeated Caveat caveats = 10;
+
+  // Optional revocation hint. If set, verifiers MAY consult this endpoint
+  // for fresh revocation status. Implementations MUST also accept
+  // capability.revoke receipts as authoritative; the endpoint is an
+  // optimization, not a requirement.
+  string revocation_endpoint = 11;
+
+  // Forward-compatibility hatch.
+  yutha.common.v1.Extensions extensions = 200;
+
+  // Signatures. Multi-sig like receipts: ISSUER required; ATTESTATION
+  // optional (verifiable tier). Order: ISSUER, then ATTESTATION.
+  repeated CapabilitySignature signatures = 250;
+}
+
+// ---------------------------------------------------------------------------
+// Issuer
+// ---------------------------------------------------------------------------
+
+message Issuer {
+  oneof kind {
+    yutha.common.v1.AgentId agent = 1;       // Attenuating from a held capability.
+    bytes operator_key_fingerprint = 2;      // Operator-issued root capability.
+    ControlPlaneIssuer control_plane = 3;    // Control-plane-minted (e.g. registration grants).
+  }
+}
+
+message ControlPlaneIssuer {
+  bytes control_plane_key_fingerprint = 1;
+  string instance_id = 2; // Control-plane-instance identifier; observability hint.
+}
+
+// ---------------------------------------------------------------------------
+// Scope
+// ---------------------------------------------------------------------------
+
+// Scope describes what actions, on what resources, under what bounds, the
+// capability authorizes. The control plane checks an action against the
+// capability's scope; only matches succeed.
+//
+// Scope semantics are intersective when attenuating: a child capability's
+// effective scope is parent.scope ∩ child.scope.
+message Scope {
+  // Action kinds this capability permits. Matched against receipt
+  // action_kind. Empty list = all kinds (only valid for root capabilities
+  // issued by operator with explicit `unrestricted_actions` extension —
+  // discouraged).
+  repeated string permitted_actions = 1;
+
+  // Resource tags this capability applies to. Matched against the resource
+  // tags of the action target (envelope tags, memory item tags, tool tags).
+  // Empty list = all resources (similarly discouraged).
+  repeated string resource_tags = 2;
+
+  // Numeric bounds. Decimal-string-encoded for precision.
+  // Examples: "usd_max" -> "500.00", "count_max" -> "100".
+  map<string, string> bounds = 3;
+
+  // Recipients constraint for envelope-send actions: a list of agent IDs,
+  // role names, or wildcards the subject is allowed to send to. Empty =
+  // not constrained by recipient (may still be constrained by other fields).
+  repeated string permitted_recipients = 4;
+
+  // Memory scope constraint: scopes (per /spec/memory in Phase 2) the
+  // subject can read/write. Empty = not constrained by memory scope.
+  repeated string memory_scopes = 5;
+}
+
+// ---------------------------------------------------------------------------
+// Caveats
+// ---------------------------------------------------------------------------
+
+// Caveat is an additional check the control plane evaluates at action time.
+// Caveats are typed and the type vocabulary is closed at v1.0; new caveat
+// types require an RFC.
+message Caveat {
+  oneof kind {
+    TimeOfDayCaveat time_of_day = 1;        // "Only between 09:00 and 17:00 UTC"
+    ConstitutionVersionCaveat constitution_version = 2; // "Only under constitution >= 1.4.0"
+    SupervisorRequiredCaveat supervisor_required = 3;   // "Requires supervisor countersign"
+    RateLimitCaveat rate_limit = 4;         // "At most N actions per window"
+    OnlyIfTaggedCaveat only_if_tagged = 5;  // "Only on resources tagged X"
+    NeverIfTaggedCaveat never_if_tagged = 6;// "Never on resources tagged X"
+  }
+}
+
+message TimeOfDayCaveat {
+  string from_utc = 1;  // "HH:MM"
+  string to_utc = 2;
+}
+
+message ConstitutionVersionCaveat {
+  string min_version = 1; // semver; e.g. "1.4.0"
+  string max_version = 2; // optional upper bound
+}
+
+message SupervisorRequiredCaveat {
+  string supervisor_role = 1; // e.g. "production-approver"
+}
+
+message RateLimitCaveat {
+  uint32 max_actions = 1;
+  uint64 window_seconds = 2;
+}
+
+message OnlyIfTaggedCaveat {
+  repeated string required_tags = 1; // ALL must be present.
+}
+
+message NeverIfTaggedCaveat {
+  repeated string forbidden_tags = 1; // ANY presence denies.
+}
+
+// ---------------------------------------------------------------------------
+// Signatures
+// ---------------------------------------------------------------------------
+
+enum CapabilitySignatureRole {
+  CAPABILITY_SIGNATURE_ROLE_UNKNOWN = 0;
+  CAPABILITY_SIGNATURE_ROLE_ISSUER = 1;
+  CAPABILITY_SIGNATURE_ROLE_ATTESTATION = 2; // Verifiable-tier.
+}
+
+message CapabilitySignature {
+  CapabilitySignatureRole role = 1;
+  yutha.common.v1.Signature signature = 2;
+  yutha.common.v1.Timestamp signed_at = 3;
+}
+
+// ---------------------------------------------------------------------------
+// Issuance, attenuation, revocation operations
+// ---------------------------------------------------------------------------
+
+message IssueRequest {
+  Capability capability = 1; // Filled in except for `signatures`; issuer signs synchronously.
+}
+
+message IssueResponse {
+  yutha.common.v1.Hash capability_id = 1;     // Content-address.
+  yutha.common.v1.Hash issuance_receipt = 2;  // Pointer to capability.issue receipt.
+}
+
+message AttenuateRequest {
+  yutha.common.v1.Hash parent = 1;
+  Scope additional_constraints = 2;
+  repeated Caveat additional_caveats = 3;
+  yutha.common.v1.Timestamp valid_until = 4;
+}
+
+message AttenuateResponse {
+  Capability child = 1;
+  yutha.common.v1.Hash attenuation_receipt = 2;
+}
+
+message RevokeRequest {
+  yutha.common.v1.Hash capability = 1;
+  string reason = 2;
+}
+
+message RevokeResponse {
+  yutha.common.v1.Hash revocation_receipt = 1;
+  yutha.common.v1.Timestamp effective_at = 2;
+}
+
+// ---------------------------------------------------------------------------
+// Check (for the conformance-layer wire description)
+// ---------------------------------------------------------------------------
+
+// CheckRequest is what the control plane synthesizes when it wants to know
+// "is this action allowed?" The implementation is stateless given the
+// capability and the action; result is deterministic.
+message CheckRequest {
+  Capability capability = 1;
+  ActionDescriptor action = 2;
+  yutha.common.v1.Timestamp at_time = 3;
+}
+
+message CheckResponse {
+  bool permitted = 1;
+  string deny_reason = 2;       // Set when permitted = false.
+  repeated string matched_caveats = 3;
+  repeated string unmet_caveats = 4;
+  yutha.common.v1.Hash check_receipt = 5;
+}
+
+message ActionDescriptor {
+  string action_kind = 1;
+  repeated string resource_tags = 2;
+  map<string, string> numeric_values = 3; // e.g. "usd" -> "423.50" for refund actions.
+  string recipient = 4;                    // For envelope-send actions: target.
+  string memory_scope = 5;                 // For memory actions.
+}

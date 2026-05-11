@@ -1,0 +1,33 @@
+[package]
+name = "yutha-backend-postgres-receipt"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+authors.workspace = true
+description = "Postgres backend implementation of the Yutha ReceiptStore. Default backend for self-hosted deployments."
+readme = "README.md"
+
+[dependencies]
+yutha-core.workspace = true
+yutha-crypto.workspace = true
+yutha-receipt.workspace = true
+
+async-trait.workspace = true
+# Features inherited from workspace.dependencies (runtime-tokio +
+# tls-rustls-aws-lc-rs + postgres + uuid + time). Don't redeclare here —
+# keeps a single source of truth for the sqlx feature set.
+sqlx.workspace = true
+tokio.workspace = true
+thiserror.workspace = true
+tracing.workspace = true
+# sqlx's `uuid` feature surfaces uuid::Uuid in row decoding; we also use
+# it directly to translate between our AgentId / SwarmId and the database
+# UUID columns.
+uuid.workspace = true
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
+yutha-conformance = { workspace = true }

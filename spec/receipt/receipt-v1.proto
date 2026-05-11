@@ -1,0 +1,219 @@
+// Yutha Receipt spec — append-only, content-addressed, signed record of consequential actions.
+//
+// Spec version: v1.0 draft
+// Status: open for RFC review (RFC 0004)
+// Owners: Workstream A (Specs), with Workstream C (receipt store)
+//
+// Depends on: /spec/common.proto
+// See: /spec/receipt/rationale.md
+
+syntax = "proto3";
+
+package yutha.receipt.v1;
+
+import "common.proto";
+
+// ---------------------------------------------------------------------------
+// Receipt
+// ---------------------------------------------------------------------------
+
+// Receipt is the load-bearing wall of Yutha. Every consequential action — an
+// envelope sent, a capability checked, a memory write, an enforcement
+// decision, an amendment — produces a receipt. Receipts are append-only,
+// content-addressed, and cryptographically signed. The receipt store is the
+// single place an auditor goes to reconstruct what happened.
+//
+// Receipts are content-addressable: the receipt's identifier is the canonical
+// hash of its serialization with all `signatures` cleared. This means the
+// content-address is stable regardless of who eventually signs.
+message Receipt {
+  // Spec version.
+  yutha.common.v1.Version spec_version = 1;
+
+  // Swarm in which this action occurred.
+  yutha.common.v1.SwarmId swarm_id = 2;
+
+  // The agent that performed the action. For platform-internal receipts
+  // (control-plane decisions, registration), this is the control-plane's
+  // own agent identity.
+  yutha.common.v1.AgentId actor = 3;
+
+  // Action kind. Canonical strings; see ActionKind taxonomy in rationale.
+  // Examples: "envelope.send", "envelope.deliver", "agent.register",
+  // "agent.rotate_key", "agent.revoke", "capability.issue",
+  // "capability.attenuate", "capability.check.pass", "capability.check.deny",
+  // "memory.write", "memory.read", "memory.forget",
+  // "enforcement.detect", "enforcement.coach", "enforcement.quarantine",
+  // "enforcement.evict", "constitution.amend", "agent.dissent",
+  // "operator.whistleblow", "supervisor.override".
+  string action_kind = 4;
+
+  // Causal predecessors — the receipts (by content-address) that this action
+  // depends on. The DAG is emitted, not reconstructed. Empty only for the
+  // genesis receipt of a chain.
+  yutha.common.v1.CausalRef causal = 5;
+
+  // Evidence — the typed inputs and outputs of the action. The evidence shape
+  // depends on action_kind. The constitution-engine, the simulator, and
+  // counterfactual replay all consume this.
+  repeated Evidence evidence = 6;
+
+  // Constitution version active at the time of this action. Receipts under
+  // a constitution v1.4.2 must remain interpretable even after the swarm
+  // amends to v1.5.0 — the version pin is what makes that possible.
+  string constitution_version = 7;
+
+  // Cost annotation. Optional but encouraged. PRD §13.2 cost-transparency.
+  yutha.common.v1.CostAnnotation cost = 8;
+
+  // When the action occurred.
+  yutha.common.v1.Timestamp occurred_at = 9;
+
+  // Whether this receipt is sealed in a Merkle batch. Set by the receipt
+  // store, not the producer. Sealed receipts have additional verifiable-tier
+  // properties; unsealed receipts are still valid.
+  SealStatus seal = 10;
+
+  // Forward-compatibility hatch.
+  yutha.common.v1.Extensions extensions = 200;
+
+  // Signatures. AT LEAST ONE signature is required: the actor's. Additional
+  // signatures (control-plane countersign, supervisor countersign,
+  // verifiable-backend attestation) appear here in well-defined order.
+  // See SignatureRole below.
+  repeated SignedBy signatures = 250;
+}
+
+// ---------------------------------------------------------------------------
+// Evidence
+// ---------------------------------------------------------------------------
+
+// Evidence is a typed key-value pair recording some input or output of the
+// action. Evidence is what the constitution evaluator's "decision evidence"
+// (constitution-language.md §13) records and what counterfactual replay
+// perturbs.
+//
+// Evidence values are bytes plus a type_url so receivers can deserialize.
+// Common evidence shapes are standardized in /spec/receipt/canonical-evidence.md
+// (forthcoming).
+message Evidence {
+  string key = 1;        // e.g. "envelope_hash", "input_payload_digest",
+                         // "decision", "rule_matched", "deny_reason".
+  string type_url = 2;   // e.g. "type.yutha.dev/v1/Hash", "type.yutha.dev/v1/Decision"
+  bytes value = 3;       // Serialized bytes of that type.
+  bool sensitive = 4;    // If true, evidence may be subject to selective-disclosure
+                         // in verifiable backends; observability redacts by default.
+}
+
+// ---------------------------------------------------------------------------
+// Signatures
+// ---------------------------------------------------------------------------
+
+enum SignatureRole {
+  SIGNATURE_ROLE_UNKNOWN = 0;
+  SIGNATURE_ROLE_ACTOR = 1;          // The agent that performed the action. Required.
+  SIGNATURE_ROLE_CONTROL_PLANE = 2;  // Countersign from the control plane that processed it.
+  SIGNATURE_ROLE_SUPERVISOR = 3;     // Countersign from a supervisor (for two-person-rule actions).
+  SIGNATURE_ROLE_ATTESTATION = 4;    // Verifiable-tier attestation from Nautilus or equivalent.
+  SIGNATURE_ROLE_BATCH_ROOT = 5;     // Merkle-batch root signature (when sealed).
+}
+
+message SignedBy {
+  SignatureRole role = 1;
+  yutha.common.v1.Signature signature = 2;
+  yutha.common.v1.Timestamp signed_at = 3;
+}
+
+// ---------------------------------------------------------------------------
+// Seal status
+// ---------------------------------------------------------------------------
+
+// SealStatus indicates whether a receipt has been included in a Merkle batch
+// for efficient verification at scale. UNSEALED is fully valid; SEALED adds
+// the ability to prove inclusion via a Merkle path without revealing the rest
+// of the batch (selective-disclosure substrate for verifiable tier).
+message SealStatus {
+  enum State {
+    SEAL_STATE_UNKNOWN = 0;
+    SEAL_STATE_UNSEALED = 1;
+    SEAL_STATE_SEALED = 2;
+  }
+  State state = 1;
+  yutha.common.v1.Hash batch_root = 2;     // When sealed, the Merkle root of the batch.
+  repeated yutha.common.v1.Hash merkle_path = 3; // Path from this receipt to batch_root.
+  yutha.common.v1.Timestamp sealed_at = 4;
+}
+
+// ---------------------------------------------------------------------------
+// Append + query operations (for the conformance-layer wire description)
+// ---------------------------------------------------------------------------
+
+// AppendRequest is what a client sends to add a receipt to the store.
+message AppendRequest {
+  Receipt receipt = 1;
+  // If true, the store synchronously waits for sealing into a batch before
+  // acknowledging. Default false (unsealed acknowledgement is sufficient
+  // and lower-latency).
+  bool wait_for_seal = 2;
+}
+
+message AppendResponse {
+  yutha.common.v1.Hash receipt_id = 1; // Content-address of the appended receipt.
+  SealStatus seal = 2;                 // Reflects current seal state.
+}
+
+// QueryRequest is the canonical lookup shape. Implementations support all
+// fields at Full conformance; Core requires only by_receipt_id.
+message QueryRequest {
+  oneof by {
+    yutha.common.v1.Hash by_receipt_id = 1;
+    PredecessorQuery by_predecessor = 2;       // "all receipts that depend on X"
+    AgentQuery by_agent = 3;                   // "all receipts where actor = X"
+    ActionKindQuery by_action_kind = 4;        // "all enforcement.evict receipts"
+    TimeRangeQuery by_time = 5;                // "between t1 and t2"
+  }
+  uint32 limit = 10;
+  bytes page_token = 11;
+}
+
+message PredecessorQuery {
+  yutha.common.v1.Hash predecessor = 1;
+}
+
+message AgentQuery {
+  yutha.common.v1.AgentId agent_id = 1;
+}
+
+message ActionKindQuery {
+  string action_kind = 1; // Exact match; wildcard support is a Full-tier extension.
+}
+
+message TimeRangeQuery {
+  yutha.common.v1.Timestamp from = 1;
+  yutha.common.v1.Timestamp to = 2;
+}
+
+message QueryResponse {
+  repeated Receipt receipts = 1;
+  bytes next_page_token = 2;
+}
+
+// ---------------------------------------------------------------------------
+// Bulk export (Full + Verifiable)
+// ---------------------------------------------------------------------------
+
+// ExportRequest is for bulk audit pulls. Full conformance ships an
+// implementation; Verifiable conformance additionally signs the manifest
+// such that an external auditor can reconstruct the receipt chain.
+message ExportRequest {
+  TimeRangeQuery range = 1;
+  repeated string action_kinds = 2; // Empty = all kinds.
+  bool include_unsealed = 3;
+}
+
+message ExportManifest {
+  repeated yutha.common.v1.Hash receipt_ids = 1;
+  yutha.common.v1.Hash manifest_root = 2;          // Merkle root of receipt_ids.
+  yutha.common.v1.Signature manifest_signature = 3; // Verifiable-tier countersign.
+  yutha.common.v1.Timestamp generated_at = 4;
+}

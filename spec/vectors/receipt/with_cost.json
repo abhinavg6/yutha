@@ -1,0 +1,29 @@
+{
+  "name": "with_cost",
+  "description": "Receipt with a full CostAnnotation. Exercises the optional nested message slot and every cost field (including the decimal-string usd_cents_estimate).",
+  "kind": "receipt",
+  "fields": {
+    "spec_version": "1.0.0",
+    "swarm_id_hex": "30313233343536373839c0c1c2c3c4c5",
+    "actor_hex": "4041424344454647484950d0d1d2d3d4",
+    "action_kind": "envelope.send",
+    "constitution_version": "1.0.0",
+    "occurred_at": {
+      "wall_clock": "2026-05-10T08:00:00Z",
+      "monotonic_ns": 5000000
+    },
+    "predecessors_hex": [],
+    "evidence": [],
+    "cost": {
+      "input_tokens": 1024,
+      "output_tokens": 512,
+      "tool_call_count": 3,
+      "wall_time_ms": 1250,
+      "usd_cents_estimate": "12.34",
+      "model_provider": "anthropic",
+      "model_name": "claude-opus-4-7",
+      "model_version": "20260501"
+    }
+  },
+  "expected_canonical_hex": "0a070a05312e302e3012120a1030313233343536373839c0c1c2c3c4c51a120a104041424344454647484950d0d1d2d3d4220d656e76656c6f70652e73656e642a003a05312e302e304238088008108004180320e2092a0531322e33343209616e7468726f7069633a0f636c617564652d6f7075732d342d37420832303236303530314a1b0a14323032362d30352d31305430383a30303a30305a10c096b102"
+}

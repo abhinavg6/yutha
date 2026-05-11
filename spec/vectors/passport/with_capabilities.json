@@ -1,0 +1,57 @@
+{
+  "name": "with_capabilities",
+  "description": "Passport with two capability declarations; one carries a non-empty bounds map. This is the load-bearing test for map<string,string> encoding — the bounds keys are listed in non-sorted insertion order in this JSON; both Rust (via BTreeMap) and Go (via Deterministic marshal options) must emit them lexicographically sorted on the wire.",
+  "kind": "passport",
+  "fields": {
+    "spec_version": "1.0.0",
+    "agent_id_hex": "20212223242526272829abacadaeafb0",
+    "swarm_id_hex": "30313233343536373839c0c1c2c3c4c5",
+    "agent_public_key": {
+      "algorithm": "ed25519",
+      "value_hex": "60606060606060606060606060606060606060606060606060606060606060f0"
+    },
+    "owner": "test-owner",
+    "framework": "langgraph",
+    "framework_version": "0.4.0",
+    "capabilities": [
+      {
+        "kind": "send_message",
+        "resource_tags": [
+          "external",
+          "high_risk"
+        ],
+        "bounds": {},
+        "description": "Outbound messaging on external channels."
+      },
+      {
+        "kind": "issue_refund",
+        "resource_tags": [
+          "finance"
+        ],
+        "bounds": {
+          "approval_window_seconds": "3600",
+          "count_max": "10",
+          "usd_max": "500.00"
+        },
+        "description": "Refund processing within bounded ceiling."
+      }
+    ],
+    "accepted_constitution_version": "1.2.3",
+    "tier": "standard",
+    "resources": {
+      "max_concurrent_actions": 0,
+      "max_messages_per_minute": 0,
+      "max_tool_calls_per_hour": 0,
+      "max_usd_per_day_cents": "",
+      "max_memory_bytes": 0
+    },
+    "issued_at": {
+      "wall_clock": "2026-05-10T08:00:00Z",
+      "monotonic_ns": 5000000
+    },
+    "expires_at": null,
+    "default_model_provider": "",
+    "default_model_name": ""
+  },
+  "expected_canonical_hex": "0a070a05312e302e3012120a1020212223242526272829abacadaeafb01a120a1030313233343536373839c0c1c2c3c4c522240801122060606060606060606060606060606060606060606060606060606060606060f02a0a746573742d6f776e657232096c616e6767726170683a05302e342e30424d0a0c73656e645f6d657373616765120865787465726e616c1209686967685f7269736b22284f7574626f756e64206d6573736167696e67206f6e2065787465726e616c206368616e6e656c732e4287010a0c69737375655f726566756e64120766696e616e63651a1f0a17617070726f76616c5f77696e646f775f7365636f6e64731204333630301a0f0a09636f756e745f6d6178120231301a110a077573645f6d617812063530302e30302229526566756e642070726f63657373696e672077697468696e20626f756e646564206365696c696e672e4a05312e322e3350025a00621b0a14323032362d30352d31305430383a30303a30305a10c096b102"
+}

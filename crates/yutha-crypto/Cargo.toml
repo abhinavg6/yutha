@@ -1,0 +1,25 @@
+[package]
+name = "yutha-crypto"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+authors.workspace = true
+description = "Cryptographic primitives for Yutha (Ed25519 sign/verify, SHA-256 hash, content-addressing)."
+readme = "README.md"
+
+[dependencies]
+yutha-core.workspace = true
+
+# Audited crypto baseline (per /spec/README.md §4 and ADR 0001).
+ed25519-dalek = { workspace = true, features = ["rand_core"] }
+sha2.workspace = true
+rand_core.workspace = true
+
+# Error handling.
+thiserror.workspace = true
+
+[dev-dependencies]
+proptest.workspace = true

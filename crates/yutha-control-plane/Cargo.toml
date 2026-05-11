@@ -1,0 +1,31 @@
+[package]
+name = "yutha-control-plane"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+authors.workspace = true
+description = "Yutha control-plane binary. Wires memory backends into a runnable swarm skeleton."
+readme = "README.md"
+
+[[bin]]
+name = "yutha"
+path = "src/main.rs"
+
+[dependencies]
+yutha-core.workspace = true
+yutha-crypto.workspace = true
+yutha-receipt.workspace = true
+yutha-passport.workspace = true
+yutha-capability.workspace = true
+yutha-transport.workspace = true
+yutha-registry.workspace = true
+
+tokio = { workspace = true, features = ["rt-multi-thread", "macros", "signal", "time", "sync"] }
+async-trait.workspace = true
+thiserror.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
+anyhow.workspace = true

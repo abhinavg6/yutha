@@ -1,0 +1,48 @@
+{
+  "name": "control_plane_with_supervisor_and_rate_limit",
+  "description": "Control-plane-issued capability (ControlPlaneIssuer variant of the oneof, exercises a nested message inside the oneof). Two caveats — SupervisorRequired and RateLimit — covering two more variants of the Caveat oneof so we hit four of six variants across the capability fixtures.",
+  "kind": "capability",
+  "fields": {
+    "spec_version": "1.0.0",
+    "capability_id_hex": "60616263646566676869f0f1f2f3f4f5",
+    "swarm_id_hex": "1112131415161718191a1b1c1d1e1f20",
+    "issuer": {
+      "kind": "control_plane",
+      "control_plane_key_fingerprint_hex": "cdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd",
+      "instance_id": "cp-prod-1"
+    },
+    "subject_hex": "70717273747576777879d0d1d2d3d4d5",
+    "scope": {
+      "permitted_actions": [
+        "agent.register",
+        "agent.revoke"
+      ],
+      "resource_tags": [],
+      "bounds": {},
+      "permitted_recipients": [],
+      "memory_scopes": []
+    },
+    "parent_hex": null,
+    "valid_from": {
+      "wall_clock": "2026-05-10T09:15:00Z",
+      "monotonic_ns": 7000000
+    },
+    "valid_until": {
+      "wall_clock": "2026-11-10T09:15:00Z",
+      "monotonic_ns": 15807007000
+    },
+    "caveats": [
+      {
+        "kind": "supervisor_required",
+        "supervisor_role": "production-approver"
+      },
+      {
+        "kind": "rate_limit",
+        "max_actions": 10,
+        "window_seconds": 60
+      }
+    ],
+    "revocation_endpoint": "https://revocation.yutha.test/cap"
+  },
+  "expected_canonical_hex": "0a070a05312e302e30121060616263646566676869f0f1f2f3f4f51a120a101112131415161718191a1b1c1d1e1f20222f1a2d0a20cdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd120963702d70726f642d312a120a1070717273747576777879d0d1d2d3d4d5321e0a0e6167656e742e72656769737465720a0c6167656e742e7265766f6b65421b0a14323032362d30352d31305430393a31353a30305a10c09fab034a1c0a14323032362d31312d31305430393a31353a30305a109892aff13a52171a150a1370726f64756374696f6e2d617070726f76657252062204080a103c5a2168747470733a2f2f7265766f636174696f6e2e79757468612e746573742f636170"
+}

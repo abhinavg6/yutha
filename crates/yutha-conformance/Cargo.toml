@@ -1,0 +1,36 @@
+[package]
+name = "yutha-conformance"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+authors.workspace = true
+description = "Conformance suite harness for Yutha. Backends register and run the same tests."
+readme = "README.md"
+
+[dependencies]
+yutha-core.workspace = true
+yutha-crypto.workspace = true
+yutha-receipt.workspace = true
+yutha-passport.workspace = true
+yutha-capability.workspace = true
+yutha-transport.workspace = true
+yutha-registry.workspace = true
+
+async-trait.workspace = true
+futures.workspace = true
+tokio.workspace = true
+thiserror.workspace = true
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
+
+[features]
+default = []
+# Run the conformance suite against the in-memory reference receipt store.
+# Used by the `conformance` job in CI.
+in-memory-receipt-suite = []
+# Run the behavioral scenarios (S1, S2, ...) against the in-memory stack.
+in-memory-scenarios = []

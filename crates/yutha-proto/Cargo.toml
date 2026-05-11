@@ -1,0 +1,19 @@
+[package]
+name = "yutha-proto"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+authors.workspace = true
+description = "Prost-generated Rust types from the Yutha protobuf specs. Single source of truth for wire-format encoding."
+readme = "README.md"
+
+[dependencies]
+prost.workspace = true
+
+[build-dependencies]
+prost-build.workspace = true
+# Bundled protoc binary so contributors don't need a system install.
+protoc-bin-vendored = "3.1"

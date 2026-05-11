@@ -1,0 +1,73 @@
+# Rust
+/target/
+**/target/
+**/*.rs.bk
+*.pdb
+# Cargo.lock IS committed at workspace root because we ship the
+# yutha-control-plane binary; locking dep versions matters for
+# reproducible builds. Library-only crates can decide otherwise locally.
+*.profraw
+*.profdata
+rust-project.json
+.rust-analyzer/
+flamegraph.svg
+
+# Cargo credentials (publish tokens etc.) — credentials.toml MUST NOT be
+# checked in. config.toml at workspace root is fine to commit.
+.cargo/credentials.toml
+.cargo/credentials
+
+# Go
+*.test
+*.out
+coverage.html
+coverage.txt
+vendor/
+
+# Python (for the forthcoming SDK)
+**/__pycache__/
+*.pyc
+*.pyo
+.venv/
+venv/
+.python-version
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Environment
+.env
+.env.local
+.envrc
+.direnv/
+
+# Editor
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# OS
+Thumbs.db
+
+# sqlx offline cache — we don't use compile-time-checked macros yet, and
+# this directory gets regenerated when we do.
+**/.sqlx/
+
+# Local Postgres scratch (docker-compose volumes, pg_dump output, etc.)
+pgdata/
+*.dump
+
+# Local-only
+/tmp/
+/scratch/
+/.scratch/
+
+# Build outputs
+/dist/
+/build/
+*.tar.gz
+*.zip

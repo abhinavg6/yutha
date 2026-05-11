@@ -1,0 +1,38 @@
+{
+  "name": "role_with_causal",
+  "description": "Role-addressed envelope (Recipient::Role). REQUEST_ACTION performative, two tags, two causal predecessors, in_reply_to set, expiry set. Exercises the string-variant of the recipient oneof plus the repeated-string tags field and the optional in_reply_to slot.",
+  "kind": "envelope",
+  "fields": {
+    "spec_version": "1.0.0",
+    "swarm_id_hex": "0a0b0c0d0e0f101112131415161718a9",
+    "envelope_id_hex": "31323334353637383940d1d2d3d4d5d6",
+    "from_agent_hex": "20212223242526272829abacadaeafb0",
+    "recipient": {
+      "kind": "role",
+      "role": "supervisor"
+    },
+    "performative": "request_action",
+    "payload_hex": "deadbeef",
+    "payload_schema_id": "type.yutha.dev/v1/RequestAction",
+    "tags": [
+      "pii",
+      "external"
+    ],
+    "predecessors_hex": [
+      "1111111111111111111111111111111111111111111111111111111111111111",
+      "2222222222222222222222222222222222222222222222222222222222222222"
+    ],
+    "nonce_hex": "fefefefefefefefefefefefefefefefe",
+    "epoch": 42,
+    "sent_at": {
+      "wall_clock": "2026-05-10T12:34:56Z",
+      "monotonic_ns": 987654321
+    },
+    "expires_at": {
+      "wall_clock": "2026-05-10T13:34:56Z",
+      "monotonic_ns": 991254321
+    },
+    "in_reply_to_hex": "3333333333333333333333333333333333333333333333333333333333333333"
+  },
+  "expected_canonical_hex": "0a070a05312e302e3012120a100a0b0c0d0e0f101112131415161718a91a1031323334353637383940d1d2d3d4d5d622120a1020212223242526272829abacadaeafb02a0c120a73757065727669736f7230093a04deadbeef421f747970652e79757468612e6465762f76312f52657175657374416374696f6e4a037069694a0865787465726e616c524c0a240801122011111111111111111111111111111111111111111111111111111111111111110a240801122022222222222222222222222222222222222222222222222222222222222222225a10fefefefefefefefefefefefefefefefe602a6a1c0a14323032362d30352d31305431323a33343a35365a10b1d1f9d603721c0a14323032362d30352d31305431333a33343a35365a10b1aed5d8037a24080112203333333333333333333333333333333333333333333333333333333333333333"
+}

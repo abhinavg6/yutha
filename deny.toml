@@ -1,0 +1,72 @@
+# cargo-deny configuration.
+# Per threat-model A7 (supply chain): pinned deps, security-reviewed,
+# license-compliant.
+
+[graph]
+all-features = true
+
+[advisories]
+db-path = "~/.cargo/advisory-db"
+db-urls = ["https://github.com/rustsec/advisory-db"]
+yanked = "deny"
+# Documented ignores. Each entry MUST include a reason explaining why the
+# advisory is not exploitable in our usage. Revisit on every dependency
+# bump and remove anything that no longer applies.
+ignore = [
+    # All three rustls-webpki 0.101.7 advisories arrive transitively via
+    # aws-smithy-http-client (the AWS SDK's HTTP layer is mid-migration to
+    # hyper 1.x / rustls 0.23.x, and currently pulls BOTH the modern stack
+    # and the legacy hyper 0.14.x / rustls 0.21.x / rustls-webpki 0.101.x
+    # stack for back-compat). We cannot resolve without dropping the AWS
+    # SDK. The vulnerabilities themselves are not reachable in our usage —
+    # see per-advisory reasoning below. Re-evaluate on every aws-sdk-s3
+    # bump and remove these once the legacy chain is gone.
+    { id = "RUSTSEC-2026-0098", reason = "URI name constraints — rustls-webpki does not expose URI-name assertion APIs and we do not use them in our S3 client paths." },
+    { id = "RUSTSEC-2026-0099", reason = "Wildcard + DNS name-constraint interaction — we do not author name-constrained certificates; S3 endpoints use standard *.s3.amazonaws.com wildcard certs without name-constraint subtrees." },
+    { id = "RUSTSEC-2026-0104", reason = "CRL parsing panic — we do not parse certificate revocation lists in any code path." },
+]
+
+[licenses]
+# Allowed licenses for dependencies. Apache-2.0 is the project license; we
+# accept compatible permissive licenses.
+allow = [
+    "Apache-2.0",
+    "MIT",
+    "BSD-2-Clause",
+    "BSD-3-Clause",
+    "ISC",
+    "Unicode-3.0",
+    "Zlib",
+    "CC0-1.0",
+    # CDLA-Permissive-2.0: Linux Foundation's permissive data license. Used
+    # by the `webpki-roots` crate (which packages Mozilla's CA root cert
+    # data). It's a permissive license without copyleft; safe for Apache-2.0
+    # downstream distribution.
+    "CDLA-Permissive-2.0",
+]
+# Removed since not present in current dep graph (cargo-deny warns on
+# unmatched allowances; cleaner to keep tight):
+#   - Unicode-DFS-2016
+#   - MPL-2.0
+# Re-add either if a future dep brings them back.
+confidence-threshold = 0.93
+
+[[licenses.exceptions]]
+name = "ring"
+allow = ["ISC", "MIT", "OpenSSL"]
+
+[bans]
+multiple-versions = "warn"
+wildcards = "deny"
+deny = [
+    # OpenSSL — we use rustls (per ADR 0001 crypto baseline).
+    { name = "openssl" },
+    { name = "openssl-sys" },
+    # Sole-maintainer micro-packages we don't want in critical paths
+    # (per threat-model A7 mitigations). Add as discovered.
+]
+
+[sources]
+unknown-registry = "deny"
+unknown-git = "deny"
+allow-registry = ["https://github.com/rust-lang/crates.io-index"]

@@ -1,0 +1,21 @@
+[package]
+name = "yutha-backend-s3-blob"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+authors.workspace = true
+description = "S3-compatible blob backend for large receipt payloads and exports."
+readme = "README.md"
+
+[dependencies]
+yutha-core.workspace = true
+
+aws-config.workspace = true
+aws-sdk-s3.workspace = true
+async-trait.workspace = true
+tokio.workspace = true
+thiserror.workspace = true
+tracing.workspace = true

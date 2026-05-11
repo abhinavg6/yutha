@@ -1,0 +1,4 @@
+# Nothing local-only here today. Generated protoc-gen-go output under gen/
+# is committed deliberately — contributors should be able to `make test`
+# without running `make regen`. Re-add patterns here if that policy changes.
+.DS_Store

@@ -1,0 +1,240 @@
+// Yutha Topology spec — closed/open/hybrid swarm-mode declaration and admission policy.
+//
+// Spec version: v1.0 draft
+// Status: open for RFC review (RFC 0006)
+// Owners: Workstream A (Specs), with Workstream B (registry)
+//
+// Depends on: /spec/common.proto, /spec/capability/capability-v1.proto
+// See: /spec/topology/rationale.md
+
+syntax = "proto3";
+
+package yutha.topology.v1;
+
+import "common.proto";
+import "capability/capability-v1.proto";
+
+// ---------------------------------------------------------------------------
+// Topology
+// ---------------------------------------------------------------------------
+
+// Topology declares the participation mode and admission policy for a swarm.
+// It is set at swarm creation and is IMMUTABLE for the swarm's lifetime —
+// changing topology requires creating a new swarm and migrating, not amending
+// in place. This restriction is intentional: the topology shapes capability
+// defaults, registration costs, and constitution amendment quorums; allowing
+// in-place mutation would create privilege-escalation paths.
+message Topology {
+  // Spec version.
+  yutha.common.v1.Version spec_version = 1;
+
+  // Swarm this topology applies to.
+  yutha.common.v1.SwarmId swarm_id = 2;
+
+  // Participation mode.
+  TopologyMode mode = 3;
+
+  // Admission policy. Exactly one variant must match `mode`.
+  AdmissionPolicy admission = 4;
+
+  // Default capability lifetime ceiling for this swarm. Capabilities issued
+  // with valid_until beyond this are clamped at issue time. Topology can
+  // tighten the default; cannot loosen.
+  uint64 max_capability_lifetime_seconds = 5;
+
+  // Maximum capability attenuation chain depth.
+  uint32 max_capability_chain_depth = 6;
+
+  // Default envelope TTL when sender omits expires_at.
+  uint64 default_envelope_ttl_seconds = 7;
+
+  // Replay protection window (epoch tolerance).
+  uint32 max_epoch_skew = 8;
+
+  // Whether agents may send to ExternalEndpoint recipients (subject still
+  // requires capability check). Set false for tightly-isolated swarms.
+  bool external_sends_permitted = 9;
+
+  // Genesis constitution version.
+  string initial_constitution_version = 10;
+
+  // Operator-key fingerprint — the trust root for this swarm.
+  bytes operator_key_fingerprint = 11;
+
+  // Forward-compatibility hatch.
+  yutha.common.v1.Extensions extensions = 200;
+
+  // Operator's signature over canonical_serialization with this signature
+  // cleared.
+  yutha.common.v1.Signature operator_signature = 250;
+}
+
+// ---------------------------------------------------------------------------
+// Mode
+// ---------------------------------------------------------------------------
+
+enum TopologyMode {
+  TOPOLOGY_MODE_UNKNOWN = 0;
+  TOPOLOGY_MODE_CLOSED = 1;  // Allowlist-based; trusted-only.
+  TOPOLOGY_MODE_OPEN = 2;    // Anyone meeting criteria; sybil-resistant.
+  TOPOLOGY_MODE_HYBRID = 3;  // Trusted core + open periphery.
+}
+
+// ---------------------------------------------------------------------------
+// Admission policy
+// ---------------------------------------------------------------------------
+
+message AdmissionPolicy {
+  oneof variant {
+    ClosedPolicy closed = 1;
+    OpenPolicy open = 2;
+    HybridPolicy hybrid = 3;
+  }
+}
+
+// ClosedPolicy — explicit allowlist of agent IDs or operator-key fingerprints
+// permitted to register. New entries require an operator signature on an
+// allowlist-update receipt.
+message ClosedPolicy {
+  // Allowed AgentIds. Registration of any other AgentId is rejected.
+  repeated yutha.common.v1.AgentId allowlisted_agents = 1;
+
+  // Allowed owner-key fingerprints (the human/org operator behind agents).
+  // An agent registered under any of these fingerprints is admitted.
+  // Useful when an operator wants to authorize a class of agents (e.g.
+  // all of org X's customer-support agents) without enumerating every
+  // AgentId in advance.
+  repeated bytes allowlisted_owner_key_fingerprints = 2;
+
+  // Whether unknown AgentIds are PENDING_REVIEW (operator can manually
+  // approve via a registration receipt) or REJECTED outright.
+  bool pending_review_on_unknown = 3;
+}
+
+// OpenPolicy — registration is open to anyone meeting the sybil-resistance
+// criteria. The criteria are a one-of: pick exactly one cost mechanism, or
+// require attestation, or require third-party identity, or any combination
+// (combinations are AND).
+message OpenPolicy {
+  // Sybil-resistance requirements. ALL listed requirements must be met.
+  repeated SybilResistanceRequirement requirements = 1;
+
+  // Required minimum passport tier for registration. Defined in this same
+  // file (see PassportTierRequirement below) to keep the topology spec
+  // independently parseable.
+  PassportTierRequirement min_passport_tier = 2;
+
+  // Maximum passport lifetime allowed in this swarm. Open swarms typically
+  // tighten this from the default to limit re-registration freerides.
+  uint64 max_passport_lifetime_seconds = 3;
+
+  // Default capability scope ceiling for newly-registered open agents.
+  // Newly admitted agents get capabilities at most this scope; growth
+  // beyond this is gated by reputation, supervisor approval, or operator
+  // grant.
+  yutha.capability.v1.Scope default_initial_scope = 4;
+}
+
+// HybridPolicy — a closed core plus an open periphery. Core agents are on
+// an allowlist; periphery agents register under the open policy and receive
+// reduced capabilities.
+message HybridPolicy {
+  ClosedPolicy core = 1;
+  OpenPolicy periphery = 2;
+
+  // Periphery agents get capabilities at most this scope; their default is
+  // OpenPolicy.default_initial_scope intersected with this constraint.
+  yutha.capability.v1.Scope periphery_capability_constraint = 3;
+
+  // Whether periphery agents may delegate (attenuate) capabilities to other
+  // periphery agents. Default false (periphery is leaf-only).
+  bool periphery_may_delegate = 4;
+}
+
+// ---------------------------------------------------------------------------
+// Sybil resistance
+// ---------------------------------------------------------------------------
+
+message SybilResistanceRequirement {
+  oneof kind {
+    ProofOfWorkRequirement proof_of_work = 1;
+    HardwareAttestationRequirement hardware_attestation = 2;
+    IdpAttestationRequirement idp_attestation = 3;
+    StakeRequirement stake = 4;
+    InviteRequirement invite = 5;
+  }
+}
+
+// Proof-of-work — registrant computes a hash collision against a difficulty
+// parameter. Cheap to verify, expensive to produce; standard sybil defense.
+message ProofOfWorkRequirement {
+  // Number of leading zero bits required in SHA-256(challenge || nonce).
+  // Difficulty 22 is a few seconds of CPU; 26 is roughly a minute.
+  uint32 difficulty_bits = 1;
+  // Challenge prefix the registrant prepends. Includes the swarm_id and a
+  // random nonce from the registry to prevent precomputation.
+  bytes challenge_prefix = 2;
+}
+
+// Hardware attestation — registrant supplies a remote-attestation report
+// from a TEE (Nautilus, SGX, SEV, TPM-backed). Strong sybil defense; not
+// universally available.
+message HardwareAttestationRequirement {
+  enum AttestationKind {
+    ATTESTATION_KIND_UNKNOWN = 0;
+    ATTESTATION_KIND_NAUTILUS = 1;
+    ATTESTATION_KIND_INTEL_SGX = 2;
+    ATTESTATION_KIND_AMD_SEV = 3;
+    ATTESTATION_KIND_TPM = 4;
+  }
+  repeated AttestationKind accepted_kinds = 1;
+}
+
+// IdP attestation — registrant proves identity via an external identity
+// provider (OIDC, SPIFFE, DID). Useful when admission is "any agent operated
+// by a known organization."
+message IdpAttestationRequirement {
+  // Accepted IdP identifiers. Registrant supplies an attestation from any
+  // listed IdP.
+  repeated string accepted_issuers = 1;
+  // Accepted attestation formats (e.g. "oidc", "spiffe", "did").
+  repeated string accepted_formats = 2;
+}
+
+// Stake — registrant locks resource (financial, reputation, hardware)
+// recoverable on good behavior. Strongest sybil defense; carries policy
+// implications and is opt-in per deployment.
+message StakeRequirement {
+  string stake_resource = 1;        // e.g. "usd", "reputation_points", "compute_seconds"
+  string min_stake_amount = 2;      // Decimal string.
+  string slashing_endpoint = 3;     // Endpoint that processes slashing on misbehavior.
+}
+
+// Invite — registrant supplies a one-shot invite token signed by an existing
+// member. Useful for invite-only public swarms (research consortia,
+// bootstrapped coalitions).
+message InviteRequirement {
+  // Valid issuers (existing members) whose invites are accepted. Empty =
+  // any existing member may invite.
+  repeated yutha.common.v1.AgentId permitted_inviters = 1;
+  // Maximum invites per inviter per window.
+  uint32 max_invites_per_inviter = 2;
+  uint64 invite_window_seconds = 3;
+}
+
+// ---------------------------------------------------------------------------
+// Passport tier requirement
+// ---------------------------------------------------------------------------
+
+// Imported here to avoid a cycle in the spec graph; reproduces the enum.
+// (In implementation, this would be `import passport-v1.proto`. Kept inline
+//  here so the topology spec is independently parseable for review.)
+message PassportTierRequirement {
+  enum Required {
+    PASSPORT_TIER_REQUIREMENT_UNKNOWN = 0;
+    PASSPORT_TIER_REQUIREMENT_MINIMAL = 1;
+    PASSPORT_TIER_REQUIREMENT_STANDARD = 2;
+    PASSPORT_TIER_REQUIREMENT_VERIFIABLE = 3;
+  }
+  Required required = 1;
+}

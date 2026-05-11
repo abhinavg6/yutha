@@ -1,0 +1,38 @@
+{
+  "name": "with_expiry_and_resources",
+  "description": "Verifiable-tier passport with all the optional fields populated: full resource declaration, expires_at set, framework + model attribution filled. Exercises the Verifiable enum value (proto wire tag 3) and the optional expires_at slot.",
+  "kind": "passport",
+  "fields": {
+    "spec_version": "1.0.0",
+    "agent_id_hex": "70717273747576777879d0d1d2d3d4d5",
+    "swarm_id_hex": "80818283848586878889e0e1e2e3e4e5",
+    "agent_public_key": {
+      "algorithm": "ed25519",
+      "value_hex": "9090909090909090909090909090909090909090909090909090909090909090"
+    },
+    "owner": "acme-corp/agents",
+    "framework": "autogen",
+    "framework_version": "0.2.18",
+    "capabilities": [],
+    "accepted_constitution_version": "1.0.0",
+    "tier": "verifiable",
+    "resources": {
+      "max_concurrent_actions": 8,
+      "max_messages_per_minute": 120,
+      "max_tool_calls_per_hour": 600,
+      "max_usd_per_day_cents": "100.00",
+      "max_memory_bytes": 16777216
+    },
+    "issued_at": {
+      "wall_clock": "2026-05-10T00:00:00Z",
+      "monotonic_ns": 10000
+    },
+    "expires_at": {
+      "wall_clock": "2026-06-10T00:00:00Z",
+      "monotonic_ns": 2592010000
+    },
+    "default_model_provider": "anthropic",
+    "default_model_name": "claude-opus-4-7"
+  },
+  "expected_canonical_hex": "0a070a05312e302e3012120a1070717273747576777879d0d1d2d3d4d51a120a1080818283848586878889e0e1e2e3e4e522240801122090909090909090909090909090909090909090909090909090909090909090902a1061636d652d636f72702f6167656e747332076175746f67656e3a06302e322e31384a05312e302e3050035a140808107818d80422063130302e3030288080800862190a14323032362d30352d31305430303a30303a30305a10904e6a1c0a14323032362d30362d31305430303a30303a30305a1090defbd3097209616e7468726f7069637a0f636c617564652d6f7075732d342d37"
+}

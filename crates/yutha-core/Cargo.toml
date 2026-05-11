@@ -1,0 +1,31 @@
+[package]
+name = "yutha-core"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+authors.workspace = true
+description = "Shared types for Yutha (identifiers, hashes, signatures, timestamps, causal references)."
+readme = "README.md"
+
+[dependencies]
+serde = { workspace = true, optional = true }
+thiserror.workspace = true
+time = { workspace = true, features = ["formatting", "parsing", "macros"] }
+uuid = { workspace = true, features = ["v7", "serde"] }
+prost = { workspace = true, optional = true }
+yutha-proto.workspace = true
+
+[features]
+default = ["serde"]
+# Enable Serde derives on shared types. Default-on; downstream code that wants
+# tighter dep graphs can opt out.
+serde = ["dep:serde", "uuid/serde"]
+# Enable prost-generated proto bindings under `yutha_core::proto`. Off by
+# default until the proto build pipeline is wired in.
+proto = ["dep:prost"]
+
+[dev-dependencies]
+serde_json.workspace = true

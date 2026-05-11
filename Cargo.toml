@@ -1,0 +1,103 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/yutha-proto",
+    "crates/yutha-core",
+    "crates/yutha-crypto",
+    "crates/yutha-receipt",
+    "crates/yutha-conformance",
+    "crates/yutha-passport",
+    "crates/yutha-capability",
+    "crates/yutha-transport",
+    "crates/yutha-registry",
+    "crates/yutha-control-plane",
+    "backends/postgres-receipt",
+    "backends/s3-blob",
+    "backends/walrus-receipt",
+]
+
+# Crates not yet started (Workstream B + later) are intentionally absent.
+# They will be added as their work begins.
+
+[workspace.package]
+version = "0.1.0-alpha.1"
+edition = "2021"
+rust-version = "1.75"
+license = "Apache-2.0"
+repository = "https://github.com/yutha/yutha"
+homepage = "https://yutha.dev"
+authors = ["The Yutha Authors"]
+
+[workspace.dependencies]
+# Internal crates — pinned by path during workspace dev.
+yutha-proto = { path = "crates/yutha-proto", version = "0.1.0-alpha.1" }
+yutha-core = { path = "crates/yutha-core", version = "0.1.0-alpha.1" }
+yutha-crypto = { path = "crates/yutha-crypto", version = "0.1.0-alpha.1" }
+yutha-receipt = { path = "crates/yutha-receipt", version = "0.1.0-alpha.1" }
+yutha-conformance = { path = "crates/yutha-conformance", version = "0.1.0-alpha.1" }
+yutha-passport = { path = "crates/yutha-passport", version = "0.1.0-alpha.1" }
+yutha-capability = { path = "crates/yutha-capability", version = "0.1.0-alpha.1" }
+yutha-transport = { path = "crates/yutha-transport", version = "0.1.0-alpha.1" }
+yutha-registry = { path = "crates/yutha-registry", version = "0.1.0-alpha.1" }
+
+# Async runtime.
+tokio = { version = "1.37", features = ["rt-multi-thread", "macros", "sync", "time"] }
+async-trait = "0.1"
+futures = "0.3"
+
+# Crypto baseline (per /spec/README.md §4 and ADR 0001).
+ring = "0.17"
+ed25519-dalek = { version = "2.1", features = ["rand_core"] }
+sha2 = "0.10"
+rand_core = { version = "0.6", features = ["std"] }
+
+# Serialization.
+prost = "0.12"
+prost-types = "0.12"
+prost-build = "0.12"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+
+# Error handling.
+thiserror = "1.0"
+anyhow = "1.0"
+
+# Identifiers.
+uuid = { version = "1.8", features = ["v7"] }
+
+# Time.
+time = { version = "0.3", features = ["formatting", "parsing", "macros"] }
+
+# Logging.
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+# Storage backends (used by /backends crates).
+#
+# sqlx 0.8 split runtime and TLS into separate features. The combo here is
+# `runtime-tokio` + `tls-rustls-aws-lc-rs` (matches aws-lc-rs already pulled
+# in by aws-sdk-s3 — no additional crypto backend). Bumped from 0.7.x to
+# 0.8.x to resolve RUSTSEC-2024-0363 (binary-protocol smuggling) and to
+# drop unmaintained transitives (paste, rustls-pemfile) plus pull modern
+# rustls/webpki past the 2026 webpki advisories.
+sqlx = { version = "0.8", features = ["runtime-tokio", "tls-rustls-aws-lc-rs", "postgres", "uuid", "time"] }
+aws-sdk-s3 = "1.30"
+aws-config = "1.4"
+
+# Test deps.
+proptest = "1.4"
+tokio-test = "0.4"
+
+[profile.release]
+opt-level = 3
+lto = "thin"
+codegen-units = 1
+panic = "abort"
+strip = "symbols"
+
+[profile.dev]
+opt-level = 0
+debug = true
+
+# Compile-time-checked SQL queries from sqlx need offline mode to work in CI without a live DB.
+# See backends/postgres-receipt/.sqlx for the cached query metadata.

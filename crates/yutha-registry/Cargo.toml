@@ -1,0 +1,31 @@
+[package]
+name = "yutha-registry"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+authors.workspace = true
+description = "Membership controller for Yutha. Topology declaration + admission policy; consumes passport + capability stores."
+readme = "README.md"
+
+[dependencies]
+yutha-core.workspace = true
+yutha-crypto.workspace = true
+yutha-receipt.workspace = true
+yutha-passport.workspace = true
+yutha-capability.workspace = true
+
+async-trait.workspace = true
+tokio = { workspace = true, features = ["sync"] }
+thiserror.workspace = true
+tracing.workspace = true
+serde = { workspace = true, optional = true }
+
+[features]
+default = ["serde"]
+serde = ["dep:serde", "yutha-core/serde"]
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }

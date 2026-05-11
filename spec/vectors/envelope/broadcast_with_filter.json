@@ -1,0 +1,32 @@
+{
+  "name": "broadcast_with_filter",
+  "description": "Swarm broadcast (Recipient::Swarm) with a tag filter. COMMIT performative, empty payload, no tags or causal predecessors. Exercises the nested-message variant of the recipient oneof, including the repeated filter_tags inside SwarmBroadcast.",
+  "kind": "envelope",
+  "fields": {
+    "spec_version": "1.0.0",
+    "swarm_id_hex": "50515253545556575859e0e1e2e3e4e5",
+    "envelope_id_hex": "61626364656667686970f1f2f3f4f5f6",
+    "from_agent_hex": "60616263646566676869f0f1f2f3f4f5",
+    "recipient": {
+      "kind": "swarm",
+      "filter_tags": [
+        "billing",
+        "high_priority"
+      ]
+    },
+    "performative": "commit",
+    "payload_hex": "",
+    "payload_schema_id": "type.yutha.dev/v1/Commit",
+    "tags": [],
+    "predecessors_hex": [],
+    "nonce_hex": "abcdef0123456789abcdef0123456789",
+    "epoch": 100,
+    "sent_at": {
+      "wall_clock": "2026-05-10T09:15:00Z",
+      "monotonic_ns": 7000000
+    },
+    "expires_at": null,
+    "in_reply_to_hex": null
+  },
+  "expected_canonical_hex": "0a070a05312e302e3012120a1050515253545556575859e0e1e2e3e4e51a1061626364656667686970f1f2f3f4f5f622120a1060616263646566676869f0f1f2f3f4f52a1a1a180a0762696c6c696e670a0d686967685f7072696f7269747930034218747970652e79757468612e6465762f76312f436f6d6d697452005a10abcdef0123456789abcdef012345678960646a1b0a14323032362d30352d31305430393a31353a30305a10c09fab03"
+}

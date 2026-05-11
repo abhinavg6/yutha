@@ -1,0 +1,29 @@
+{
+  "name": "minimal_unicast",
+  "description": "Unicast envelope (Recipient::Agent). INFORM performative, simple text payload, no tags, no causal predecessors, no expiry, no in_reply_to. Baseline for the Envelope wire shape.",
+  "kind": "envelope",
+  "fields": {
+    "spec_version": "1.0.0",
+    "swarm_id_hex": "0102030405060708090a0b0c0d0e0f10",
+    "envelope_id_hex": "20212223242526272829abacadaeafb0",
+    "from_agent_hex": "1112131415161718191a1b1c1d1e1f20",
+    "recipient": {
+      "kind": "agent",
+      "agent_hex": "30313233343536373839c0c1c2c3c4c5"
+    },
+    "performative": "inform",
+    "payload_hex": "68656c6c6f",
+    "payload_schema_id": "type.yutha.dev/v1/Text",
+    "tags": [],
+    "predecessors_hex": [],
+    "nonce_hex": "01010101010101010101010101010101",
+    "epoch": 1,
+    "sent_at": {
+      "wall_clock": "2026-05-10T00:00:00Z",
+      "monotonic_ns": 1000
+    },
+    "expires_at": null,
+    "in_reply_to_hex": null
+  },
+  "expected_canonical_hex": "0a070a05312e302e3012120a100102030405060708090a0b0c0d0e0f101a1020212223242526272829abacadaeafb022120a101112131415161718191a1b1c1d1e1f202a140a120a1030313233343536373839c0c1c2c3c4c530073a0568656c6c6f4216747970652e79757468612e6465762f76312f5465787452005a100101010101010101010101010101010160016a190a14323032362d30352d31305430303a30303a30305a10e807"
+}

@@ -1,0 +1,33 @@
+{
+  "name": "with_evidence",
+  "description": "Receipt carrying two evidence entries — one non-sensitive, one sensitive. Exercises the repeated Evidence field encoding and the boolean sensitive flag.",
+  "kind": "receipt",
+  "fields": {
+    "spec_version": "1.0.0",
+    "swarm_id_hex": "0a0b0c0d0e0f101112131415161718a9",
+    "actor_hex": "20212223242526272829abacadaeafb0",
+    "action_kind": "capability.check.pass",
+    "constitution_version": "1.0.0",
+    "occurred_at": {
+      "wall_clock": "2026-05-10T12:34:56Z",
+      "monotonic_ns": 987654321
+    },
+    "predecessors_hex": [],
+    "evidence": [
+      {
+        "key": "envelope_hash",
+        "type_url": "type.yutha.dev/v1/Hash",
+        "value_hex": "abababababababababababababababababababababababababababababababab",
+        "sensitive": false
+      },
+      {
+        "key": "rule_matched",
+        "type_url": "type.yutha.dev/v1/Decision",
+        "value_hex": "deadbeef",
+        "sensitive": true
+      }
+    ],
+    "cost": null
+  },
+  "expected_canonical_hex": "0a070a05312e302e3012120a100a0b0c0d0e0f101112131415161718a91a120a1020212223242526272829abacadaeafb022156361706162696c6974792e636865636b2e706173732a0032490a0d656e76656c6f70655f686173681216747970652e79757468612e6465762f76312f486173681a20abababababababababababababababababababababababababababababababab32320a0c72756c655f6d617463686564121a747970652e79757468612e6465762f76312f4465636973696f6e1a04deadbeef20013a05312e302e304a1c0a14323032362d30352d31305431323a33343a35365a10b1d1f9d603"
+}

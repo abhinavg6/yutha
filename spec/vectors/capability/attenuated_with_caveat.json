@@ -1,0 +1,52 @@
+{
+  "name": "attenuated_with_caveat",
+  "description": "Capability attenuated from a parent. Agent issuer (AgentId variant of the oneof), scope with a bounds map (multiple keys in non-sorted insertion order), one NeverIfTagged caveat (the most common attenuation pattern). Exercises the parent slot, the scope's bounds map, and a caveat oneof.",
+  "kind": "capability",
+  "fields": {
+    "spec_version": "1.0.0",
+    "capability_id_hex": "20212223242526272829abacadaeafb0",
+    "swarm_id_hex": "1112131415161718191a1b1c1d1e1f20",
+    "issuer": {
+      "kind": "agent",
+      "agent_hex": "40414243444546474849d0d1d2d3d4d5"
+    },
+    "subject_hex": "50515253545556575859e0e1e2e3e4e5",
+    "scope": {
+      "permitted_actions": [
+        "issue_refund"
+      ],
+      "resource_tags": [
+        "finance"
+      ],
+      "bounds": {
+        "approval_window_seconds": "3600",
+        "count_max": "10",
+        "usd_max": "500.00"
+      },
+      "permitted_recipients": [
+        "billing"
+      ],
+      "memory_scopes": []
+    },
+    "parent_hex": "1111111111111111111111111111111111111111111111111111111111111111",
+    "valid_from": {
+      "wall_clock": "2026-05-10T08:00:00Z",
+      "monotonic_ns": 5000000
+    },
+    "valid_until": {
+      "wall_clock": "2026-06-10T08:00:00Z",
+      "monotonic_ns": 2597405000
+    },
+    "caveats": [
+      {
+        "kind": "never_if_tagged",
+        "forbidden_tags": [
+          "external",
+          "draft"
+        ]
+      }
+    ],
+    "revocation_endpoint": ""
+  },
+  "expected_canonical_hex": "0a070a05312e302e30121020212223242526272829abacadaeafb01a120a101112131415161718191a1b1c1d1e1f2022140a120a1040414243444546474849d0d1d2d3d4d52a120a1050515253545556575859e0e1e2e3e4e532650a0c69737375655f726566756e64120766696e616e63651a1f0a17617070726f76616c5f77696e646f775f7365636f6e64731204333630301a0f0a09636f756e745f6d6178120231301a110a077573645f6d617812063530302e3030220762696c6c696e673a24080112201111111111111111111111111111111111111111111111111111111111111111421b0a14323032362d30352d31305430383a30303a30305a10c096b1024a1c0a14323032362d30362d31305430383a30303a30305a10c882c5d609521332110a0865787465726e616c0a056472616674"
+}

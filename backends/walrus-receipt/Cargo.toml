@@ -1,0 +1,21 @@
+[package]
+name = "yutha-backend-walrus-receipt"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+authors.workspace = true
+description = "Walrus + Seal + Nautilus reference implementation of the verifiable-tier ReceiptStore."
+readme = "README.md"
+
+[dependencies]
+yutha-core.workspace = true
+yutha-crypto.workspace = true
+yutha-receipt.workspace = true
+
+async-trait.workspace = true
+tokio.workspace = true
+thiserror.workspace = true
+tracing.workspace = true
