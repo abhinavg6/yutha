@@ -119,13 +119,11 @@ fn parse_recipient(name: &str, r: &RecipientFields) -> Recipient {
         RecipientFields::Swarm { filter_tags } => Recipient::Swarm(SwarmBroadcast {
             filter_tags: filter_tags.clone(),
         }),
-        RecipientFields::External(e) => {
-            Recipient::External(yutha_transport::ExternalEndpoint {
-                scheme: e.scheme.clone(),
-                authority: e.authority.clone(),
-                path_hint: e.path_hint.clone(),
-            })
-        }
+        RecipientFields::External(e) => Recipient::External(yutha_transport::ExternalEndpoint {
+            scheme: e.scheme.clone(),
+            authority: e.authority.clone(),
+            path_hint: e.path_hint.clone(),
+        }),
     }
 }
 

@@ -160,7 +160,9 @@ fn build_receipt(name: &str, f: &ReceiptFields) -> Receipt {
         });
     }
 
-    builder.build().unwrap_or_else(|e| panic!("[{name}] build: {e}"))
+    builder
+        .build()
+        .unwrap_or_else(|e| panic!("[{name}] build: {e}"))
 }
 
 // -----------------------------------------------------------------------------

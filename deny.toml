@@ -2,8 +2,12 @@
 # Per threat-model A7 (supply chain): pinned deps, security-reviewed,
 # license-compliant.
 
-[graph]
-all-features = true
+# [graph] all-features = true was here previously. It was removed because
+# krates 0.16.x (used by cargo-deny) panics when --all-features is enabled
+# against the AWS SDK's legacy-rustls dep mix. Our actual feature surface
+# is narrow (mostly serde derives), so the default-feature graph already
+# captures the security-relevant transitive deps. Re-add and bump cargo-
+# deny when krates >= 0.17.x stabilizes upstream.
 
 [advisories]
 db-path = "~/.cargo/advisory-db"
@@ -12,6 +16,9 @@ yanked = "deny"
 # Documented ignores. Each entry MUST include a reason explaining why the
 # advisory is not exploitable in our usage. Revisit on every dependency
 # bump and remove anything that no longer applies.
+#
+# A subset of these is mirrored in .cargo/audit.toml because cargo-audit
+# uses its own config file. Keep the two in sync.
 ignore = [
     # All three rustls-webpki 0.101.7 advisories arrive transitively via
     # aws-smithy-http-client (the AWS SDK's HTTP layer is mid-migration to
@@ -24,6 +31,13 @@ ignore = [
     { id = "RUSTSEC-2026-0098", reason = "URI name constraints — rustls-webpki does not expose URI-name assertion APIs and we do not use them in our S3 client paths." },
     { id = "RUSTSEC-2026-0099", reason = "Wildcard + DNS name-constraint interaction — we do not author name-constrained certificates; S3 endpoints use standard *.s3.amazonaws.com wildcard certs without name-constraint subtrees." },
     { id = "RUSTSEC-2026-0104", reason = "CRL parsing panic — we do not parse certificate revocation lists in any code path." },
+    # Note: rsa (RUSTSEC-2023-0071) and lru (RUSTSEC-2026-0002) only appear
+    # in the *all-features* dep graph (rsa via sqlx-mysql, lru via aws-sdk
+    # internals). Since we dropped `[graph] all-features = true` above,
+    # cargo-deny no longer sees them, so listing them here triggers
+    # "advisory-not-detected" warnings. They remain in `.cargo/audit.toml`
+    # because cargo-audit reads the raw Cargo.lock without feature filtering.
+    # If we ever re-enable all-features on the deny graph, add them back here.
 ]
 
 [licenses]
@@ -56,7 +70,20 @@ name = "ring"
 allow = ["ISC", "MIT", "OpenSSL"]
 
 [bans]
-multiple-versions = "warn"
+# multiple-versions: set to "allow" while the AWS SDK is mid-migration
+# from the legacy hyper 0.14 / rustls 0.21 stack to the modern hyper 1.x /
+# rustls 0.23 stack — that single transition is responsible for ~30
+# duplicate-version warnings (hyper, rustls, rustls-webpki, tokio-rustls,
+# h2, http, http-body, hyper-rustls, and every transitive crate they
+# touch). A second cluster comes from ecosystem-wide major-version
+# churn in the digest/sha2 family and rand. None are our doing and none
+# are actionable today; the warnings drown out signal that would actually
+# matter (e.g., a duplicate we accidentally introduced ourselves).
+#
+# Re-enable as "warn" or "deny" once:
+#   - aws-sdk-s3 has finished migrating off hyper 0.14 + rustls 0.21
+#   - the digest 0.10/0.11 split has settled across our transitive graph
+multiple-versions = "allow"
 wildcards = "deny"
 deny = [
     # OpenSSL — we use rustls (per ADR 0001 crypto baseline).

@@ -37,9 +37,7 @@ pub type StoreFactory =
 /// provide a reloader for their conformance claim to cover the Core
 /// "sequential append durable across process restart" requirement.
 pub type StoreReloader = Box<
-    dyn Fn(
-            Arc<dyn ReceiptStore>,
-        ) -> futures::future::BoxFuture<'static, Arc<dyn ReceiptStore>>
+    dyn Fn(Arc<dyn ReceiptStore>) -> futures::future::BoxFuture<'static, Arc<dyn ReceiptStore>>
         + Send
         + Sync,
 >;
@@ -81,7 +79,10 @@ impl ReceiptStoreSuite {
         outcome.record(self.test_append_rejects_unknown_actor().await);
         // Core requirements from conformance-suite.md §3.3 that need
         // multi-step or capability-gated coverage.
-        outcome.record(self.test_concurrent_appends_preserve_causal_ordering().await);
+        outcome.record(
+            self.test_concurrent_appends_preserve_causal_ordering()
+                .await,
+        );
         outcome.record(self.test_durable_across_restart().await);
         outcome
     }
@@ -439,8 +440,8 @@ impl ReceiptStoreSuite {
         //    has unique content (distinct actor + timestamp), so distinct
         //    content-addresses — none should be deduplicated.
         let mut children = Vec::with_capacity(CHILDREN);
-        let mut resolver = StaticPassportResolver::new()
-            .with_actor(parent_actor, parent_f.public_key.clone());
+        let mut resolver =
+            StaticPassportResolver::new().with_actor(parent_actor, parent_f.public_key.clone());
         for _ in 0..CHILDREN {
             let actor = AgentId::new();
             let f = signed_receipt(actor, "envelope.deliver", vec![parent_id.clone()]);
@@ -529,14 +530,10 @@ impl ReceiptStoreSuite {
 
         match reloaded.get(&receipt_id).await {
             Ok(Some(fetched)) if fetched == original => TestOutcome::pass(NAME),
-            Ok(Some(_)) => TestOutcome::fail(
-                NAME,
-                "receipt survived restart but its contents changed",
-            ),
-            Ok(None) => TestOutcome::fail(
-                NAME,
-                "receipt did not survive restart (returned None)",
-            ),
+            Ok(Some(_)) => {
+                TestOutcome::fail(NAME, "receipt survived restart but its contents changed")
+            }
+            Ok(None) => TestOutcome::fail(NAME, "receipt did not survive restart (returned None)"),
             Err(e) => TestOutcome::fail(NAME, format!("post-restart get: {e}")),
         }
     }

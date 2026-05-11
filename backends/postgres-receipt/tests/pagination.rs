@@ -28,9 +28,7 @@ fn pg_url_or_skip(test_name: &str) -> Option<String> {
     match std::env::var("YUTHA_PG_TEST_URL") {
         Ok(s) if !s.is_empty() => Some(s),
         _ => {
-            eprintln!(
-                "[{test_name}] YUTHA_PG_TEST_URL not set; skipping postgres pagination run"
-            );
+            eprintln!("[{test_name}] YUTHA_PG_TEST_URL not set; skipping postgres pagination run");
             None
         }
     }
@@ -137,8 +135,9 @@ async fn postgres_paginates_consistently() {
         }
 
         for r in page.receipts {
-            let id_digest =
-                yutha_crypto::canonical::content_address(&r).expect("content_address").digest;
+            let id_digest = yutha_crypto::canonical::content_address(&r)
+                .expect("content_address")
+                .digest;
             assert!(
                 seen.insert(id_digest),
                 "page walk emitted the same receipt twice"
@@ -156,7 +155,10 @@ async fn postgres_paginates_consistently() {
         token = page.next_page_token;
     }
 
-    assert_eq!(seen, expected_ids, "page walk missed or duplicated receipts");
+    assert_eq!(
+        seen, expected_ids,
+        "page walk missed or duplicated receipts"
+    );
 
     let _ = pool
         .execute(format!("DROP SCHEMA IF EXISTS {schema} CASCADE").as_str())

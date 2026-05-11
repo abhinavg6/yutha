@@ -1,0 +1,16 @@
+# cargo-audit configuration.
+#
+# cargo-audit and cargo-deny are separate tools with separate config files;
+# this mirrors the [advisories.ignore] section of /deny.toml. When you add
+# or remove an ignore in one, update the other.
+
+[advisories]
+ignore = [
+    # See deny.toml for the per-advisory rationale. Brief notes here so
+    # this file is independently readable.
+    "RUSTSEC-2026-0098",  # rustls-webpki URI name constraints (transitive via aws-smithy)
+    "RUSTSEC-2026-0099",  # rustls-webpki wildcard / DNS-name interaction (transitive via aws-smithy)
+    "RUSTSEC-2026-0104",  # rustls-webpki CRL parsing panic (we don't parse CRLs)
+    "RUSTSEC-2023-0071",  # rsa Marvin Attack; reached only via sqlx-mysql, never compiled into our binaries
+    "RUSTSEC-2026-0002",  # lru IterMut unsoundness; transitive via aws-sdk-s3, not in any path we exercise
+]
