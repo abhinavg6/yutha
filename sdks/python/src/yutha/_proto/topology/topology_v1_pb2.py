@@ -26,41 +26,41 @@ from yutha._proto import common_pb2 as common__pb2
 from yutha._proto.capability import capability_v1_pb2 as capability_dot_capability__v1__pb2
 
 
-DESCRIPTOR = _descriptor_pool.Default().AddSerializedFile(b'\n\x1atopology/topology-v1.proto\x12\x11yutha.topology.v1\x1a\x0c\x63ommon.proto\x1a\x1e\x63\x61pability/capability-v1.proto\"\xac\x04\n\x08Topology\x12.\n\x0cspec_version\x18\x01 \x01(\x0b\x32\x18.yutha.common.v1.Version\x12*\n\x08swarm_id\x18\x02 \x01(\x0b\x32\x18.yutha.common.v1.SwarmId\x12-\n\x04mode\x18\x03 \x01(\x0e\x32\x1f.yutha.topology.v1.TopologyMode\x12\x35\n\tadmission\x18\x04 \x01(\x0b\x32\".yutha.topology.v1.AdmissionPolicy\x12\'\n\x1fmax_capability_lifetime_seconds\x18\x05 \x01(\x04\x12\"\n\x1amax_capability_chain_depth\x18\x06 \x01(\r\x12$\n\x1c\x64\x65\x66\x61ult_envelope_ttl_seconds\x18\x07 \x01(\x04\x12\x16\n\x0emax_epoch_skew\x18\x08 \x01(\r\x12 \n\x18\x65xternal_sends_permitted\x18\t \x01(\x08\x12$\n\x1cinitial_constitution_version\x18\n \x01(\t\x12 \n\x18operator_key_fingerprint\x18\x0b \x01(\x0c\x12\x30\n\nextensions\x18\xc8\x01 \x01(\x0b\x32\x1b.yutha.common.v1.Extensions\x12\x37\n\x12operator_signature\x18\xfa\x01 \x01(\x0b\x32\x1a.yutha.common.v1.Signature\"\xb1\x01\n\x0f\x41\x64missionPolicy\x12\x31\n\x06\x63losed\x18\x01 \x01(\x0b\x32\x1f.yutha.topology.v1.ClosedPolicyH\x00\x12-\n\x04open\x18\x02 \x01(\x0b\x32\x1d.yutha.topology.v1.OpenPolicyH\x00\x12\x31\n\x06hybrid\x18\x03 \x01(\x0b\x32\x1f.yutha.topology.v1.HybridPolicyH\x00\x42\t\n\x07variant\"\x93\x01\n\x0c\x43losedPolicy\x12\x34\n\x12\x61llowlisted_agents\x18\x01 \x03(\x0b\x32\x18.yutha.common.v1.AgentId\x12*\n\"allowlisted_owner_key_fingerprints\x18\x02 \x03(\x0c\x12!\n\x19pending_review_on_unknown\x18\x03 \x01(\x08\"\xfa\x01\n\nOpenPolicy\x12\x43\n\x0crequirements\x18\x01 \x03(\x0b\x32-.yutha.topology.v1.SybilResistanceRequirement\x12\x45\n\x11min_passport_tier\x18\x02 \x01(\x0b\x32*.yutha.topology.v1.PassportTierRequirement\x12%\n\x1dmax_passport_lifetime_seconds\x18\x03 \x01(\x04\x12\x39\n\x15\x64\x65\x66\x61ult_initial_scope\x18\x04 \x01(\x0b\x32\x1a.yutha.capability.v1.Scope\"\xd4\x01\n\x0cHybridPolicy\x12-\n\x04\x63ore\x18\x01 \x01(\x0b\x32\x1f.yutha.topology.v1.ClosedPolicy\x12\x30\n\tperiphery\x18\x02 \x01(\x0b\x32\x1d.yutha.topology.v1.OpenPolicy\x12\x43\n\x1fperiphery_capability_constraint\x18\x03 \x01(\x0b\x32\x1a.yutha.capability.v1.Scope\x12\x1e\n\x16periphery_may_delegate\x18\x04 \x01(\x08\"\xf2\x02\n\x1aSybilResistanceRequirement\x12\x42\n\rproof_of_work\x18\x01 \x01(\x0b\x32).yutha.topology.v1.ProofOfWorkRequirementH\x00\x12Q\n\x14hardware_attestation\x18\x02 \x01(\x0b\x32\x31.yutha.topology.v1.HardwareAttestationRequirementH\x00\x12G\n\x0fidp_attestation\x18\x03 \x01(\x0b\x32,.yutha.topology.v1.IdpAttestationRequirementH\x00\x12\x34\n\x05stake\x18\x04 \x01(\x0b\x32#.yutha.topology.v1.StakeRequirementH\x00\x12\x36\n\x06invite\x18\x05 \x01(\x0b\x32$.yutha.topology.v1.InviteRequirementH\x00\x42\x06\n\x04kind\"K\n\x16ProofOfWorkRequirement\x12\x17\n\x0f\x64ifficulty_bits\x18\x01 \x01(\r\x12\x18\n\x10\x63hallenge_prefix\x18\x02 \x01(\x0c\"\xa4\x02\n\x1eHardwareAttestationRequirement\x12Y\n\x0e\x61\x63\x63\x65pted_kinds\x18\x01 \x03(\x0e\x32\x41.yutha.topology.v1.HardwareAttestationRequirement.AttestationKind\"\xa6\x01\n\x0f\x41ttestationKind\x12\x1c\n\x18\x41TTESTATION_KIND_UNKNOWN\x10\x00\x12\x1d\n\x19\x41TTESTATION_KIND_NAUTILUS\x10\x01\x12\x1e\n\x1a\x41TTESTATION_KIND_INTEL_SGX\x10\x02\x12\x1c\n\x18\x41TTESTATION_KIND_AMD_SEV\x10\x03\x12\x18\n\x14\x41TTESTATION_KIND_TPM\x10\x04\"O\n\x19IdpAttestationRequirement\x12\x18\n\x10\x61\x63\x63\x65pted_issuers\x18\x01 \x03(\t\x12\x18\n\x10\x61\x63\x63\x65pted_formats\x18\x02 \x03(\t\"_\n\x10StakeRequirement\x12\x16\n\x0estake_resource\x18\x01 \x01(\t\x12\x18\n\x10min_stake_amount\x18\x02 \x01(\t\x12\x19\n\x11slashing_endpoint\x18\x03 \x01(\t\"\x89\x01\n\x11InviteRequirement\x12\x34\n\x12permitted_inviters\x18\x01 \x03(\x0b\x32\x18.yutha.common.v1.AgentId\x12\x1f\n\x17max_invites_per_inviter\x18\x02 \x01(\r\x12\x1d\n\x15invite_window_seconds\x18\x03 \x01(\x04\"\x8d\x02\n\x17PassportTierRequirement\x12\x45\n\x08required\x18\x01 \x01(\x0e\x32\x33.yutha.topology.v1.PassportTierRequirement.Required\"\xaa\x01\n\x08Required\x12%\n!PASSPORT_TIER_REQUIREMENT_UNKNOWN\x10\x00\x12%\n!PASSPORT_TIER_REQUIREMENT_MINIMAL\x10\x01\x12&\n\"PASSPORT_TIER_REQUIREMENT_STANDARD\x10\x02\x12(\n$PASSPORT_TIER_REQUIREMENT_VERIFIABLE\x10\x03*u\n\x0cTopologyMode\x12\x19\n\x15TOPOLOGY_MODE_UNKNOWN\x10\x00\x12\x18\n\x14TOPOLOGY_MODE_CLOSED\x10\x01\x12\x16\n\x12TOPOLOGY_MODE_OPEN\x10\x02\x12\x18\n\x14TOPOLOGY_MODE_HYBRID\x10\x03\x62\x06proto3')
+DESCRIPTOR = _descriptor_pool.Default().AddSerializedFile(b'\n\x1atopology/topology-v1.proto\x12\x11yutha.topology.v1\x1a\x0c\x63ommon.proto\x1a\x1e\x63\x61pability/capability-v1.proto\"\xd1\x04\n\x08Topology\x12.\n\x0cspec_version\x18\x01 \x01(\x0b\x32\x18.yutha.common.v1.Version\x12*\n\x08swarm_id\x18\x02 \x01(\x0b\x32\x18.yutha.common.v1.SwarmId\x12-\n\x04mode\x18\x03 \x01(\x0e\x32\x1f.yutha.topology.v1.TopologyMode\x12\x35\n\tadmission\x18\x04 \x01(\x0b\x32\".yutha.topology.v1.AdmissionPolicy\x12\'\n\x1fmax_capability_lifetime_seconds\x18\x05 \x01(\x04\x12\"\n\x1amax_capability_chain_depth\x18\x06 \x01(\r\x12$\n\x1c\x64\x65\x66\x61ult_envelope_ttl_seconds\x18\x07 \x01(\x04\x12\x16\n\x0emax_epoch_skew\x18\x08 \x01(\r\x12 \n\x18\x65xternal_sends_permitted\x18\t \x01(\x08\x12$\n\x1cinitial_constitution_version\x18\n \x01(\t\x12 \n\x18operator_key_fingerprint\x18\x0b \x01(\x0c\x12#\n\x1brequire_capability_for_send\x18\x0c \x01(\x08\x12\x30\n\nextensions\x18\xc8\x01 \x01(\x0b\x32\x1b.yutha.common.v1.Extensions\x12\x37\n\x12operator_signature\x18\xfa\x01 \x01(\x0b\x32\x1a.yutha.common.v1.Signature\"\xb1\x01\n\x0f\x41\x64missionPolicy\x12\x31\n\x06\x63losed\x18\x01 \x01(\x0b\x32\x1f.yutha.topology.v1.ClosedPolicyH\x00\x12-\n\x04open\x18\x02 \x01(\x0b\x32\x1d.yutha.topology.v1.OpenPolicyH\x00\x12\x31\n\x06hybrid\x18\x03 \x01(\x0b\x32\x1f.yutha.topology.v1.HybridPolicyH\x00\x42\t\n\x07variant\"\x93\x01\n\x0c\x43losedPolicy\x12\x34\n\x12\x61llowlisted_agents\x18\x01 \x03(\x0b\x32\x18.yutha.common.v1.AgentId\x12*\n\"allowlisted_owner_key_fingerprints\x18\x02 \x03(\x0c\x12!\n\x19pending_review_on_unknown\x18\x03 \x01(\x08\"\xfa\x01\n\nOpenPolicy\x12\x43\n\x0crequirements\x18\x01 \x03(\x0b\x32-.yutha.topology.v1.SybilResistanceRequirement\x12\x45\n\x11min_passport_tier\x18\x02 \x01(\x0b\x32*.yutha.topology.v1.PassportTierRequirement\x12%\n\x1dmax_passport_lifetime_seconds\x18\x03 \x01(\x04\x12\x39\n\x15\x64\x65\x66\x61ult_initial_scope\x18\x04 \x01(\x0b\x32\x1a.yutha.capability.v1.Scope\"\xd4\x01\n\x0cHybridPolicy\x12-\n\x04\x63ore\x18\x01 \x01(\x0b\x32\x1f.yutha.topology.v1.ClosedPolicy\x12\x30\n\tperiphery\x18\x02 \x01(\x0b\x32\x1d.yutha.topology.v1.OpenPolicy\x12\x43\n\x1fperiphery_capability_constraint\x18\x03 \x01(\x0b\x32\x1a.yutha.capability.v1.Scope\x12\x1e\n\x16periphery_may_delegate\x18\x04 \x01(\x08\"\xf2\x02\n\x1aSybilResistanceRequirement\x12\x42\n\rproof_of_work\x18\x01 \x01(\x0b\x32).yutha.topology.v1.ProofOfWorkRequirementH\x00\x12Q\n\x14hardware_attestation\x18\x02 \x01(\x0b\x32\x31.yutha.topology.v1.HardwareAttestationRequirementH\x00\x12G\n\x0fidp_attestation\x18\x03 \x01(\x0b\x32,.yutha.topology.v1.IdpAttestationRequirementH\x00\x12\x34\n\x05stake\x18\x04 \x01(\x0b\x32#.yutha.topology.v1.StakeRequirementH\x00\x12\x36\n\x06invite\x18\x05 \x01(\x0b\x32$.yutha.topology.v1.InviteRequirementH\x00\x42\x06\n\x04kind\"K\n\x16ProofOfWorkRequirement\x12\x17\n\x0f\x64ifficulty_bits\x18\x01 \x01(\r\x12\x18\n\x10\x63hallenge_prefix\x18\x02 \x01(\x0c\"\xa4\x02\n\x1eHardwareAttestationRequirement\x12Y\n\x0e\x61\x63\x63\x65pted_kinds\x18\x01 \x03(\x0e\x32\x41.yutha.topology.v1.HardwareAttestationRequirement.AttestationKind\"\xa6\x01\n\x0f\x41ttestationKind\x12\x1c\n\x18\x41TTESTATION_KIND_UNKNOWN\x10\x00\x12\x1d\n\x19\x41TTESTATION_KIND_NAUTILUS\x10\x01\x12\x1e\n\x1a\x41TTESTATION_KIND_INTEL_SGX\x10\x02\x12\x1c\n\x18\x41TTESTATION_KIND_AMD_SEV\x10\x03\x12\x18\n\x14\x41TTESTATION_KIND_TPM\x10\x04\"O\n\x19IdpAttestationRequirement\x12\x18\n\x10\x61\x63\x63\x65pted_issuers\x18\x01 \x03(\t\x12\x18\n\x10\x61\x63\x63\x65pted_formats\x18\x02 \x03(\t\"_\n\x10StakeRequirement\x12\x16\n\x0estake_resource\x18\x01 \x01(\t\x12\x18\n\x10min_stake_amount\x18\x02 \x01(\t\x12\x19\n\x11slashing_endpoint\x18\x03 \x01(\t\"\x89\x01\n\x11InviteRequirement\x12\x34\n\x12permitted_inviters\x18\x01 \x03(\x0b\x32\x18.yutha.common.v1.AgentId\x12\x1f\n\x17max_invites_per_inviter\x18\x02 \x01(\r\x12\x1d\n\x15invite_window_seconds\x18\x03 \x01(\x04\"\x8d\x02\n\x17PassportTierRequirement\x12\x45\n\x08required\x18\x01 \x01(\x0e\x32\x33.yutha.topology.v1.PassportTierRequirement.Required\"\xaa\x01\n\x08Required\x12%\n!PASSPORT_TIER_REQUIREMENT_UNKNOWN\x10\x00\x12%\n!PASSPORT_TIER_REQUIREMENT_MINIMAL\x10\x01\x12&\n\"PASSPORT_TIER_REQUIREMENT_STANDARD\x10\x02\x12(\n$PASSPORT_TIER_REQUIREMENT_VERIFIABLE\x10\x03*u\n\x0cTopologyMode\x12\x19\n\x15TOPOLOGY_MODE_UNKNOWN\x10\x00\x12\x18\n\x14TOPOLOGY_MODE_CLOSED\x10\x01\x12\x16\n\x12TOPOLOGY_MODE_OPEN\x10\x02\x12\x18\n\x14TOPOLOGY_MODE_HYBRID\x10\x03\x62\x06proto3')
 
 _globals = globals()
 _builder.BuildMessageAndEnumDescriptors(DESCRIPTOR, _globals)
 _builder.BuildTopDescriptorsAndMessages(DESCRIPTOR, 'topology.topology_v1_pb2', _globals)
 if not _descriptor._USE_C_DESCRIPTORS:
   DESCRIPTOR._loaded_options = None
-  _globals['_TOPOLOGYMODE']._serialized_start=2787
-  _globals['_TOPOLOGYMODE']._serialized_end=2904
+  _globals['_TOPOLOGYMODE']._serialized_start=2824
+  _globals['_TOPOLOGYMODE']._serialized_end=2941
   _globals['_TOPOLOGY']._serialized_start=96
-  _globals['_TOPOLOGY']._serialized_end=652
-  _globals['_ADMISSIONPOLICY']._serialized_start=655
-  _globals['_ADMISSIONPOLICY']._serialized_end=832
-  _globals['_CLOSEDPOLICY']._serialized_start=835
-  _globals['_CLOSEDPOLICY']._serialized_end=982
-  _globals['_OPENPOLICY']._serialized_start=985
-  _globals['_OPENPOLICY']._serialized_end=1235
-  _globals['_HYBRIDPOLICY']._serialized_start=1238
-  _globals['_HYBRIDPOLICY']._serialized_end=1450
-  _globals['_SYBILRESISTANCEREQUIREMENT']._serialized_start=1453
-  _globals['_SYBILRESISTANCEREQUIREMENT']._serialized_end=1823
-  _globals['_PROOFOFWORKREQUIREMENT']._serialized_start=1825
-  _globals['_PROOFOFWORKREQUIREMENT']._serialized_end=1900
-  _globals['_HARDWAREATTESTATIONREQUIREMENT']._serialized_start=1903
-  _globals['_HARDWAREATTESTATIONREQUIREMENT']._serialized_end=2195
-  _globals['_HARDWAREATTESTATIONREQUIREMENT_ATTESTATIONKIND']._serialized_start=2029
-  _globals['_HARDWAREATTESTATIONREQUIREMENT_ATTESTATIONKIND']._serialized_end=2195
-  _globals['_IDPATTESTATIONREQUIREMENT']._serialized_start=2197
-  _globals['_IDPATTESTATIONREQUIREMENT']._serialized_end=2276
-  _globals['_STAKEREQUIREMENT']._serialized_start=2278
-  _globals['_STAKEREQUIREMENT']._serialized_end=2373
-  _globals['_INVITEREQUIREMENT']._serialized_start=2376
-  _globals['_INVITEREQUIREMENT']._serialized_end=2513
-  _globals['_PASSPORTTIERREQUIREMENT']._serialized_start=2516
-  _globals['_PASSPORTTIERREQUIREMENT']._serialized_end=2785
-  _globals['_PASSPORTTIERREQUIREMENT_REQUIRED']._serialized_start=2615
-  _globals['_PASSPORTTIERREQUIREMENT_REQUIRED']._serialized_end=2785
+  _globals['_TOPOLOGY']._serialized_end=689
+  _globals['_ADMISSIONPOLICY']._serialized_start=692
+  _globals['_ADMISSIONPOLICY']._serialized_end=869
+  _globals['_CLOSEDPOLICY']._serialized_start=872
+  _globals['_CLOSEDPOLICY']._serialized_end=1019
+  _globals['_OPENPOLICY']._serialized_start=1022
+  _globals['_OPENPOLICY']._serialized_end=1272
+  _globals['_HYBRIDPOLICY']._serialized_start=1275
+  _globals['_HYBRIDPOLICY']._serialized_end=1487
+  _globals['_SYBILRESISTANCEREQUIREMENT']._serialized_start=1490
+  _globals['_SYBILRESISTANCEREQUIREMENT']._serialized_end=1860
+  _globals['_PROOFOFWORKREQUIREMENT']._serialized_start=1862
+  _globals['_PROOFOFWORKREQUIREMENT']._serialized_end=1937
+  _globals['_HARDWAREATTESTATIONREQUIREMENT']._serialized_start=1940
+  _globals['_HARDWAREATTESTATIONREQUIREMENT']._serialized_end=2232
+  _globals['_HARDWAREATTESTATIONREQUIREMENT_ATTESTATIONKIND']._serialized_start=2066
+  _globals['_HARDWAREATTESTATIONREQUIREMENT_ATTESTATIONKIND']._serialized_end=2232
+  _globals['_IDPATTESTATIONREQUIREMENT']._serialized_start=2234
+  _globals['_IDPATTESTATIONREQUIREMENT']._serialized_end=2313
+  _globals['_STAKEREQUIREMENT']._serialized_start=2315
+  _globals['_STAKEREQUIREMENT']._serialized_end=2410
+  _globals['_INVITEREQUIREMENT']._serialized_start=2413
+  _globals['_INVITEREQUIREMENT']._serialized_end=2550
+  _globals['_PASSPORTTIERREQUIREMENT']._serialized_start=2553
+  _globals['_PASSPORTTIERREQUIREMENT']._serialized_end=2822
+  _globals['_PASSPORTTIERREQUIREMENT_REQUIRED']._serialized_start=2652
+  _globals['_PASSPORTTIERREQUIREMENT_REQUIRED']._serialized_end=2822
 # @@protoc_insertion_point(module_scope)

@@ -61,6 +61,21 @@ message Topology {
   // Operator-key fingerprint — the trust root for this swarm.
   bytes operator_key_fingerprint = 11;
 
+  // When true, every authenticated `EnvelopeService.Send` call MUST
+  // present a `SendEnvelopeRequest.capability_id` and pass the
+  // server-side capability check. When false, sends without a cap are
+  // permitted (legacy v1.0 behavior); a cap, if presented, is still
+  // checked and the resulting `capability.check.{pass,deny}` receipt
+  // is emitted.
+  //
+  // Defaults at registry construction:
+  //   CLOSED mode → true  (production posture)
+  //   OPEN   mode → false (demo / dev posture; preserves v1.0)
+  //   HYBRID mode → operator-set (no default)
+  //
+  // See `/spec/rfcs/0007-send-path-cap-check.md`.
+  bool require_capability_for_send = 12;
+
   // Forward-compatibility hatch.
   yutha.common.v1.Extensions extensions = 200;
 

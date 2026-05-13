@@ -39,6 +39,16 @@ pub struct Topology {
     pub max_epoch_skew: u32,
     /// Whether external-endpoint sends are permitted (subject to capability).
     pub external_sends_permitted: bool,
+    /// When true, every `EnvelopeService.Send` MUST present a
+    /// `SendEnvelopeRequest.capability_id` and pass the server-side
+    /// capability check; deny rejects with `PERMISSION_DENIED`. When
+    /// false, sends without a cap are accepted (legacy v1.0 behavior);
+    /// a cap supplied anyway is still checked and audited.
+    ///
+    /// Defaults at registry construction (set by the operator binary,
+    /// not by `Topology` itself): closed → true, open → false, hybrid
+    /// → operator-set. See RFC 0007.
+    pub require_capability_for_send: bool,
     /// Genesis constitution version.
     pub initial_constitution_version: String,
     /// Operator-key fingerprint (trust root).
@@ -76,6 +86,7 @@ mod tests {
             default_envelope_ttl_seconds: 300,
             max_epoch_skew: 256,
             external_sends_permitted: false,
+            require_capability_for_send: false,
             initial_constitution_version: "1.0.0".into(),
             operator_key_fingerprint: vec![0u8; 32],
             operator_signature: None,

@@ -75,6 +75,7 @@ A conformant capability implementation:
 - **Attenuate.** Accepts AttenuateRequest; verifies parent exists and is held by requester; computes intersected scope; refuses any attempt to broaden; produces `capability.attenuate` receipt.
 - **Revoke.** Accepts RevokeRequest; produces `capability.revoke` receipt; subsequent checks against the revoked capability MUST deny within the spec'd revocation propagation window.
 - **Check.** Accepts CheckRequest; walks the parent chain; computes effective scope; evaluates all caveats; produces `capability.check.pass` or `capability.check.deny` receipt with explicit deny_reason and matched/unmet caveats.
+- **Send-path enforcement.** When the swarm's `Topology.require_capability_for_send` is true, `EnvelopeService.Send` invokes the same `Check` pathway with an `ActionDescriptor` synthesized from the envelope (action_kind `envelope.send`; evidence carrying recipient, performative, payload_schema_id, tags). A deny rejects the send with `PERMISSION_DENIED`; a pass proceeds to delivery. Either way a check receipt lands in the audit trail. See RFC 0007.
 - **Default-deny.** Empty fields and ambiguous match conditions deny rather than permit.
 - **Bounded chain depth.** Refuses to walk parent chains beyond the configured maximum (default 8).
 - **Tamper detection.** Capabilities whose content-address (after re-canonicalization) does not match the recomputed hash are rejected.

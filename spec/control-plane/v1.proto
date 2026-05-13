@@ -246,7 +246,35 @@ service EnvelopeService {
 }
 
 message SendEnvelopeRequest {
+  // The envelope to send. `envelope.from_agent` MUST equal the bearer's
+  // agent id — cross-agent sending is not permitted.
   yutha.envelope.v1.Envelope envelope = 1;
+
+  // Content-address of the capability authorizing this send.
+  //
+  // Required when `Topology.require_capability_for_send` is true
+  // (CLOSED-mode default). Optional in permissive topologies
+  // (OPEN-mode default); when omitted under a permissive topology the
+  // server skips the cap check and the send proceeds as in v1.0.
+  //
+  // The referenced capability MUST have been issued through this server
+  // (via `CapabilityService.Issue` or `Attenuate`). The server resolves
+  // `capability_id` against its store; it does not trust an inline
+  // capability proto from the client.
+  //
+  // Server-side check: store walks the parent chain (bounded by
+  // `Topology.max_capability_chain_depth`), enforces revocation +
+  // validity-window, intersects scopes, evaluates caveats against an
+  // `ActionDescriptor` synthesized from the envelope
+  // (`action_kind = "envelope.send"`; evidence = recipient,
+  // performative, payload_schema_id, tags). Result lands as a
+  // `capability.check.pass` or `capability.check.deny` receipt
+  // regardless of which branch is taken. On deny the send is rejected
+  // with `PERMISSION_DENIED` and no `envelope.send` receipt is
+  // produced.
+  //
+  // See `/spec/rfcs/0007-send-path-cap-check.md`.
+  yutha.common.v1.Hash capability_id = 2;
 }
 
 message SendEnvelopeResponse {

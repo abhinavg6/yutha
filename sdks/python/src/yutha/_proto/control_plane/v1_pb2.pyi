@@ -133,10 +133,12 @@ class CheckResponse(_message.Message):
     def __init__(self, response: _Optional[_Union[_capability_v1_pb2.CheckResponse, _Mapping]] = ...) -> None: ...
 
 class SendEnvelopeRequest(_message.Message):
-    __slots__ = ("envelope",)
+    __slots__ = ("envelope", "capability_id")
     ENVELOPE_FIELD_NUMBER: _ClassVar[int]
+    CAPABILITY_ID_FIELD_NUMBER: _ClassVar[int]
     envelope: _envelope_v1_pb2.Envelope
-    def __init__(self, envelope: _Optional[_Union[_envelope_v1_pb2.Envelope, _Mapping]] = ...) -> None: ...
+    capability_id: _common_pb2.Hash
+    def __init__(self, envelope: _Optional[_Union[_envelope_v1_pb2.Envelope, _Mapping]] = ..., capability_id: _Optional[_Union[_common_pb2.Hash, _Mapping]] = ...) -> None: ...
 
 class SendEnvelopeResponse(_message.Message):
     __slots__ = ("send_receipt",)

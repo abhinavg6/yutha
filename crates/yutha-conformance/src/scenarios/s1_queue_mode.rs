@@ -131,6 +131,10 @@ pub async fn run_s1() -> S1Outcome {
         default_envelope_ttl_seconds: 300,
         max_epoch_skew: 256,
         external_sends_permitted: false,
+        // S1 is in-process — the gRPC Send-path cap-check (RFC 0007)
+        // doesn't apply to MemoryTransport calls. Keep false so the
+        // scenario's audit shape doesn't change.
+        require_capability_for_send: false,
         initial_constitution_version: "1.0.0".into(),
         operator_key_fingerprint: vec![0u8; 32],
         operator_signature: None,

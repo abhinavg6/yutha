@@ -21,7 +21,7 @@ TOPOLOGY_MODE_OPEN: TopologyMode
 TOPOLOGY_MODE_HYBRID: TopologyMode
 
 class Topology(_message.Message):
-    __slots__ = ("spec_version", "swarm_id", "mode", "admission", "max_capability_lifetime_seconds", "max_capability_chain_depth", "default_envelope_ttl_seconds", "max_epoch_skew", "external_sends_permitted", "initial_constitution_version", "operator_key_fingerprint", "extensions", "operator_signature")
+    __slots__ = ("spec_version", "swarm_id", "mode", "admission", "max_capability_lifetime_seconds", "max_capability_chain_depth", "default_envelope_ttl_seconds", "max_epoch_skew", "external_sends_permitted", "initial_constitution_version", "operator_key_fingerprint", "require_capability_for_send", "extensions", "operator_signature")
     SPEC_VERSION_FIELD_NUMBER: _ClassVar[int]
     SWARM_ID_FIELD_NUMBER: _ClassVar[int]
     MODE_FIELD_NUMBER: _ClassVar[int]
@@ -33,6 +33,7 @@ class Topology(_message.Message):
     EXTERNAL_SENDS_PERMITTED_FIELD_NUMBER: _ClassVar[int]
     INITIAL_CONSTITUTION_VERSION_FIELD_NUMBER: _ClassVar[int]
     OPERATOR_KEY_FINGERPRINT_FIELD_NUMBER: _ClassVar[int]
+    REQUIRE_CAPABILITY_FOR_SEND_FIELD_NUMBER: _ClassVar[int]
     EXTENSIONS_FIELD_NUMBER: _ClassVar[int]
     OPERATOR_SIGNATURE_FIELD_NUMBER: _ClassVar[int]
     spec_version: _common_pb2.Version
@@ -46,9 +47,10 @@ class Topology(_message.Message):
     external_sends_permitted: bool
     initial_constitution_version: str
     operator_key_fingerprint: bytes
+    require_capability_for_send: bool
     extensions: _common_pb2.Extensions
     operator_signature: _common_pb2.Signature
-    def __init__(self, spec_version: _Optional[_Union[_common_pb2.Version, _Mapping]] = ..., swarm_id: _Optional[_Union[_common_pb2.SwarmId, _Mapping]] = ..., mode: _Optional[_Union[TopologyMode, str]] = ..., admission: _Optional[_Union[AdmissionPolicy, _Mapping]] = ..., max_capability_lifetime_seconds: _Optional[int] = ..., max_capability_chain_depth: _Optional[int] = ..., default_envelope_ttl_seconds: _Optional[int] = ..., max_epoch_skew: _Optional[int] = ..., external_sends_permitted: bool = ..., initial_constitution_version: _Optional[str] = ..., operator_key_fingerprint: _Optional[bytes] = ..., extensions: _Optional[_Union[_common_pb2.Extensions, _Mapping]] = ..., operator_signature: _Optional[_Union[_common_pb2.Signature, _Mapping]] = ...) -> None: ...
+    def __init__(self, spec_version: _Optional[_Union[_common_pb2.Version, _Mapping]] = ..., swarm_id: _Optional[_Union[_common_pb2.SwarmId, _Mapping]] = ..., mode: _Optional[_Union[TopologyMode, str]] = ..., admission: _Optional[_Union[AdmissionPolicy, _Mapping]] = ..., max_capability_lifetime_seconds: _Optional[int] = ..., max_capability_chain_depth: _Optional[int] = ..., default_envelope_ttl_seconds: _Optional[int] = ..., max_epoch_skew: _Optional[int] = ..., external_sends_permitted: bool = ..., initial_constitution_version: _Optional[str] = ..., operator_key_fingerprint: _Optional[bytes] = ..., require_capability_for_send: bool = ..., extensions: _Optional[_Union[_common_pb2.Extensions, _Mapping]] = ..., operator_signature: _Optional[_Union[_common_pb2.Signature, _Mapping]] = ...) -> None: ...
 
 class AdmissionPolicy(_message.Message):
     __slots__ = ("closed", "open", "hybrid")

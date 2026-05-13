@@ -33,6 +33,8 @@ The three modes are first-class to the build plan (PRD §8.3 plus build-plan.md 
 
 **`external_sends_permitted`.** Whether agents in this swarm may send envelopes to ExternalEndpoint recipients (subject still requires capability check). Defaults vary: closed mode false unless explicitly enabled; open mode true with the assumption that periphery agents have constrained scopes; hybrid mode true with periphery generally restricted by capability scope from sending external.
 
+**`require_capability_for_send`.** Whether `EnvelopeService.Send` is gated by an explicit capability check. When true, every Send must carry a `SendEnvelopeRequest.capability_id` that resolves to a held capability whose scope permits `envelope.send` against the envelope's descriptor; deny rejects the send with `PERMISSION_DENIED` and emits a `capability.check.deny` receipt. When false, sends without a cap are accepted (legacy v1.0 behavior); a cap supplied anyway is still checked and audited. Defaults: closed mode true (production posture); open mode false (demo / dev); hybrid mode operator-set. See RFC 0007 for the threat-model rationale (closes A3 unbypassably by making client-side checks irrelevant to admission).
+
 **`initial_constitution_version`.** The genesis constitution. Constitution amendments evolve from here per the constitution's own amendment procedure (Phase 2 + 4).
 
 **`operator_key_fingerprint`.** The trust root of the swarm. Operator-issued capabilities are verified against this key. Multi-operator swarms (federation, Phase 4) handle multi-root via the federation handshake.

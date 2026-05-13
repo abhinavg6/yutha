@@ -348,6 +348,11 @@ async fn bootstrap_backends(
         default_envelope_ttl_seconds: 300,
         max_epoch_skew: 256,
         external_sends_permitted: false,
+        // E1b will set this based on `admission_mode` (CLOSED→true,
+        // OPEN→false). E1a only adds the field so the workspace
+        // compiles; behavior is unchanged until E1b ships the
+        // Send-path handler that consults it.
+        require_capability_for_send: false,
         initial_constitution_version: "1.0.0".into(),
         operator_key_fingerprint: vec![0u8; 32],
         operator_signature: None,
