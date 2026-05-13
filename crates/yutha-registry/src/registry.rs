@@ -1,8 +1,9 @@
 //! [`Registry`] — membership controller trait.
 
 use crate::error::Result;
+use crate::topology::Topology;
 use async_trait::async_trait;
-use yutha_core::AgentId;
+use yutha_core::{AgentId, Hash};
 use yutha_passport::{Passport, RegistrationOutcome};
 
 /// Membership controller.
@@ -31,12 +32,23 @@ pub trait Registry: Send + Sync {
     async fn register(&self, passport: Passport) -> Result<RegistrationOutcome>;
 
     /// Revoke an agent's membership. Produces an `agent.revoke` receipt
-    /// signed by the control plane.
-    async fn revoke(&self, agent_id: &AgentId, reason: &str) -> Result<()>;
+    /// signed by the control plane. Returns the receipt's content-address
+    /// so callers (gRPC handlers, scenarios) can echo it back without
+    /// re-querying the receipt store.
+    async fn revoke(&self, agent_id: &AgentId, reason: &str) -> Result<Hash>;
 
     /// Rotate an agent's signing key. The new passport carries the new
     /// public key, signed with the new key. Continuity (proof that the
     /// old key holder consented) is enforced at the application layer; the
     /// registry produces an `agent.rotate_key` receipt on success.
     async fn rotate_key(&self, new_passport: Passport) -> Result<RegistrationOutcome>;
+
+    /// Borrow the swarm's topology.
+    ///
+    /// Topology is immutable for the swarm's lifetime (per spec rationale),
+    /// so callers can rely on the borrow remaining valid as long as the
+    /// registry is alive. Used by the control-plane gRPC handler for
+    /// `AdmissionService.GetTopology` and by the bearer-token interceptor
+    /// for swarm_id binding checks.
+    fn topology(&self) -> &Topology;
 }

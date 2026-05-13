@@ -13,4 +13,6 @@ ignore = [
     "RUSTSEC-2026-0104",  # rustls-webpki CRL parsing panic (we don't parse CRLs)
     "RUSTSEC-2023-0071",  # rsa Marvin Attack; reached only via sqlx-mysql, never compiled into our binaries
     "RUSTSEC-2026-0002",  # lru IterMut unsoundness; transitive via aws-sdk-s3, not in any path we exercise
+    "RUSTSEC-2026-0049",  # rustls-webpki CRL distribution-point matching; we don't parse CRLs (mTLS uses operator-provisioned CAs). Resolves with tonic 0.12 / prost 0.13.
+    "RUSTSEC-2025-0134",  # rustls-pemfile unmaintained (not vulnerable); transitive via tonic 0.11. Resolves with tonic 0.12.
 ]

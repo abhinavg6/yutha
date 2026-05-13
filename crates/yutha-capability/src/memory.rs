@@ -8,7 +8,7 @@ use crate::capability::Capability;
 use crate::check::{ActionDescriptor, CheckOutcome};
 use crate::error::{CapabilityError, Result};
 use crate::scope::Scope;
-use crate::store::CapabilityStore;
+use crate::store::{CapabilityStore, CheckEvaluation, IssuanceOutcome};
 use crate::DEFAULT_MAX_CHAIN_DEPTH;
 use async_trait::async_trait;
 use std::collections::HashMap;
@@ -75,13 +75,69 @@ impl MemoryCapabilityStore {
         }
     }
 
-    /// Build and append a capability.check.* receipt for the outcome.
+    /// Build and append a capability.* receipt signed by the control
+    /// plane. Returns the receipt's content-address.
+    ///
+    /// Used by [`Self::record_check`] (capability.check.{pass,deny}),
+    /// [`Self::record_issue`] (capability.issue),
+    /// [`Self::record_attenuate`] (capability.attenuate), and
+    /// [`Self::record_revoke`] (capability.revoke). Centralizes the
+    /// boilerplate so each event-kind just supplies action_kind + the
+    /// event-specific evidence.
+    async fn record_event(
+        &self,
+        action_kind: &str,
+        swarm_id: yutha_core::SwarmId,
+        evidence: Vec<Evidence>,
+    ) -> Result<Hash> {
+        let mut iter = evidence.into_iter();
+        let first = iter.next().ok_or_else(|| {
+            CapabilityError::Backend(
+                "capability receipts require at least one evidence entry".into(),
+            )
+        })?;
+
+        let mut receipt = Receipt::builder()
+            .spec_version(
+                SpecVersion::parse("1.0.0")
+                    .map_err(|e| CapabilityError::Backend(format!("spec version: {e}")))?,
+            )
+            .swarm_id(swarm_id)
+            .actor(self.control_plane.agent_id)
+            .action_kind(action_kind)
+            .constitution_version("")
+            .occurred_at(Timestamp::now())
+            .evidence(first);
+        for e in iter {
+            receipt = receipt.evidence(e);
+        }
+        let mut receipt = receipt
+            .build()
+            .map_err(|e| CapabilityError::Backend(format!("build receipt: {e}")))?;
+
+        let bytes = receipt.canonical_bytes().map_err(CapabilityError::Crypto)?;
+        let sig = self.control_plane.sign(&bytes);
+        receipt
+            .signatures
+            .push(SignedBy::new(SignatureRole::Actor, sig, Timestamp::now()));
+
+        let outcome = self
+            .receipts
+            .append(receipt, AppendOptions::default(), self.resolver.as_ref())
+            .await
+            .map_err(|e| CapabilityError::Backend(format!("append: {e}")))?;
+        Ok(outcome.receipt_id)
+    }
+
+    /// Build and append a `capability.check.{pass,deny}` receipt for the
+    /// outcome. Returns the receipt's content-address so the caller can
+    /// thread it back up through [`CheckEvaluation`].
     async fn record_check(
         &self,
         outcome: &CheckOutcome,
         descriptor: &ActionDescriptor,
         swarm_id: yutha_core::SwarmId,
-    ) -> Result<()> {
+    ) -> Result<Hash> {
         let action_kind = if outcome.permitted {
             "capability.check.pass"
         } else {
@@ -115,48 +171,105 @@ impl MemoryCapabilityStore {
             }
         }
 
-        let mut receipt = Receipt::builder()
-            .spec_version(
-                SpecVersion::parse("1.0.0")
-                    .map_err(|e| CapabilityError::Backend(format!("spec version: {e}")))?,
-            )
-            .swarm_id(swarm_id)
-            .actor(self.control_plane.agent_id)
-            .action_kind(action_kind)
-            .constitution_version("")
-            .occurred_at(Timestamp::now())
-            .evidence(evidence.remove(0));
-        for e in evidence {
-            receipt = receipt.evidence(e);
-        }
-        let mut receipt = receipt
-            .build()
-            .map_err(|e| CapabilityError::Backend(format!("build receipt: {e}")))?;
+        self.record_event(action_kind, swarm_id, evidence).await
+    }
 
-        let bytes = receipt.canonical_bytes().map_err(CapabilityError::Crypto)?;
-        let sig = self.control_plane.sign(&bytes);
-        receipt
-            .signatures
-            .push(SignedBy::new(SignatureRole::Actor, sig, Timestamp::now()));
+    async fn record_issue(&self, cap_id: &Hash, capability: &Capability) -> Result<Hash> {
+        self.record_event(
+            "capability.issue",
+            capability.swarm_id,
+            vec![
+                Evidence::new(
+                    "capability_hash",
+                    "type.yutha.dev/v1/Hash",
+                    cap_id.digest.clone(),
+                ),
+                Evidence::new(
+                    "subject",
+                    "type.yutha.dev/v1/AgentId",
+                    capability.subject.as_bytes().to_vec(),
+                ),
+            ],
+        )
+        .await
+    }
 
-        self.receipts
-            .append(receipt, AppendOptions::default(), self.resolver.as_ref())
-            .await
-            .map_err(|e| CapabilityError::Backend(format!("append: {e}")))?;
-        Ok(())
+    async fn record_attenuate(
+        &self,
+        child_id: &Hash,
+        parent_id: &Hash,
+        child: &Capability,
+    ) -> Result<Hash> {
+        self.record_event(
+            "capability.attenuate",
+            child.swarm_id,
+            vec![
+                Evidence::new(
+                    "child_capability_hash",
+                    "type.yutha.dev/v1/Hash",
+                    child_id.digest.clone(),
+                ),
+                Evidence::new(
+                    "parent_capability_hash",
+                    "type.yutha.dev/v1/Hash",
+                    parent_id.digest.clone(),
+                ),
+                Evidence::new(
+                    "subject",
+                    "type.yutha.dev/v1/AgentId",
+                    child.subject.as_bytes().to_vec(),
+                ),
+            ],
+        )
+        .await
+    }
+
+    async fn record_revoke(
+        &self,
+        cap_id: &Hash,
+        swarm_id: yutha_core::SwarmId,
+        reason: &str,
+    ) -> Result<Hash> {
+        self.record_event(
+            "capability.revoke",
+            swarm_id,
+            vec![
+                Evidence::new(
+                    "capability_hash",
+                    "type.yutha.dev/v1/Hash",
+                    cap_id.digest.clone(),
+                ),
+                Evidence::new(
+                    "reason",
+                    "type.yutha.dev/v1/String",
+                    reason.as_bytes().to_vec(),
+                ),
+            ],
+        )
+        .await
     }
 }
 
 #[async_trait]
 impl CapabilityStore for MemoryCapabilityStore {
-    async fn issue(&self, capability: Capability) -> Result<Hash> {
-        let id = content_address(&capability).map_err(CapabilityError::Crypto)?;
-        let mut guard = self.inner.write().await;
-        guard.by_id.insert(id.clone(), capability);
-        Ok(id)
+    async fn issue(&self, capability: Capability) -> Result<IssuanceOutcome> {
+        let capability_id = content_address(&capability).map_err(CapabilityError::Crypto)?;
+        // Persist first so the resolver / lookup path is consistent before
+        // the receipt lands. Mirrors `MemoryRegistry::register` ordering.
+        {
+            let mut guard = self.inner.write().await;
+            guard
+                .by_id
+                .insert(capability_id.clone(), capability.clone());
+        }
+        let issuance_receipt = self.record_issue(&capability_id, &capability).await?;
+        Ok(IssuanceOutcome {
+            capability_id,
+            issuance_receipt,
+        })
     }
 
-    async fn attenuate(&self, child: Capability) -> Result<Hash> {
+    async fn attenuate(&self, child: Capability) -> Result<IssuanceOutcome> {
         let parent_hash = child
             .parent
             .clone()
@@ -177,23 +290,43 @@ impl CapabilityStore for MemoryCapabilityStore {
             });
         }
 
-        let id = content_address(&child).map_err(CapabilityError::Crypto)?;
-        let mut guard = self.inner.write().await;
-        guard.by_id.insert(id.clone(), child);
-        Ok(id)
+        let capability_id = content_address(&child).map_err(CapabilityError::Crypto)?;
+        {
+            let mut guard = self.inner.write().await;
+            guard.by_id.insert(capability_id.clone(), child.clone());
+        }
+        let issuance_receipt = self
+            .record_attenuate(&capability_id, &parent_hash, &child)
+            .await?;
+        Ok(IssuanceOutcome {
+            capability_id,
+            issuance_receipt,
+        })
     }
 
-    async fn revoke(&self, capability_id: &Hash, reason: &str) -> Result<()> {
-        let mut guard = self.inner.write().await;
-        if !guard.by_id.contains_key(capability_id) {
-            return Err(CapabilityError::Backend(format!(
-                "capability not found: {capability_id}"
-            )));
+    async fn revoke(&self, capability_id: &Hash, reason: &str) -> Result<Hash> {
+        // Pull swarm_id from the existing capability before mutating; the
+        // revocation receipt is recorded against that swarm so observability
+        // for a multi-swarm CP is coherent.
+        let swarm_id = {
+            let guard = self.inner.read().await;
+            guard
+                .by_id
+                .get(capability_id)
+                .ok_or_else(|| {
+                    CapabilityError::Backend(format!("capability not found: {capability_id}"))
+                })?
+                .swarm_id
+        };
+
+        {
+            let mut guard = self.inner.write().await;
+            guard
+                .revoked
+                .insert(capability_id.clone(), reason.to_string());
         }
-        guard
-            .revoked
-            .insert(capability_id.clone(), reason.to_string());
-        Ok(())
+
+        self.record_revoke(capability_id, swarm_id, reason).await
     }
 
     async fn lookup(&self, capability_id: &Hash) -> Result<Option<Capability>> {
@@ -208,11 +341,13 @@ impl CapabilityStore for MemoryCapabilityStore {
         &self,
         capability_id: &Hash,
         descriptor: &ActionDescriptor,
-    ) -> Result<CheckOutcome> {
-        let outcome_and_swarm = self.check_inner(capability_id, descriptor).await?;
-        self.record_check(&outcome_and_swarm.0, descriptor, outcome_and_swarm.1)
-            .await?;
-        Ok(outcome_and_swarm.0)
+    ) -> Result<CheckEvaluation> {
+        let (outcome, swarm_id) = self.check_inner(capability_id, descriptor).await?;
+        let check_receipt = self.record_check(&outcome, descriptor, swarm_id).await?;
+        Ok(CheckEvaluation {
+            outcome,
+            check_receipt,
+        })
     }
 }
 
@@ -405,10 +540,10 @@ mod tests {
     async fn issue_then_check_pass_emits_receipt() {
         let (store, receipts, swarm) = harness().await;
         let cap = root_cap(Scope::for_action("send_message"), swarm);
-        let id = store.issue(cap).await.unwrap();
-        let outcome = store
+        let issued = store.issue(cap).await.unwrap();
+        let eval = store
             .check(
-                &id,
+                &issued.capability_id,
                 &ActionDescriptor {
                     action_kind: "send_message".into(),
                     ..Default::default()
@@ -416,12 +551,53 @@ mod tests {
             )
             .await
             .unwrap();
-        assert!(outcome.permitted);
+        assert!(eval.outcome.permitted);
+
+        // Issuance receipt + check receipt both landed.
+        let issue_page = receipts
+            .query(
+                yutha_receipt::Query::ByActionKind(yutha_receipt::ActionKindQuery {
+                    action_kind: "capability.issue".into(),
+                }),
+                None,
+            )
+            .await
+            .unwrap();
+        assert_eq!(issue_page.receipts.len(), 1);
+
+        let check_page = receipts
+            .query(
+                yutha_receipt::Query::ByActionKind(yutha_receipt::ActionKindQuery {
+                    action_kind: "capability.check.pass".into(),
+                }),
+                None,
+            )
+            .await
+            .unwrap();
+        assert_eq!(check_page.receipts.len(), 1);
+    }
+
+    #[tokio::test]
+    async fn deny_emits_check_deny_receipt() {
+        let (store, receipts, swarm) = harness().await;
+        let cap = root_cap(Scope::for_action("send_message"), swarm);
+        let issued = store.issue(cap).await.unwrap();
+        let eval = store
+            .check(
+                &issued.capability_id,
+                &ActionDescriptor {
+                    action_kind: "exfiltrate".into(),
+                    ..Default::default()
+                },
+            )
+            .await
+            .unwrap();
+        assert!(!eval.outcome.permitted);
 
         let page = receipts
             .query(
                 yutha_receipt::Query::ByActionKind(yutha_receipt::ActionKindQuery {
-                    action_kind: "capability.check.pass".into(),
+                    action_kind: "capability.check.deny".into(),
                 }),
                 None,
             )
@@ -431,26 +607,20 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn deny_emits_check_deny_receipt() {
+    async fn revoke_emits_capability_revoke_receipt() {
         let (store, receipts, swarm) = harness().await;
         let cap = root_cap(Scope::for_action("send_message"), swarm);
-        let id = store.issue(cap).await.unwrap();
-        let outcome = store
-            .check(
-                &id,
-                &ActionDescriptor {
-                    action_kind: "exfiltrate".into(),
-                    ..Default::default()
-                },
-            )
+        let issued = store.issue(cap).await.unwrap();
+        let receipt_id = store
+            .revoke(&issued.capability_id, "scaffolding test")
             .await
             .unwrap();
-        assert!(!outcome.permitted);
+        assert_eq!(receipt_id.digest.len(), 32, "sha256 digest");
 
         let page = receipts
             .query(
                 yutha_receipt::Query::ByActionKind(yutha_receipt::ActionKindQuery {
-                    action_kind: "capability.check.deny".into(),
+                    action_kind: "capability.revoke".into(),
                 }),
                 None,
             )

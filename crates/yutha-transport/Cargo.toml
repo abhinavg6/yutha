@@ -19,6 +19,12 @@ yutha-passport.workspace = true
 
 async-trait.workspace = true
 tokio = { workspace = true, features = ["sync", "rt", "time"] }
+# `futures::stream::BoxStream` for Transport::subscribe's return type.
+# Already in the workspace deps from the gRPC stack.
+futures.workspace = true
+# `tokio_stream::wrappers::ReceiverStream` wraps an mpsc::Receiver into a
+# `Stream` for the Subscribe implementation in MemoryTransport.
+tokio-stream = "0.1"
 thiserror.workspace = true
 tracing.workspace = true
 serde = { workspace = true, optional = true }

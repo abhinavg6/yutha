@@ -57,6 +57,26 @@ pub mod topology {
     }
 }
 
+/// `yutha.control_plane.v1` — gRPC services (Admission, Capability,
+/// Envelope, Receipt) and the AgentBearerToken auth shape.
+///
+/// Unlike the other modules, this one also exports server + client stubs
+/// via tonic. The server traits (`*_server::*`) are what `yutha-control-plane`
+/// implements; the client structs (`*_client::*`) are what SDKs use.
+pub mod control_plane {
+    pub mod v1 {
+        include!(concat!(env!("OUT_DIR"), "/yutha.control_plane.v1.rs"));
+    }
+}
+
+/// Serialized [FileDescriptorSet][fds] covering every proto compiled by
+/// this crate. The control plane uses this to back the gRPC reflection
+/// service so `grpcurl <addr> list` works against any deployment without
+/// shipping `.proto` files separately.
+///
+/// [fds]: https://protobuf.dev/reference/descriptor/
+pub const FILE_DESCRIPTOR_SET: &[u8] = include_bytes!(env!("YUTHA_FILE_DESCRIPTOR_SET"));
+
 /// Re-export `prost::Message` so consumers don't need a separate `prost`
 /// dependency just to call `.encode_to_vec()` on generated types.
 pub use prost::Message;

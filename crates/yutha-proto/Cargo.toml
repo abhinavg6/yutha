@@ -12,8 +12,18 @@ readme = "README.md"
 
 [dependencies]
 prost.workspace = true
+# tonic exports the generated gRPC service traits for `service` blocks in
+# `/spec/control-plane/v1.proto`. The other proto files don't declare
+# services and produce prost-only types; including tonic here doesn't
+# change their generated code.
+tonic.workspace = true
 
 [build-dependencies]
-prost-build.workspace = true
+# tonic-build is a superset of prost-build: it emits the same prost types
+# AND additional service stubs when the proto declares `service` blocks.
+# Files without services compile identically under either; we use the
+# superset uniformly so future protos that grow services don't need a
+# build.rs change.
+tonic-build.workspace = true
 # Bundled protoc binary so contributors don't need a system install.
 protoc-bin-vendored = "3.1"

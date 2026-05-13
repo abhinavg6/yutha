@@ -1,8 +1,7 @@
 //! Conversions between ergonomic [`yutha-receipt`](crate) types and the
 //! prost-generated wire types in `yutha-proto`.
 //!
-//! These conversions are deliberately one-way (ergonomic → proto). The proto
-//! types are used for two things and two things only:
+//! The forward direction (ergonomic → proto) is used in two hot paths:
 //!
 //! 1. **Content addressing.** [`Receipt::canonical_bytes`](crate::Receipt)
 //!    encodes a proto representation with all signatures cleared and the
@@ -10,8 +9,12 @@
 //! 2. **Signing.** The same canonical bytes are what the actor (and any
 //!    countersigners) sign.
 //!
-//! We do not currently decode proto → ergonomic types in any hot path; if a
-//! use case emerges, those conversions will live here too.
+//! The reverse direction (proto → ergonomic) is used by the control-plane
+//! gRPC handlers: requests arrive as proto, and the handlers decode them into
+//! ergonomic types before calling the [`ReceiptStore`](crate::ReceiptStore).
+//! Reverse conversions are fallible (`TryFrom`) because the wire shape carries
+//! `Option<T>` for nested messages and unknown enum variants that the
+//! ergonomic types reject up front.
 //!
 //! ## Determinism
 //!
@@ -22,7 +25,13 @@
 //! prost's tag-sorted field encoding and our explicit zeroing of seal/signature
 //! state during canonicalization, this gives a deterministic canonical form.
 
-use crate::{Evidence, Receipt, SealState, SealStatus, SignatureRole, SignedBy};
+use crate::{
+    query::{ActionKindQuery, AgentQuery, PredecessorQuery, Query, TimeRangeQuery},
+    Evidence, Receipt, ReceiptError, SealState, SealStatus, SignatureRole, SignedBy,
+};
+use yutha_core::{
+    AgentId, CausalRef, CostAnnotation, Hash, Signature, SpecVersion, SwarmId, Timestamp,
+};
 use yutha_proto::receipt::v1 as proto;
 
 // -----------------------------------------------------------------------------
@@ -155,6 +164,267 @@ impl Receipt {
     }
 }
 
+// =============================================================================
+// REVERSE: proto → ergonomic
+// =============================================================================
+//
+// All reverse conversions are fallible because:
+// - proto3 makes every nested message Option<T>; required fields must be
+//   present.
+// - Unknown enum values (e.g. SIGNATURE_ROLE_UNKNOWN) are rejected: a peer
+//   that doesn't understand a role should not silently coerce to one we do.
+// - yutha-core's typed wrappers (AgentId, Hash, Signature, …) enforce their
+//   own validation on bytes.
+
+/// Helper: turn a required-but-missing proto field into a structured error.
+///
+/// Returns a [`CoreError::Validation`] wrapped through `ReceiptError::Core`
+/// (the `#[from]` impl handles the wrap). Both map to `INVALID_ARGUMENT`
+/// when surfaced via the gRPC error layer, and the message is the same
+/// shape regardless of whether the conversion was for a Receipt, a Query,
+/// or any nested message.
+fn missing(field: &'static str) -> ReceiptError {
+    ReceiptError::Core(yutha_core::CoreError::validation(format!(
+        "required field missing: {field}"
+    )))
+}
+
+// -----------------------------------------------------------------------------
+// SignatureRole
+// -----------------------------------------------------------------------------
+
+impl TryFrom<i32> for SignatureRole {
+    type Error = ReceiptError;
+
+    /// Map a wire i32 to the ergonomic enum. Rejects UNKNOWN (0) and any
+    /// out-of-range value the spec hasn't allocated. Receipts whose role
+    /// we can't interpret are signature-failures from this layer's POV.
+    fn try_from(v: i32) -> Result<Self, Self::Error> {
+        // Match on the proto enum's i32 constants rather than re-deriving
+        // numbers; if the .proto changes wire numbers, this catches it.
+        match proto::SignatureRole::try_from(v).map_err(|_| ReceiptError::SignatureFailed {
+            detail: format!("unknown signature role: {v}"),
+        })? {
+            proto::SignatureRole::Unknown => Err(ReceiptError::SignatureFailed {
+                detail: "signature role unset (UNKNOWN)".into(),
+            }),
+            proto::SignatureRole::Actor => Ok(SignatureRole::Actor),
+            proto::SignatureRole::ControlPlane => Ok(SignatureRole::ControlPlane),
+            proto::SignatureRole::Supervisor => Ok(SignatureRole::Supervisor),
+            proto::SignatureRole::Attestation => Ok(SignatureRole::Attestation),
+            proto::SignatureRole::BatchRoot => Ok(SignatureRole::BatchRoot),
+        }
+    }
+}
+
+// -----------------------------------------------------------------------------
+// SignedBy
+// -----------------------------------------------------------------------------
+
+impl TryFrom<&proto::SignedBy> for SignedBy {
+    type Error = ReceiptError;
+
+    fn try_from(p: &proto::SignedBy) -> Result<Self, Self::Error> {
+        let role = SignatureRole::try_from(p.role)?;
+        let signature =
+            Signature::try_from(p.signature.as_ref().ok_or_else(|| missing("signature"))?)?;
+        let signed_at =
+            Timestamp::try_from(p.signed_at.as_ref().ok_or_else(|| missing("signed_at"))?)?;
+        Ok(SignedBy {
+            role,
+            signature,
+            signed_at,
+        })
+    }
+}
+
+// -----------------------------------------------------------------------------
+// Evidence
+// -----------------------------------------------------------------------------
+
+impl From<&proto::Evidence> for Evidence {
+    /// Evidence has no required nested messages or enums — every field is a
+    /// plain scalar. So `From` (infallible) is fine here.
+    fn from(p: &proto::Evidence) -> Self {
+        Evidence {
+            key: p.key.clone(),
+            type_url: p.type_url.clone(),
+            value: p.value.clone(),
+            sensitive: p.sensitive,
+        }
+    }
+}
+
+// -----------------------------------------------------------------------------
+// SealStatus
+// -----------------------------------------------------------------------------
+
+impl TryFrom<i32> for SealState {
+    type Error = ReceiptError;
+
+    fn try_from(v: i32) -> Result<Self, Self::Error> {
+        match proto::seal_status::State::try_from(v)
+            .map_err(|_| ReceiptError::InvalidQuery(format!("unknown seal state: {v}")))?
+        {
+            proto::seal_status::State::SealStateUnknown => {
+                // Default-zero on the wire — treat as unsealed for backward
+                // compatibility with producers that don't set the field.
+                Ok(SealState::Unsealed)
+            }
+            proto::seal_status::State::SealStateUnsealed => Ok(SealState::Unsealed),
+            proto::seal_status::State::SealStateSealed => Ok(SealState::Sealed),
+        }
+    }
+}
+
+impl TryFrom<&proto::SealStatus> for SealStatus {
+    type Error = ReceiptError;
+
+    fn try_from(p: &proto::SealStatus) -> Result<Self, Self::Error> {
+        let state = SealState::try_from(p.state)?;
+        let batch_root = p.batch_root.as_ref().map(Hash::try_from).transpose()?;
+        let merkle_path = p
+            .merkle_path
+            .iter()
+            .map(Hash::try_from)
+            .collect::<Result<Vec<_>, _>>()?;
+        let sealed_at = p.sealed_at.as_ref().map(Timestamp::try_from).transpose()?;
+        Ok(SealStatus {
+            state,
+            batch_root,
+            merkle_path,
+            sealed_at,
+        })
+    }
+}
+
+// -----------------------------------------------------------------------------
+// Receipt
+// -----------------------------------------------------------------------------
+
+impl TryFrom<&proto::Receipt> for Receipt {
+    type Error = ReceiptError;
+
+    fn try_from(p: &proto::Receipt) -> Result<Self, Self::Error> {
+        let spec_version = SpecVersion::try_from(
+            p.spec_version
+                .as_ref()
+                .ok_or_else(|| missing("spec_version"))?,
+        )?;
+        let swarm_id = SwarmId::try_from(p.swarm_id.as_ref().ok_or_else(|| missing("swarm_id"))?)?;
+        let actor = AgentId::try_from(p.actor.as_ref().ok_or_else(|| missing("actor"))?)?;
+        // `causal` is a message in the proto; ergonomic CausalRef defaults to
+        // empty when not present (e.g. genesis receipts).
+        let causal = p
+            .causal
+            .as_ref()
+            .map(CausalRef::try_from)
+            .transpose()?
+            .unwrap_or_default();
+        let evidence = p.evidence.iter().map(Evidence::from).collect();
+        let cost = p.cost.as_ref().map(CostAnnotation::try_from).transpose()?;
+        let occurred_at = Timestamp::try_from(
+            p.occurred_at
+                .as_ref()
+                .ok_or_else(|| missing("occurred_at"))?,
+        )?;
+        let seal = p
+            .seal
+            .as_ref()
+            .map(SealStatus::try_from)
+            .transpose()?
+            .unwrap_or_default();
+        let signatures = p
+            .signatures
+            .iter()
+            .map(SignedBy::try_from)
+            .collect::<Result<Vec<_>, _>>()?;
+        Ok(Receipt {
+            spec_version,
+            swarm_id,
+            actor,
+            action_kind: p.action_kind.clone(),
+            causal,
+            evidence,
+            constitution_version: p.constitution_version.clone(),
+            cost,
+            occurred_at,
+            seal,
+            signatures,
+        })
+    }
+}
+
+// -----------------------------------------------------------------------------
+// Query
+// -----------------------------------------------------------------------------
+
+impl TryFrom<&proto::PredecessorQuery> for PredecessorQuery {
+    type Error = ReceiptError;
+    fn try_from(p: &proto::PredecessorQuery) -> Result<Self, Self::Error> {
+        Ok(PredecessorQuery {
+            predecessor: Hash::try_from(
+                p.predecessor
+                    .as_ref()
+                    .ok_or_else(|| missing("predecessor"))?,
+            )?,
+        })
+    }
+}
+
+impl TryFrom<&proto::AgentQuery> for AgentQuery {
+    type Error = ReceiptError;
+    fn try_from(p: &proto::AgentQuery) -> Result<Self, Self::Error> {
+        Ok(AgentQuery {
+            agent_id: AgentId::try_from(p.agent_id.as_ref().ok_or_else(|| missing("agent_id"))?)?,
+        })
+    }
+}
+
+impl TryFrom<&proto::ActionKindQuery> for ActionKindQuery {
+    type Error = ReceiptError;
+    fn try_from(p: &proto::ActionKindQuery) -> Result<Self, Self::Error> {
+        Ok(ActionKindQuery {
+            action_kind: p.action_kind.clone(),
+        })
+    }
+}
+
+impl TryFrom<&proto::TimeRangeQuery> for TimeRangeQuery {
+    type Error = ReceiptError;
+    fn try_from(p: &proto::TimeRangeQuery) -> Result<Self, Self::Error> {
+        Ok(TimeRangeQuery {
+            from: Timestamp::try_from(p.from.as_ref().ok_or_else(|| missing("from"))?)?,
+            to: Timestamp::try_from(p.to.as_ref().ok_or_else(|| missing("to"))?)?,
+        })
+    }
+}
+
+impl TryFrom<&proto::QueryRequest> for Query {
+    type Error = ReceiptError;
+
+    /// Decode the `oneof by` selector into the ergonomic [`Query`] enum.
+    /// Returns `InvalidQuery` if the selector is empty (the client sent a
+    /// `QueryRequest` with no variant set).
+    ///
+    /// Note that `limit` and `page_token` on the proto are *not* part of
+    /// [`Query`]; the caller threads them through separately so the trait
+    /// signature stays focused on "what to look up" vs. "how to paginate".
+    fn try_from(p: &proto::QueryRequest) -> Result<Self, Self::Error> {
+        use proto::query_request::By;
+        let by =
+            p.by.as_ref()
+                .ok_or_else(|| ReceiptError::InvalidQuery("query selector not set".into()))?;
+        match by {
+            By::ByReceiptId(h) => Ok(Query::ByReceiptId(Hash::try_from(h)?)),
+            By::ByPredecessor(q) => Ok(Query::ByPredecessor(PredecessorQuery::try_from(q)?)),
+            By::ByAgent(q) => Ok(Query::ByAgent(AgentQuery::try_from(q)?)),
+            By::ByActionKind(q) => Ok(Query::ByActionKind(ActionKindQuery::try_from(q)?)),
+            By::ByTime(q) => Ok(Query::ByTimeRange(TimeRangeQuery::try_from(q)?)),
+        }
+    }
+}
+
 // -----------------------------------------------------------------------------
 // Tests
 // -----------------------------------------------------------------------------
@@ -252,5 +522,146 @@ mod tests {
             let got: i32 = role.into();
             assert_eq!(got, expected);
         }
+    }
+
+    // -------------------------------------------------------------------------
+    // Reverse conversion tests (proto → ergonomic)
+    // -------------------------------------------------------------------------
+
+    #[test]
+    fn signature_role_reverse_known_values() {
+        assert_eq!(
+            SignatureRole::try_from(proto::SignatureRole::Actor as i32).unwrap(),
+            SignatureRole::Actor
+        );
+        assert_eq!(
+            SignatureRole::try_from(proto::SignatureRole::BatchRoot as i32).unwrap(),
+            SignatureRole::BatchRoot
+        );
+    }
+
+    #[test]
+    fn signature_role_reverse_unknown_rejected() {
+        // Wire value 0 (UNKNOWN) must not silently coerce to Actor.
+        let r = SignatureRole::try_from(proto::SignatureRole::Unknown as i32);
+        assert!(matches!(r, Err(ReceiptError::SignatureFailed { .. })));
+    }
+
+    #[test]
+    fn signature_role_reverse_out_of_range_rejected() {
+        // A value beyond the spec'd allocation — peer ahead of us. We
+        // surface, never silently coerce.
+        let r = SignatureRole::try_from(99);
+        assert!(matches!(r, Err(ReceiptError::SignatureFailed { .. })));
+    }
+
+    #[test]
+    fn receipt_round_trips_proto_to_ergonomic() {
+        let original = fixture();
+        // Need a signature so reverse-converting exercises that path too.
+        let mut original = original;
+        original.signatures.push(SignedBy::new(
+            SignatureRole::Actor,
+            Signature::new(SignatureAlgorithm::Ed25519, vec![0u8; 64], vec![0u8; 32]).unwrap(),
+            Timestamp::now(),
+        ));
+
+        let p: proto::Receipt = (&original).into();
+        let back = Receipt::try_from(&p).expect("reverse conversion should succeed");
+
+        // Spot-check the round-trip — full equality is intentionally not used
+        // because Timestamp's wall_clock field is a SystemTime conversion that
+        // can lose ns precision through proto's i64 nanos representation.
+        assert_eq!(back.action_kind, original.action_kind);
+        assert_eq!(back.constitution_version, original.constitution_version);
+        assert_eq!(back.actor, original.actor);
+        assert_eq!(back.swarm_id, original.swarm_id);
+        assert_eq!(back.evidence.len(), original.evidence.len());
+        assert_eq!(back.evidence[0].key, original.evidence[0].key);
+        assert_eq!(back.signatures.len(), 1);
+        assert_eq!(back.signatures[0].role, SignatureRole::Actor);
+    }
+
+    #[test]
+    fn receipt_missing_actor_rejected() {
+        let r = fixture();
+        let mut p: proto::Receipt = (&r).into();
+        p.actor = None;
+        let err = Receipt::try_from(&p).unwrap_err();
+        // Missing-required-field is reported as a CoreError::Validation
+        // wrapped in ReceiptError::Core; both surface as INVALID_ARGUMENT
+        // at the gRPC boundary.
+        assert!(matches!(err, ReceiptError::Core(_)), "got: {err:?}");
+        assert!(err.to_string().contains("actor"), "got: {err}");
+    }
+
+    #[test]
+    fn seal_state_unknown_maps_to_unsealed() {
+        // Wire-default 0 must not block round-tripping receipts where the
+        // producer never set seal state; treat as Unsealed.
+        let s = SealState::try_from(proto::seal_status::State::SealStateUnknown as i32).unwrap();
+        assert_eq!(s, SealState::Unsealed);
+    }
+
+    #[test]
+    fn seal_state_out_of_range_rejected() {
+        let r = SealState::try_from(99);
+        assert!(matches!(r, Err(ReceiptError::InvalidQuery(_))));
+    }
+
+    #[test]
+    fn query_request_by_receipt_id_decodes() {
+        use yutha_core::HashAlgorithm;
+        let h = yutha_core::Hash::new(HashAlgorithm::Sha256, vec![0xab; 32]).unwrap();
+        let p = proto::QueryRequest {
+            by: Some(proto::query_request::By::ByReceiptId((&h).into())),
+            limit: 0,
+            page_token: vec![],
+        };
+        let q = Query::try_from(&p).unwrap();
+        match q {
+            Query::ByReceiptId(decoded) => assert_eq!(decoded, h),
+            _ => panic!("wrong variant"),
+        }
+    }
+
+    #[test]
+    fn query_request_by_action_kind_decodes() {
+        let p = proto::QueryRequest {
+            by: Some(proto::query_request::By::ByActionKind(
+                proto::ActionKindQuery {
+                    action_kind: "envelope.send".into(),
+                },
+            )),
+            limit: 0,
+            page_token: vec![],
+        };
+        let q = Query::try_from(&p).unwrap();
+        match q {
+            Query::ByActionKind(akq) => assert_eq!(akq.action_kind, "envelope.send"),
+            _ => panic!("wrong variant"),
+        }
+    }
+
+    #[test]
+    fn query_request_empty_selector_rejected() {
+        let p = proto::QueryRequest {
+            by: None,
+            limit: 0,
+            page_token: vec![],
+        };
+        let r = Query::try_from(&p);
+        assert!(matches!(r, Err(ReceiptError::InvalidQuery(_))));
+    }
+
+    #[test]
+    fn evidence_round_trips() {
+        let e = Evidence::sensitive("input_payload", "type.yutha.dev/v1/Bytes", vec![1, 2, 3]);
+        let p: proto::Evidence = (&e).into();
+        let back: Evidence = (&p).into();
+        assert_eq!(back.key, e.key);
+        assert_eq!(back.type_url, e.type_url);
+        assert_eq!(back.value, e.value);
+        assert_eq!(back.sensitive, e.sensitive);
     }
 }

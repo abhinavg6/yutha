@@ -31,6 +31,24 @@ ignore = [
     { id = "RUSTSEC-2026-0098", reason = "URI name constraints — rustls-webpki does not expose URI-name assertion APIs and we do not use them in our S3 client paths." },
     { id = "RUSTSEC-2026-0099", reason = "Wildcard + DNS name-constraint interaction — we do not author name-constrained certificates; S3 endpoints use standard *.s3.amazonaws.com wildcard certs without name-constraint subtrees." },
     { id = "RUSTSEC-2026-0104", reason = "CRL parsing panic — we do not parse certificate revocation lists in any code path." },
+    # rustls-webpki 0.102.x (RUSTSEC-2026-0049, CRL distribution-point
+    # matching). Pulled in transitively via tonic 0.11 → tokio-rustls
+    # 0.25 → rustls 0.22 → rustls-webpki 0.102. We don't issue or parse
+    # CRLs anywhere; the only TLS code path is mTLS for the control-plane
+    # gRPC server, where operators supply a client CA bundle without CRL
+    # distribution points. The advisory itself notes "limited impact —
+    # an attacker would need to compromise a trusted issuing authority";
+    # in that scenario they could bypass revocation checking through
+    # other more impactful means. Fix lands when we bump tonic 0.11 →
+    # 0.12 (requires bumping prost 0.12 → 0.13 too — planned but not
+    # this commit).
+    { id = "RUSTSEC-2026-0049", reason = "rustls-webpki CRL distribution-point matching bug; we don't parse CRLs (mTLS uses operator-provisioned client CAs without distribution points). Fix arrives with tonic 0.12 / prost 0.13 bump." },
+    # rustls-pemfile 2.2.0 (RUSTSEC-2025-0134) is *unmaintained*, not
+    # vulnerable. The crate is described in its own advisory as "a thin
+    # wrapper around the same code used in rustls-pki-types" — there's
+    # no behavioral problem to patch. Pulled in transitively via
+    # tonic 0.11 → rustls-native-certs 0.7. Same bump-tonic fix path.
+    { id = "RUSTSEC-2025-0134", reason = "rustls-pemfile unmaintained (not vulnerable); transitive via tonic 0.11's rustls-native-certs. Resolves when we bump tonic." },
     # lru 0.12.5 (RUSTSEC-2026-0002, IterMut unsoundness). aws-sdk-s3
     # depends on lru non-optionally for its internal request-cache
     # machinery — so this is in the default-feature dep graph, not just

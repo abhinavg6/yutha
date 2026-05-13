@@ -1,0 +1,306 @@
+// Yutha control-plane gRPC API — the wire protocol between SDKs and the
+// control plane.
+//
+// Spec version: v1.0 draft
+// Status: open for RFC review
+// Owners: Workstream B (Control Plane), with Workstream D (SDKs)
+//
+// Depends on: /spec/common.proto, /spec/passport/passport-v1.proto,
+//             /spec/envelope/envelope-v1.proto, /spec/receipt/receipt-v1.proto,
+//             /spec/capability/capability-v1.proto,
+//             /spec/topology/topology-v1.proto
+// See: /spec/control-plane/rationale.md (forthcoming)
+//
+// Design notes:
+//
+// 1. The four services here are the *only* control-plane surface SDKs talk
+//    to. There is no out-of-band admin API; every operation that produces
+//    state change goes through one of these RPCs and produces a receipt.
+//
+// 2. Most request/response messages wrap the typed wire messages already
+//    defined in the other spec files. This keeps the gRPC layer thin and
+//    the canonical bytes contract authoritative.
+//
+// 3. Authentication is bearer-token-based (see `AgentBearerToken` below),
+//    carried in gRPC metadata (`authorization: bearer <hex>`). Operators
+//    may additionally enable mTLS at the transport layer; the two are
+//    orthogonal and complementary.
+
+syntax = "proto3";
+
+package yutha.control_plane.v1;
+
+import "common.proto";
+import "passport/passport-v1.proto";
+import "envelope/envelope-v1.proto";
+import "receipt/receipt-v1.proto";
+import "capability/capability-v1.proto";
+import "topology/topology-v1.proto";
+
+// ---------------------------------------------------------------------------
+// Authentication
+// ---------------------------------------------------------------------------
+
+// AgentBearerToken is the application-layer identity proof an SDK presents
+// to the control plane on every call. The agent mints these locally by
+// signing them with its passport private key; the control plane verifies
+// the signature against the agent's passport public key (resolved via the
+// registered passport store).
+//
+// Wire format on the gRPC `authorization` metadata header is:
+//   "bearer <hex-encoded-canonical-bytes>"
+// where the canonical bytes are computed by clearing `signature` and
+// encoding the rest with prost's deterministic encoding (same rule as
+// every other signed Yutha message).
+//
+// Tokens are short-lived (minutes, not days). The agent re-mints on
+// expiry; the SDK handles refresh transparently.
+message AgentBearerToken {
+  // The agent claiming this identity. MUST match the agent_id whose
+  // passport public key signs this token.
+  yutha.common.v1.AgentId agent_id = 1;
+
+  // The swarm this token is valid in. The control plane rejects tokens
+  // whose swarm_id doesn't match its own.
+  yutha.common.v1.SwarmId swarm_id = 2;
+
+  // When the token was minted.
+  yutha.common.v1.Timestamp issued_at = 3;
+
+  // When the token expires. Recommended ≤ 5 minutes for production;
+  // longer for local-dev convenience.
+  yutha.common.v1.Timestamp expires_at = 4;
+
+  // Random nonce; prevents identical tokens being indistinguishable in
+  // logs. 16 bytes from a CSPRNG.
+  bytes nonce = 5;
+
+  // Forward-compatibility hatch.
+  yutha.common.v1.Extensions extensions = 200;
+
+  // Signature over canonical_bytes(token with signature cleared), made
+  // with the agent's passport private key.
+  yutha.common.v1.Signature signature = 250;
+}
+
+// ---------------------------------------------------------------------------
+// AdmissionService — registry-facing operations
+// ---------------------------------------------------------------------------
+
+// AdmissionService handles agent lifecycle: register at swarm join,
+// rotate keys, revoke. Also exposes the swarm topology (immutable for
+// the swarm's lifetime — agents fetch it once and cache).
+service AdmissionService {
+  // Register an agent presenting a signed passport. The control plane
+  // verifies the passport's self-signature, evaluates admission policy
+  // against the topology, and (on accept) produces an `agent.register`
+  // receipt. The response carries the receipt id; the agent can fetch
+  // the receipt via ReceiptService.Get.
+  rpc Register(RegisterRequest) returns (RegisterResponse);
+
+  // Revoke an agent. The caller MUST be either the agent itself
+  // (self-revoke) or an operator-level identity. Produces an
+  // `agent.revoke` receipt.
+  rpc Revoke(RevokeRequest) returns (RevokeResponse);
+
+  // Rotate an agent's signing key. Produces an `agent.rotate_key`
+  // receipt. Future tokens / envelopes / capabilities signed by the
+  // agent MUST use the new key starting from the receipt's monotonic_ns.
+  rpc RotateKey(RotateKeyRequest) returns (RotateKeyResponse);
+
+  // Get the topology of the swarm this control plane manages. Topology
+  // is immutable for a swarm's lifetime; agents call this once at
+  // startup and cache the result.
+  rpc GetTopology(GetTopologyRequest) returns (GetTopologyResponse);
+}
+
+message RegisterRequest {
+  yutha.passport.v1.Passport passport = 1;
+}
+
+message RegisterResponse {
+  yutha.passport.v1.RegistrationResult result = 1;
+}
+
+message RevokeRequest {
+  yutha.common.v1.AgentId agent_id = 1;
+  // Free-form human reason for the revocation. Persisted in the
+  // receipt's evidence.
+  string reason = 2;
+}
+
+message RevokeResponse {
+  // Content-address of the `agent.revoke` receipt.
+  yutha.common.v1.Hash revocation_receipt = 1;
+}
+
+message RotateKeyRequest {
+  yutha.common.v1.AgentId agent_id = 1;
+  yutha.common.v1.PublicKey new_public_key = 2;
+  // Signature over (agent_id || new_public_key) made with the *old*
+  // private key, proving the rotation is authorized. The control plane
+  // verifies against the agent's *current* registered passport key
+  // before accepting.
+  yutha.common.v1.Signature authorization_signature = 3;
+}
+
+message RotateKeyResponse {
+  // Content-address of the `agent.rotate_key` receipt.
+  yutha.common.v1.Hash rotation_receipt = 1;
+}
+
+message GetTopologyRequest {}
+
+message GetTopologyResponse {
+  yutha.topology.v1.Topology topology = 1;
+}
+
+// ---------------------------------------------------------------------------
+// CapabilityService — issue, attenuate, revoke, check
+// ---------------------------------------------------------------------------
+
+service CapabilityService {
+  // Issue a new (root or attenuated) capability. Issuer authority is
+  // checked against the bearer token: operators can mint root caps;
+  // agents can attenuate from caps they hold.
+  rpc Issue(IssueCapabilityRequest) returns (IssueCapabilityResponse);
+
+  // Attenuate an existing capability into a more restricted child. The
+  // child's scope is intersected with the parent's, caveats are
+  // additive, and `valid_until` cannot exceed the parent's.
+  rpc Attenuate(AttenuateRequest) returns (AttenuateResponse);
+
+  // Revoke a capability. Effective immediately for the control plane's
+  // own checks; propagation to federation peers is on a TTL.
+  rpc Revoke(RevokeCapabilityRequest) returns (RevokeCapabilityResponse);
+
+  // Check whether a (capability, action) pair is permitted. Stateless,
+  // deterministic. Mostly used by SDKs for client-side pre-flight; the
+  // control plane still re-checks on every Send.
+  rpc Check(CheckRequest) returns (CheckResponse);
+}
+
+message IssueCapabilityRequest {
+  // Filled in except for `signatures`; the control plane signs and
+  // persists in one transaction.
+  yutha.capability.v1.Capability capability = 1;
+}
+
+message IssueCapabilityResponse {
+  // Content-address of the issued capability.
+  yutha.common.v1.Hash capability_id = 1;
+  // Content-address of the `capability.issue` receipt.
+  yutha.common.v1.Hash issuance_receipt = 2;
+}
+
+message AttenuateRequest {
+  // Re-uses the spec'd shape from /spec/capability/capability-v1.proto.
+  yutha.capability.v1.AttenuateRequest request = 1;
+}
+
+message AttenuateResponse {
+  yutha.capability.v1.AttenuateResponse response = 1;
+}
+
+message RevokeCapabilityRequest {
+  yutha.capability.v1.RevokeRequest request = 1;
+}
+
+message RevokeCapabilityResponse {
+  yutha.capability.v1.RevokeResponse response = 1;
+}
+
+message CheckRequest {
+  yutha.capability.v1.CheckRequest request = 1;
+}
+
+message CheckResponse {
+  yutha.capability.v1.CheckResponse response = 1;
+}
+
+// ---------------------------------------------------------------------------
+// EnvelopeService — typed messaging
+// ---------------------------------------------------------------------------
+
+service EnvelopeService {
+  // Submit a signed envelope for delivery. The control plane:
+  //   1. Verifies the envelope's actor signature against the agent's
+  //      registered passport public key.
+  //   2. Capability-checks the action (envelope.send) against the
+  //      agent's held capabilities.
+  //   3. Persists an `envelope.send` receipt.
+  //   4. Forwards to the recipient's subscribe stream (if any).
+  //   5. On successful delivery, persists an `envelope.deliver` receipt.
+  //
+  // The response carries the send-receipt id immediately; the
+  // deliver-receipt arrives asynchronously and can be polled via
+  // ReceiptService.Query.
+  rpc Send(SendEnvelopeRequest) returns (SendEnvelopeResponse);
+
+  // Subscribe to envelopes addressed to the calling agent. The stream
+  // stays open; envelopes arrive as they are delivered to the agent.
+  // Cancelling the stream means "I'm no longer subscribed" — the
+  // control plane stops forwarding and may buffer per the topology's
+  // delivery policy.
+  rpc Subscribe(SubscribeRequest) returns (stream SubscribedEnvelope);
+}
+
+message SendEnvelopeRequest {
+  yutha.envelope.v1.Envelope envelope = 1;
+}
+
+message SendEnvelopeResponse {
+  // Content-address of the `envelope.send` receipt produced by the
+  // control plane. The `envelope.deliver` receipt's content-address
+  // arrives asynchronously; query ReceiptService with the
+  // ByPredecessor variant on this send_receipt to find it.
+  yutha.common.v1.Hash send_receipt = 1;
+}
+
+message SubscribeRequest {
+  // Optional: only receive envelopes addressed to this agent. Defaults
+  // to the bearer-token's agent_id; an explicit value here MUST equal
+  // that agent_id or the stream is rejected.
+  yutha.common.v1.AgentId agent_id = 1;
+}
+
+message SubscribedEnvelope {
+  yutha.envelope.v1.Envelope envelope = 1;
+  // Content-address of the `envelope.deliver` receipt produced when
+  // this envelope was forwarded.
+  yutha.common.v1.Hash deliver_receipt = 2;
+}
+
+// ---------------------------------------------------------------------------
+// ReceiptService — read access to the audit log
+// ---------------------------------------------------------------------------
+
+service ReceiptService {
+  // Fetch a single receipt by content-address.
+  rpc Get(GetReceiptRequest) returns (GetReceiptResponse);
+
+  // Run a structured query against the receipt store. Supports the same
+  // query variants as the receipt store trait (by-id, by-predecessor,
+  // by-agent, by-action-kind, by-time-range), with keyset pagination
+  // via opaque page tokens.
+  rpc Query(QueryReceiptsRequest) returns (QueryReceiptsResponse);
+}
+
+message GetReceiptRequest {
+  yutha.common.v1.Hash receipt_id = 1;
+}
+
+message GetReceiptResponse {
+  yutha.receipt.v1.Receipt receipt = 1;
+}
+
+message QueryReceiptsRequest {
+  yutha.receipt.v1.QueryRequest query = 1;
+}
+
+message QueryReceiptsResponse {
+  repeated yutha.receipt.v1.Receipt receipts = 1;
+  // Opaque next-page cursor. Pass back on the next call to continue.
+  // Empty when the page is the last.
+  bytes next_page_token = 2;
+}

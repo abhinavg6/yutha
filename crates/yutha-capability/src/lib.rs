@@ -26,7 +26,7 @@ pub use error::{CapabilityError, Result};
 pub use issuer::{ControlPlaneIssuer, Issuer};
 pub use memory::MemoryCapabilityStore;
 pub use scope::Scope;
-pub use store::CapabilityStore;
+pub use store::{CapabilityStore, CheckEvaluation, IssuanceOutcome};
 
 /// Default maximum attenuation chain depth, per topology defaults.
 pub const DEFAULT_MAX_CHAIN_DEPTH: u32 = 8;

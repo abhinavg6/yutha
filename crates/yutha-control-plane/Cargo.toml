@@ -17,6 +17,7 @@ path = "src/main.rs"
 [dependencies]
 yutha-core.workspace = true
 yutha-crypto.workspace = true
+yutha-proto.workspace = true
 yutha-receipt.workspace = true
 yutha-passport.workspace = true
 yutha-capability.workspace = true
@@ -24,8 +25,24 @@ yutha-transport.workspace = true
 yutha-registry.workspace = true
 
 tokio = { workspace = true, features = ["rt-multi-thread", "macros", "signal", "time", "sync"] }
+tokio-stream = "0.1"
+# `futures::StreamExt::map` is what the EnvelopeService.Subscribe handler
+# uses to transform `Transport::subscribe`'s `(Envelope, Hash)` items into
+# the wire `SubscribedEnvelope` shape.
+futures.workspace = true
 async-trait.workspace = true
 thiserror.workspace = true
 tracing.workspace = true
 tracing-subscriber.workspace = true
 anyhow.workspace = true
+
+# gRPC server stack.
+tonic.workspace = true
+tonic-reflection.workspace = true
+prost.workspace = true
+
+# CLI.
+clap.workspace = true
+
+# Bearer-token wire framing.
+hex.workspace = true

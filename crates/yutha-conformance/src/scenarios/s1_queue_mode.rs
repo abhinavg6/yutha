@@ -230,10 +230,10 @@ pub async fn run_s1() -> S1Outcome {
         .valid_until(Timestamp::new("2099-01-01T00:00:00Z".into(), u64::MAX / 2).unwrap())
         .sign(&key)
         .unwrap();
-    let cap_id = capability_store.issue(capability).await.unwrap();
-    let check_outcome = capability_store
+    let issued = capability_store.issue(capability).await.unwrap();
+    let evaluation = capability_store
         .check(
-            &cap_id,
+            &issued.capability_id,
             &ActionDescriptor {
                 action_kind: "send_message".into(),
                 ..Default::default()
@@ -241,7 +241,7 @@ pub async fn run_s1() -> S1Outcome {
         )
         .await
         .unwrap();
-    assert!(check_outcome.permitted);
+    assert!(evaluation.outcome.permitted);
 
     // Revoke one agent (the returns role).
     let returns_id = agents[3].agent_id;
@@ -342,8 +342,8 @@ mod tests {
     #[tokio::test]
     async fn s1_queue_mode_runs_end_to_end() {
         let outcome = run_s1().await;
-        // 5 registrations, 4 envelope round-trips, 1 capability check,
-        // 1 revocation.
+        // 5 registrations, 4 envelope round-trips, 1 capability issuance
+        // + 1 capability check, 1 revocation.
         assert_eq!(outcome.agents_registered, 5);
         assert_eq!(outcome.register_receipts, 5);
         assert_eq!(outcome.envelopes_delivered, 4);
@@ -351,7 +351,8 @@ mod tests {
         assert_eq!(outcome.envelope_deliver_receipts, 4);
         assert_eq!(outcome.check_pass_receipts, 1);
         assert_eq!(outcome.revoke_receipts, 1);
-        // 5 + 4 + 4 + 1 + 1 = 15.
-        assert_eq!(outcome.total_receipts, 15);
+        // 5 register + 4 send + 4 deliver + 1 capability.issue (D-2d) +
+        // 1 check.pass + 1 revoke = 16.
+        assert_eq!(outcome.total_receipts, 16);
     }
 }

@@ -1,0 +1,23 @@
+# Python build / cache artifacts.
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Build outputs.
+build/
+dist/
+*.egg-info/
+.eggs/
+
+# Virtual envs.
+.venv/
+venv/
+env/
+
+# IDE.
+.vscode/
+.idea/

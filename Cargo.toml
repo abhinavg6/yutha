@@ -58,9 +58,21 @@ prost-build = "0.12"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 
+# gRPC stack. tonic 0.11 pairs with prost 0.12; tonic-build wraps prost-build
+# and generates the additional service stubs from proto `service` blocks.
+# `tls-roots` brings in webpki-roots so server TLS works without manual CA
+# config; mTLS is enabled at runtime via tonic::transport::ServerTlsConfig.
+tonic = { version = "0.11", features = ["transport", "tls", "tls-roots"] }
+tonic-build = "0.11"
+tonic-reflection = "0.11"
+
 # Error handling.
 thiserror = "1.0"
 anyhow = "1.0"
+
+# Hex encode/decode — used for bearer-token wire framing (the
+# `authorization: bearer <hex>` header on the gRPC metadata).
+hex = "0.4"
 
 # Identifiers.
 uuid = { version = "1.8", features = ["v7"] }
@@ -71,6 +83,10 @@ time = { version = "0.3", features = ["formatting", "parsing", "macros"] }
 # Logging.
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+# CLI parsing — used by binary crates that take command-line flags
+# (yutha-control-plane).
+clap = { version = "4.5", features = ["derive", "env"] }
 
 # Storage backends (used by /backends crates).
 #

@@ -165,7 +165,7 @@ impl Registry for MemoryRegistry {
         Ok(outcome)
     }
 
-    async fn revoke(&self, agent_id: &AgentId, reason: &str) -> Result<()> {
+    async fn revoke(&self, agent_id: &AgentId, reason: &str) -> Result<yutha_core::Hash> {
         // Revoke in the passport store first, then record the receipt. If
         // the passport doesn't exist, the revoke errors and no receipt is
         // produced.
@@ -186,10 +186,15 @@ impl Registry for MemoryRegistry {
                 ),
             ],
         )?;
-        self.receipts
+        let outcome = self
+            .receipts
             .append(receipt, AppendOptions::default(), self.resolver.as_ref())
             .await?;
-        Ok(())
+        Ok(outcome.receipt_id)
+    }
+
+    fn topology(&self) -> &Topology {
+        &self.topology
     }
 
     async fn rotate_key(&self, new_passport: Passport) -> Result<RegistrationOutcome> {

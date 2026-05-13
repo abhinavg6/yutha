@@ -1,11 +1,17 @@
 //! Conversions between ergonomic [`yutha-transport`](crate) types and the
 //! prost-generated wire types in `yutha-proto`.
 //!
-//! Same pattern as `yutha-receipt::proto_conv` and `yutha-passport::proto_conv`:
-//! ergonomic → proto, one way. Used for content-addressing and signature
-//! verification through [`Envelope::to_canonical_proto`].
+//! The forward direction (ergonomic → proto) is used for content-addressing
+//! and signature verification through [`Envelope::to_canonical_proto`].
+//!
+//! The reverse direction (proto → ergonomic) is used by
+//! `EnvelopeService.Send` to decode an incoming envelope payload and by
+//! `EnvelopeService.Subscribe` to encode an outbound envelope back to the
+//! wire for the streaming client. Reverse is fallible because of proto3
+//! `Option<T>` nesting and unknown enum / oneof values.
 
-use crate::{Envelope, ExternalEndpoint, Performative, Recipient, SwarmBroadcast};
+use crate::{Envelope, ExternalEndpoint, Performative, Recipient, SwarmBroadcast, TransportError};
+use yutha_core::{AgentId, CausalRef, CoreError, Hash, Signature, SpecVersion, SwarmId, Timestamp};
 use yutha_proto::envelope::v1 as proto;
 
 // -----------------------------------------------------------------------------
@@ -103,6 +109,146 @@ impl Envelope {
     }
 }
 
+// =============================================================================
+// REVERSE: proto → ergonomic
+// =============================================================================
+
+/// Helper: required-but-missing proto field, mapped via
+/// `TransportError::Core(CoreError::Validation)` so gRPC sees
+/// `INVALID_ARGUMENT`.
+fn missing(field: &'static str) -> TransportError {
+    TransportError::Core(CoreError::validation(format!(
+        "required field missing: {field}"
+    )))
+}
+
+// -----------------------------------------------------------------------------
+// Performative
+// -----------------------------------------------------------------------------
+
+impl TryFrom<i32> for Performative {
+    type Error = TransportError;
+
+    /// Map a wire i32 to the ergonomic enum. Rejects 0 (UNKNOWN) and any
+    /// out-of-range value — peers ahead of us in spec versioning must
+    /// surface, never silently coerce. (See spec rationale §3 on
+    /// performative versioning.)
+    //
+    // NOTE: the return type uses the fully-qualified
+    // `<Self as TryFrom<i32>>::Error` rather than `Self::Error`. The
+    // `Performative` enum has a variant named `Error` (one of the spec's
+    // 11 performatives) which would otherwise shadow the `TryFrom::Error`
+    // associated type in scope. The compiler errors on
+    // ambiguous_associated_items if we use the short form.
+    fn try_from(v: i32) -> Result<Self, <Self as TryFrom<i32>>::Error> {
+        Performative::from_wire(v).ok_or_else(|| {
+            TransportError::Core(CoreError::validation(format!(
+                "unknown performative wire value: {v}"
+            )))
+        })
+    }
+}
+
+// -----------------------------------------------------------------------------
+// SwarmBroadcast / ExternalEndpoint
+// -----------------------------------------------------------------------------
+
+impl From<&proto::SwarmBroadcast> for SwarmBroadcast {
+    fn from(p: &proto::SwarmBroadcast) -> Self {
+        SwarmBroadcast {
+            filter_tags: p.filter_tags.clone(),
+        }
+    }
+}
+
+impl From<&proto::ExternalEndpoint> for ExternalEndpoint {
+    fn from(p: &proto::ExternalEndpoint) -> Self {
+        ExternalEndpoint {
+            scheme: p.scheme.clone(),
+            authority: p.authority.clone(),
+            path_hint: p.path_hint.clone(),
+        }
+    }
+}
+
+// -----------------------------------------------------------------------------
+// Recipient (oneof)
+// -----------------------------------------------------------------------------
+
+impl TryFrom<&proto::Recipient> for Recipient {
+    type Error = TransportError;
+    fn try_from(p: &proto::Recipient) -> Result<Self, Self::Error> {
+        use proto::recipient::To;
+        let to = p.to.as_ref().ok_or_else(|| missing("recipient.to"))?;
+        Ok(match to {
+            To::Agent(id) => Recipient::Agent(AgentId::try_from(id)?),
+            To::Role(role) => Recipient::Role(role.clone()),
+            To::Swarm(b) => Recipient::Swarm(b.into()),
+            To::External(e) => Recipient::External(e.into()),
+        })
+    }
+}
+
+// -----------------------------------------------------------------------------
+// Envelope
+// -----------------------------------------------------------------------------
+
+impl TryFrom<&proto::Envelope> for Envelope {
+    type Error = TransportError;
+
+    /// Decode a `proto::Envelope` into the ergonomic [`Envelope`].
+    ///
+    /// Does NOT verify the agent signature; callers should use
+    /// [`Envelope::verify_signature`] (or push through the transport,
+    /// which verifies as part of admission).
+    fn try_from(p: &proto::Envelope) -> Result<Self, Self::Error> {
+        let spec_version = SpecVersion::try_from(
+            p.spec_version
+                .as_ref()
+                .ok_or_else(|| missing("spec_version"))?,
+        )?;
+        let swarm_id = SwarmId::try_from(p.swarm_id.as_ref().ok_or_else(|| missing("swarm_id"))?)?;
+        let from_agent =
+            AgentId::try_from(p.from_agent.as_ref().ok_or_else(|| missing("from_agent"))?)?;
+        let recipient =
+            Recipient::try_from(p.recipient.as_ref().ok_or_else(|| missing("recipient"))?)?;
+        let performative = Performative::try_from(p.performative)?;
+        let causal = p
+            .causal
+            .as_ref()
+            .map(CausalRef::try_from)
+            .transpose()?
+            .unwrap_or_default();
+        let sent_at = Timestamp::try_from(p.sent_at.as_ref().ok_or_else(|| missing("sent_at"))?)?;
+        let expires_at = p.expires_at.as_ref().map(Timestamp::try_from).transpose()?;
+        let in_reply_to = p.in_reply_to.as_ref().map(Hash::try_from).transpose()?;
+        let agent_signature = p
+            .agent_signature
+            .as_ref()
+            .map(Signature::try_from)
+            .transpose()?;
+
+        Ok(Envelope {
+            spec_version,
+            swarm_id,
+            envelope_id: p.envelope_id.clone(),
+            from_agent,
+            recipient,
+            performative,
+            payload: p.payload.clone(),
+            payload_schema_id: p.payload_schema_id.clone(),
+            tags: p.tags.clone(),
+            causal,
+            nonce: p.nonce.clone(),
+            epoch: p.epoch,
+            sent_at,
+            expires_at,
+            in_reply_to,
+            agent_signature,
+        })
+    }
+}
+
 // -----------------------------------------------------------------------------
 // Tests
 // -----------------------------------------------------------------------------
@@ -195,5 +341,84 @@ mod tests {
         ] {
             assert_eq!(<Performative as Into<i32>>::into(p), p.to_wire());
         }
+    }
+
+    // -------------------------------------------------------------------------
+    // Reverse conversion tests (proto → ergonomic)
+    // -------------------------------------------------------------------------
+
+    #[test]
+    fn envelope_round_trips_proto_to_ergonomic() {
+        let original = signed_fixture();
+        let p: proto::Envelope = (&original).into();
+        let back = Envelope::try_from(&p).expect("reverse should succeed");
+
+        assert_eq!(back.swarm_id, original.swarm_id);
+        assert_eq!(back.from_agent, original.from_agent);
+        assert_eq!(back.performative, original.performative);
+        assert_eq!(back.payload, original.payload);
+        assert_eq!(back.tags, original.tags);
+        assert_eq!(back.envelope_id, original.envelope_id);
+        assert!(back.agent_signature.is_some());
+
+        // Verify the round-tripped envelope still passes signature verification.
+        // (Re-encoding through proto MUST preserve canonical bytes bytewise.)
+        // Note: we don't have the original signing key here, so we just
+        // check the structural round-trip; signature-verification tests
+        // exist elsewhere.
+    }
+
+    #[test]
+    fn envelope_missing_from_agent_rejected() {
+        let e = signed_fixture();
+        let mut p: proto::Envelope = (&e).into();
+        p.from_agent = None;
+        let err = Envelope::try_from(&p).unwrap_err();
+        assert!(matches!(err, TransportError::Core(_)));
+        assert!(err.to_string().contains("from_agent"));
+    }
+
+    #[test]
+    fn envelope_unknown_performative_rejected() {
+        let e = signed_fixture();
+        let mut p: proto::Envelope = (&e).into();
+        p.performative = 0; // UNKNOWN
+        let err = Envelope::try_from(&p).unwrap_err();
+        assert!(matches!(err, TransportError::Core(_)));
+        assert!(err.to_string().contains("performative"));
+    }
+
+    #[test]
+    fn recipient_oneof_reverse_handles_all_four_variants() {
+        let cases: Vec<Recipient> = vec![
+            Recipient::Agent(AgentId::new()),
+            Recipient::Role("supervisor".into()),
+            Recipient::Swarm(crate::SwarmBroadcast {
+                filter_tags: vec!["billing".into()],
+            }),
+            Recipient::External(crate::ExternalEndpoint {
+                scheme: "https".into(),
+                authority: "api.example.com".into(),
+                path_hint: "/v1/invoke".into(),
+            }),
+        ];
+        for r in cases {
+            let p: proto::Recipient = (&r).into();
+            let back = Recipient::try_from(&p).unwrap();
+            assert_eq!(back, r);
+        }
+    }
+
+    #[test]
+    fn recipient_missing_oneof_rejected() {
+        let p = proto::Recipient { to: None };
+        let err = Recipient::try_from(&p).unwrap_err();
+        assert!(matches!(err, TransportError::Core(_)));
+    }
+
+    #[test]
+    fn performative_reverse_rejects_unknown_and_out_of_range() {
+        assert!(Performative::try_from(0).is_err());
+        assert!(Performative::try_from(99).is_err());
     }
 }

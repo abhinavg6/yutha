@@ -10,6 +10,7 @@ pub mod admission;
 pub mod error;
 pub mod identity;
 pub mod memory;
+pub mod proto_conv;
 pub mod registry;
 pub mod sybil;
 pub mod topology;

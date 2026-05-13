@@ -10,12 +10,13 @@ use crate::envelope::Envelope;
 use crate::error::{Result, TransportError};
 use crate::recipient::Recipient;
 use crate::replay::ReplayProtection;
-use crate::transport::Transport;
+use crate::transport::{EnvelopeStream, Transport};
 use async_trait::async_trait;
 use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::{mpsc, Mutex, RwLock};
-use yutha_core::{AgentId, SpecVersion, Timestamp};
+use tokio_stream::wrappers::ReceiverStream;
+use yutha_core::{AgentId, Hash, SpecVersion, Timestamp};
 use yutha_crypto::canonical::{content_address, Canonical};
 use yutha_passport::ControlPlaneIdentity;
 use yutha_receipt::{
@@ -90,13 +91,14 @@ impl MemoryTransport {
     }
 
     /// Construct and append an envelope-related receipt, signed by the cp.
-    /// Used internally by send/receive on success and on rejection.
+    /// Used internally by send/receive on success. Returns the appended
+    /// receipt's content-address so callers can echo it on the wire.
     async fn record(
         &self,
         action_kind: &str,
         envelope: &Envelope,
         extra_evidence: Vec<Evidence>,
-    ) -> Result<()> {
+    ) -> Result<Hash> {
         let envelope_hash = content_address(envelope)?;
         let mut evidence = vec![
             Evidence::new(
@@ -148,10 +150,11 @@ impl MemoryTransport {
             .signatures
             .push(SignedBy::new(SignatureRole::Actor, sig, Timestamp::now()));
 
-        self.receipts
+        let outcome = self
+            .receipts
             .append(receipt, AppendOptions::default(), self.resolver.as_ref())
             .await?;
-        Ok(())
+        Ok(outcome.receipt_id)
     }
 
     fn recipient_kind(recipient: &Recipient) -> &'static str {
@@ -166,7 +169,7 @@ impl MemoryTransport {
 
 #[async_trait]
 impl Transport for MemoryTransport {
-    async fn send(&self, envelope: Envelope) -> Result<()> {
+    async fn send(&self, envelope: Envelope) -> Result<Hash> {
         // Replay protection (substrate-side; receipts not produced for
         // rejected sends since they didn't happen).
         self.replay.admit(&envelope, &Timestamp::now()).await?;
@@ -217,17 +220,16 @@ impl Transport for MemoryTransport {
         })?;
 
         // Produce envelope.send receipt now that delivery to the inbox
-        // succeeded. (Best-effort: a receipt failure here doesn't unsend
-        // the envelope; logged but not propagated to caller until the
-        // policy of "send fails if receipt append fails" is decided. For
-        // the scaffold, propagate the error.)
-        self.record(
-            "envelope.send",
-            &envelope_for_receipt,
-            vec![to_evidence, kind_evidence],
-        )
-        .await?;
-        Ok(())
+        // succeeded. Return its content-address so the gRPC handler can
+        // echo it on the wire as `SendEnvelopeResponse.send_receipt`.
+        let send_receipt_id = self
+            .record(
+                "envelope.send",
+                &envelope_for_receipt,
+                vec![to_evidence, kind_evidence],
+            )
+            .await?;
+        Ok(send_receipt_id)
     }
 
     async fn receive(&self, recipient: &AgentId) -> Result<Envelope> {
@@ -249,9 +251,87 @@ impl Transport for MemoryTransport {
             "type.yutha.dev/v1/AgentId",
             recipient.as_bytes().to_vec(),
         );
-        self.record("envelope.deliver", &envelope, vec![to_evidence])
+        let _ = self
+            .record("envelope.deliver", &envelope, vec![to_evidence])
             .await?;
         Ok(envelope)
+    }
+
+    async fn subscribe(&self, recipient: AgentId) -> Result<EnvelopeStream> {
+        // Idempotent inbox setup: the gRPC `Subscribe` RPC IS the
+        // pre-registration step for receiving, so subscribe creates the
+        // inbox if absent. Send still requires the inbox to exist (a
+        // sender who tries to deliver before the recipient has
+        // subscribed gets `recipient not registered`), which is the
+        // correct "deliver only to opt-in subscribers" semantics.
+        let already_registered = {
+            let inboxes = self.inner.inboxes.read().await;
+            inboxes.contains_key(&recipient)
+        };
+        if !already_registered {
+            self.register_recipient(recipient).await;
+        }
+
+        let inboxes = self.inner.inboxes.read().await;
+        let inbox = inboxes
+            .get(&recipient)
+            .cloned()
+            .expect("inbox was just registered or already present");
+        drop(inboxes);
+
+        // Bridge: a forwarder task pulls from the inbox, emits a deliver
+        // receipt, and pushes the (envelope, receipt_id) pair into a
+        // channel whose receiver we return as the stream.
+        //
+        // Channel depth 8 — small buffer; the upstream inbox is the real
+        // backpressure point.
+        let (tx, rx) = mpsc::channel::<Result<(Envelope, Hash)>>(8);
+        let transport = self.clone();
+
+        // The forwarder must exit promptly when the subscriber drops
+        // the gRPC stream — otherwise it stays parked on
+        // `inbox.lock().await` -> `recv().await` *while holding the
+        // mutex on the shared inbox*, and the next envelope addressed
+        // to this agent gets eaten by the zombie forwarder before any
+        // live subscriber can see it. We race the recv against
+        // `tx.closed()` so a closed downstream tears the forwarder
+        // down before it consumes another envelope.
+        tokio::spawn(async move {
+            loop {
+                let envelope = {
+                    let mut guard = inbox.lock().await;
+                    tokio::select! {
+                        biased;
+                        _ = tx.closed() => break,
+                        recv = guard.recv() => match recv {
+                            Some(e) => e,
+                            None => break, // inbox closed
+                        },
+                    }
+                };
+
+                let to_evidence = Evidence::new(
+                    "to_agent",
+                    "type.yutha.dev/v1/AgentId",
+                    recipient.as_bytes().to_vec(),
+                );
+                let item = match transport
+                    .record("envelope.deliver", &envelope, vec![to_evidence])
+                    .await
+                {
+                    Ok(receipt_id) => Ok((envelope, receipt_id)),
+                    Err(e) => Err(e),
+                };
+
+                if tx.send(item).await.is_err() {
+                    // Subscriber dropped the stream between recv and
+                    // send. Same root cause; same exit.
+                    break;
+                }
+            }
+        });
+
+        Ok(Box::pin(ReceiverStream::new(rx)))
     }
 }
 
