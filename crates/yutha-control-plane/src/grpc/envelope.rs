@@ -39,14 +39,15 @@ use std::sync::Arc;
 use futures::StreamExt;
 use tokio_stream::Stream;
 use tonic::{Request, Response, Status};
-use yutha_core::AgentId;
+use yutha_capability::ActionDescriptor;
+use yutha_core::{AgentId, Hash};
 use yutha_proto::control_plane::v1::{
     envelope_service_server::EnvelopeService, SendEnvelopeRequest, SendEnvelopeResponse,
     SubscribeRequest, SubscribedEnvelope,
 };
-use yutha_transport::Envelope;
+use yutha_transport::{Envelope, Recipient};
 
-use crate::auth::require_bearer_auth;
+use crate::auth::require_active_bearer_auth;
 
 use super::error::{missing_field, ErrorIntoStatus};
 use super::ControlPlaneState;
@@ -59,9 +60,24 @@ impl EnvelopeHandler {
     pub fn new(state: Arc<ControlPlaneState>) -> Self {
         Self { state }
     }
+}
 
-    fn swarm_id(&self) -> yutha_core::SwarmId {
-        self.state.registry.topology().swarm_id
+/// Render a [`Recipient`] as the string form used in an
+/// [`ActionDescriptor`]'s `recipient` field.
+///
+/// The format is stable and lets caveats (e.g. `OnlyIfTaggedCaveat`
+/// targeting `agent:<id>`) match deterministically across runs. Not
+/// part of any wire protocol — purely the substrate's internal
+/// descriptor representation.
+fn recipient_descriptor_string(r: &Recipient) -> String {
+    match r {
+        Recipient::Agent(id) => format!("agent:{id}"),
+        Recipient::Role(role) => format!("role:{role}"),
+        Recipient::Swarm(b) if b.filter_tags.is_empty() => "swarm:*".to_string(),
+        Recipient::Swarm(b) => format!("swarm:{}", b.filter_tags.join(",")),
+        Recipient::External(e) => {
+            format!("external:{}://{}{}", e.scheme, e.authority, e.path_hint)
+        }
     }
 }
 
@@ -76,7 +92,7 @@ impl EnvelopeService for EnvelopeHandler {
         &self,
         request: Request<SendEnvelopeRequest>,
     ) -> Result<Response<SendEnvelopeResponse>, Status> {
-        let auth = require_bearer_auth(&request, &self.state.resolver, self.swarm_id()).await?;
+        let auth = require_active_bearer_auth(&request, &self.state).await?;
         let req = request.into_inner();
 
         let envelope_proto = req
@@ -93,6 +109,55 @@ impl EnvelopeService for EnvelopeHandler {
             return Err(Status::permission_denied(
                 "envelope.from_agent must match the bearer-token agent_id",
             ));
+        }
+
+        // RFC 0007: Send-path capability enforcement.
+        //
+        // Behavior matrix:
+        //   - require_capability_for_send = true,  cap_id absent  → INVALID_ARGUMENT
+        //   - require_capability_for_send = true,  cap_id present → check; deny → PERMISSION_DENIED
+        //   - require_capability_for_send = false, cap_id absent  → skip check (legacy)
+        //   - require_capability_for_send = false, cap_id present → check anyway (audit
+        //                                                            value); deny still rejects
+        //
+        // The store's `check` walks the parent chain, honors revocation
+        // + validity window, intersects scopes, evaluates caveats, and
+        // emits the `capability.check.{pass,deny}` receipt as a
+        // substrate observation regardless of which branch is taken.
+        let topology = self.state.registry.topology();
+        let cap_id_opt: Option<Hash> = req
+            .capability_id
+            .as_ref()
+            .map(Hash::try_from)
+            .transpose()
+            .map_err(|e| e.to_status())?;
+
+        if topology.require_capability_for_send && cap_id_opt.is_none() {
+            return Err(Status::invalid_argument(
+                "topology.require_capability_for_send is true: \
+                 SendEnvelopeRequest.capability_id is required",
+            ));
+        }
+
+        if let Some(cap_id) = cap_id_opt {
+            let descriptor = ActionDescriptor {
+                action_kind: "envelope.send".to_string(),
+                resource_tags: envelope.tags.clone(),
+                recipient: Some(recipient_descriptor_string(&envelope.recipient)),
+                ..Default::default()
+            };
+            let evaluation = self
+                .state
+                .capability_store
+                .check(&cap_id, &descriptor)
+                .await
+                .map_err(|e| e.to_status())?;
+            if !evaluation.outcome.permitted {
+                return Err(Status::permission_denied(format!(
+                    "capability check denied: {}",
+                    evaluation.outcome.deny_reason
+                )));
+            }
         }
 
         let send_receipt = self
@@ -119,7 +184,7 @@ impl EnvelopeService for EnvelopeHandler {
         &self,
         request: Request<SubscribeRequest>,
     ) -> Result<Response<Self::SubscribeStream>, Status> {
-        let auth = require_bearer_auth(&request, &self.state.resolver, self.swarm_id()).await?;
+        let auth = require_active_bearer_auth(&request, &self.state).await?;
         let req = request.into_inner();
 
         // Resolve the target agent: explicit value (must equal the
@@ -161,8 +226,56 @@ impl EnvelopeService for EnvelopeHandler {
             Err(e) => Err(e.to_status()),
         });
 
+        // RFC 0009 §3.3 active-stream tear-down: race the envelope
+        // stream against the target's revocation Notify. When a
+        // revoke (self or operator) lands, the Notify fires; this
+        // forwarder emits one terminating UNAUTHENTICATED frame and
+        // ends the stream within tens-of-milliseconds rather than
+        // making the client wait for token expiry.
+        //
+        // Uses the same `tokio::spawn` + `mpsc` + `ReceiverStream`
+        // pattern `MemoryTransport`'s subscribe forwarder uses so we
+        // don't pull in an async-stream dep just for this combinator.
+        let revocation_signal = self.state.revocation_signal_for(target).await;
+        let (tx, rx) = tokio::sync::mpsc::channel::<Result<SubscribedEnvelope, Status>>(8);
+        tokio::spawn(async move {
+            tokio::pin!(mapped);
+            loop {
+                tokio::select! {
+                    biased;
+                    // Client dropped the stream → exit immediately so we
+                    // don't sit parked on `mapped.next()` and consume an
+                    // envelope into a closed downstream. Same pattern as
+                    // the zombie-forwarder fix in
+                    // `MemoryTransport::subscribe` (4b): without this,
+                    // back-to-back subscribe-then-drop test runs leave
+                    // wrappers that eat the next subscriber's envelopes.
+                    _ = tx.closed() => break,
+                    _ = revocation_signal.notified() => {
+                        let _ = tx
+                            .send(Err(Status::unauthenticated("agent revoked")))
+                            .await;
+                        break;
+                    }
+                    next = mapped.next() => match next {
+                        Some(item) => {
+                            if tx.send(item).await.is_err() {
+                                // Same root cause; same exit. This branch
+                                // handles the race where the receiver
+                                // drops between the `tx.closed()` poll
+                                // and the next `tx.send`.
+                                break;
+                            }
+                        }
+                        None => break,
+                    }
+                }
+            }
+        });
+
         Ok(Response::new(
-            Box::pin(mapped) as Pin<Box<dyn Stream<Item = _> + Send + 'static>>
+            Box::pin(tokio_stream::wrappers::ReceiverStream::new(rx))
+                as Pin<Box<dyn Stream<Item = _> + Send + 'static>>,
         ))
     }
 }

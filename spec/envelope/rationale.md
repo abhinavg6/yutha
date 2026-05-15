@@ -40,7 +40,7 @@ The defense is structural separation. The envelope is signed by the agent's key 
 
 **`nonce` and `epoch`.** Replay protection has to defeat both same-window replay (use a nonce) and stale replay across windows (use an epoch counter). v1 does both. Rationale: a nonce alone is sufficient if the receiver keeps unbounded state; in practice the nonce window has to be bounded and the epoch is what bounds the cost of that state. A6 (sybil) and A5 (network) are the relevant adversaries.
 
-**`sent_at` and `expires_at`.** TTL on top of replay protection. Defends long-delayed adversarial replay where nonce / epoch state has aged out. Optional; if unset, the swarm's default TTL (declared in topology) applies. Per the threat model's cross-cutting "time" concern, comparison logic uses monotonic_ns, not wall_clock.
+**`sent_at` and `expires_at`.** TTL on top of replay protection. Defends long-delayed adversarial replay where nonce / epoch state has aged out. Optional; if unset, the swarm's default TTL (declared in topology) applies. The expiry check uses `Timestamp.wall_clock` (RFC 3339) — see [RFC 0008](../rfcs/0008-wall-clock-bound-checks.md). `monotonic_ns` remains on the envelope for intra-process ordering when the transport sequences events from the same control plane, but cross-process bound checks (e.g. a remote SDK minting `sent_at`, a remote server evaluating `expires_at`) require the wall-clock field.
 
 **`in_reply_to`.** Conversation linkage. Optional. When set, the payload is scoped to a prior envelope; this is what makes per-conversation memory and constitution rules possible without re-walking the causal DAG.
 

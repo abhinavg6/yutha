@@ -15,7 +15,8 @@ Conformant implementations **MUST** use these strings when they produce receipts
 | `action_kind` | Producer | Actor | Notes |
 |---------------|----------|-------|-------|
 | `agent.register` | Registry (control plane) | Control plane | Produced when an agent's passport is admitted into a swarm. Evidence includes `passport_agent_id` and `passport_hash` (the content-address of the registered passport). |
-| `agent.revoke` | Registry (control plane) | Control plane | Produced when an agent's membership is terminated. Evidence: `agent_id`, `reason`. |
+| `agent.revoke` | Registry (control plane) | Control plane | Produced when an agent **self-revokes** via `AdmissionService.Revoke`. Evidence: `agent_id`, `reason`. Operator-driven evictions land as `agent.operator_revoke` (see RFC 0009). |
+| `agent.operator_revoke` | Registry (control plane) | Control plane | Produced when an operator evicts an agent via `AdmissionService.OperatorRevoke` (RFC 0009). Evidence: `target_agent_id`, `operator_id`, `reason`, optional `cascade_receipt_ids` for capabilities revoked in the same operation. |
 | `agent.rotate_key` | Registry (control plane) | Control plane | Produced when an agent rotates its signing key. Evidence: `agent_id`, `old_key_fingerprint`, `new_key_fingerprint`, continuity signature. |
 | `agent.heartbeat.missed` | Registry | Control plane | Optional. Produced when an agent fails to heartbeat within the policy window. |
 

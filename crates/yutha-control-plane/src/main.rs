@@ -109,6 +109,29 @@ struct Cli {
     #[arg(long, env = "YUTHA_ADMISSION_MODE", value_enum, default_value_t = AdmissionModeArg::Closed)]
     admission_mode: AdmissionModeArg,
 
+    /// Whether `EnvelopeService.Send` is gated by a capability check
+    /// (RFC 0007).
+    ///
+    /// - `auto` (default) — follow the admission-mode default: closed
+    ///   → require cap; open → permissive (legacy v1.0 behavior).
+    /// - `true` — force-require a capability_id on every Send,
+    ///   regardless of admission mode.
+    /// - `false` — force-permit Sends without a capability_id,
+    ///   regardless of admission mode. Useful during the v1.0 → v1.1
+    ///   migration window when clients are not yet updated.
+    ///
+    /// When a Send presents a capability_id under any setting, the
+    /// check runs and emits a `capability.check.{pass,deny}` receipt;
+    /// deny rejects the send. The flag governs only the
+    /// "cap_id absent" branch.
+    #[arg(
+        long,
+        env = "YUTHA_REQUIRE_CAP_FOR_SEND",
+        value_enum,
+        default_value_t = RequireCapForSendArg::Auto
+    )]
+    require_cap_for_send: RequireCapForSendArg,
+
     /// Deterministic 32-byte hex seed for the bootstrap agent's
     /// identity (signing key + AgentId + SwarmId).
     ///
@@ -137,6 +160,28 @@ struct Cli {
     /// KMS-backed source.
     #[arg(long, env = "YUTHA_BOOTSTRAP_SEED")]
     bootstrap_seed: Option<String>,
+
+    /// Operator public key (Ed25519, 32 bytes, hex-encoded) the
+    /// control plane should trust for `OperatorBearerToken`
+    /// verification (RFC 0009 §3.4).
+    ///
+    /// When this flag is unset, `AdmissionService.OperatorRevoke`
+    /// returns `FAILED_PRECONDITION: operator credentials not
+    /// enabled` for every call. When set, operator clients
+    /// presenting tokens signed by the corresponding private key
+    /// can evict agents.
+    ///
+    /// The operator *private* key MUST stay in operator tooling
+    /// (separate binary, sealed secret, HSM, etc.) — the control
+    /// plane only ever needs the public counterpart. Compromise of
+    /// the operator public key changes nothing; compromise of the
+    /// private key compromises the swarm's eviction layer (operator
+    /// can revoke any agent), so treat it as a load-bearing secret.
+    ///
+    /// Rotation: stop the server, restart with a new key. Phase 1
+    /// doesn't support runtime rotation; future RFC.
+    #[arg(long, env = "YUTHA_OPERATOR_PUBLIC_KEY")]
+    operator_public_key: Option<String>,
 }
 
 /// CLI shadow of [`yutha_registry::AdmissionPolicy`]'s variants we expose.
@@ -149,6 +194,26 @@ enum AdmissionModeArg {
     Open,
 }
 
+/// Three-way control for `Topology.require_capability_for_send`. See
+/// RFC 0007. `Auto` derives from `AdmissionModeArg`; the explicit
+/// values let operators force-set during migration windows.
+#[derive(Debug, Clone, Copy, ValueEnum)]
+enum RequireCapForSendArg {
+    Auto,
+    True,
+    False,
+}
+
+impl RequireCapForSendArg {
+    fn resolve(self, admission: AdmissionModeArg) -> bool {
+        match self {
+            Self::Auto => matches!(admission, AdmissionModeArg::Closed),
+            Self::True => true,
+            Self::False => false,
+        }
+    }
+}
+
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     init_tracing();
@@ -159,7 +224,18 @@ async fn main() -> anyhow::Result<()> {
         Some(seed_hex) => Some(BootstrapIdentity::from_seed_hex(seed_hex)?),
         None => None,
     };
-    let state = bootstrap_backends(bootstrap_identity, cli.admission_mode).await?;
+    let require_cap_for_send = cli.require_cap_for_send.resolve(cli.admission_mode);
+    let operator_public_key = match cli.operator_public_key.as_deref() {
+        Some(hex) => Some(parse_operator_public_key(hex)?),
+        None => None,
+    };
+    let state = bootstrap_backends(
+        bootstrap_identity,
+        cli.admission_mode,
+        require_cap_for_send,
+        operator_public_key,
+    )
+    .await?;
     serve_grpc(&cli, state).await?;
     Ok(())
 }
@@ -227,6 +303,8 @@ impl BootstrapIdentity {
 async fn bootstrap_backends(
     bootstrap_identity: Option<BootstrapIdentity>,
     admission_mode: AdmissionModeArg,
+    require_capability_for_send: bool,
+    operator_public_key: Option<yutha_core::PublicKey>,
 ) -> anyhow::Result<Arc<ControlPlaneState>> {
     // If the operator supplied a deterministic bootstrap seed, the
     // resulting (signing_key, agent_id, swarm_id) triplet replaces the
@@ -338,6 +416,10 @@ async fn bootstrap_backends(
              Intended for demos and local development only."
         );
     }
+    info!(
+        require_capability_for_send,
+        "Send-path capability enforcement (RFC 0007)"
+    );
     let topology = Topology {
         spec_version: SpecVersion::parse("1.0.0").context("parse spec version")?,
         swarm_id,
@@ -348,11 +430,12 @@ async fn bootstrap_backends(
         default_envelope_ttl_seconds: 300,
         max_epoch_skew: 256,
         external_sends_permitted: false,
-        // E1b will set this based on `admission_mode` (CLOSED→true,
-        // OPEN→false). E1a only adds the field so the workspace
-        // compiles; behavior is unchanged until E1b ships the
-        // Send-path handler that consults it.
-        require_capability_for_send: false,
+        // RFC 0007: governs whether EnvelopeService.Send rejects
+        // sends that don't present a capability_id. Resolved from
+        // the --require-cap-for-send CLI: `auto` derives from
+        // admission_mode (closed → true, open → false), the
+        // explicit values override.
+        require_capability_for_send,
         initial_constitution_version: "1.0.0".into(),
         operator_key_fingerprint: vec![0u8; 32],
         operator_signature: None,
@@ -400,6 +483,10 @@ async fn bootstrap_backends(
         register_receipts, "receipt store reachable; audit trail populated"
     );
 
+    if operator_public_key.is_some() {
+        info!("operator credentials enabled (RFC 0009)");
+    }
+
     Ok(Arc::new(ControlPlaneState {
         registry,
         passport_store,
@@ -408,7 +495,26 @@ async fn bootstrap_backends(
         receipt_store,
         resolver,
         control_plane_identity: cp,
+        operator_public_key,
+        revoked_agents: Arc::new(tokio::sync::RwLock::new(std::collections::HashSet::new())),
+        revocation_signals: Arc::new(tokio::sync::RwLock::new(std::collections::HashMap::new())),
     }))
+}
+
+/// Parse an operator public key from a hex string. Ed25519 keys are 32
+/// bytes; the operator presents the compressed-encoding hex form. Used
+/// once at startup; failure aborts with a clear error so misconfigs
+/// surface immediately.
+fn parse_operator_public_key(hex_str: &str) -> anyhow::Result<yutha_core::PublicKey> {
+    let bytes = hex::decode(hex_str.trim()).context("--operator-public-key: hex decode failed")?;
+    if bytes.len() != 32 {
+        anyhow::bail!(
+            "--operator-public-key: expected 32 raw bytes (64 hex chars), got {}",
+            bytes.len()
+        );
+    }
+    yutha_core::PublicKey::new(yutha_core::SignatureAlgorithm::Ed25519, bytes)
+        .map_err(|e| anyhow::anyhow!("--operator-public-key: {e}"))
 }
 
 /// Build and run the gRPC server. Handles graceful Ctrl-C shutdown.

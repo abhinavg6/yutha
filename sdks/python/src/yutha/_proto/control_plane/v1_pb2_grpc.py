@@ -51,6 +51,11 @@ class AdmissionServiceStub(object):
                 request_serializer=control__plane_dot_v1__pb2.RevokeRequest.SerializeToString,
                 response_deserializer=control__plane_dot_v1__pb2.RevokeResponse.FromString,
                 _registered_method=True)
+        self.OperatorRevoke = channel.unary_unary(
+                '/yutha.control_plane.v1.AdmissionService/OperatorRevoke',
+                request_serializer=control__plane_dot_v1__pb2.OperatorRevokeRequest.SerializeToString,
+                response_deserializer=control__plane_dot_v1__pb2.OperatorRevokeResponse.FromString,
+                _registered_method=True)
         self.RotateKey = channel.unary_unary(
                 '/yutha.control_plane.v1.AdmissionService/RotateKey',
                 request_serializer=control__plane_dot_v1__pb2.RotateKeyRequest.SerializeToString,
@@ -85,9 +90,28 @@ class AdmissionServiceServicer(object):
         raise NotImplementedError('Method not implemented!')
 
     def Revoke(self, request, context):
-        """Revoke an agent. The caller MUST be either the agent itself
-        (self-revoke) or an operator-level identity. Produces an
-        `agent.revoke` receipt.
+        """Self-revoke an agent. The caller MUST present an
+        `AgentBearerToken` whose agent_id matches `RevokeRequest.agent_id`
+        (cross-agent revocation on this RPC is refused with
+        `PERMISSION_DENIED`). Produces an `agent.revoke` receipt and
+        triggers active-stream tear-down (RFC 0009 §3.3) — the caller's
+        own subscribe streams close and subsequent bearer tokens reject.
+        """
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def OperatorRevoke(self, request, context):
+        """Operator-level eviction of an agent. The caller MUST present an
+        `OperatorBearerToken` (see RFC 0009). Produces an
+        `agent.operator_revoke` receipt (distinct from `agent.revoke`
+        for audit clarity) and triggers the same active-stream tear-down
+        on the target. When `cascade_capabilities` is true, every
+        capability issued by or held by the target is also revoked with
+        a `capability.revoke` receipt per cap.
+
+        Returns `FAILED_PRECONDITION: operator credentials not enabled`
+        if the server was started without `--operator-public-key`.
         """
         context.set_code(grpc.StatusCode.UNIMPLEMENTED)
         context.set_details('Method not implemented!')
@@ -123,6 +147,11 @@ def add_AdmissionServiceServicer_to_server(servicer, server):
                     servicer.Revoke,
                     request_deserializer=control__plane_dot_v1__pb2.RevokeRequest.FromString,
                     response_serializer=control__plane_dot_v1__pb2.RevokeResponse.SerializeToString,
+            ),
+            'OperatorRevoke': grpc.unary_unary_rpc_method_handler(
+                    servicer.OperatorRevoke,
+                    request_deserializer=control__plane_dot_v1__pb2.OperatorRevokeRequest.FromString,
+                    response_serializer=control__plane_dot_v1__pb2.OperatorRevokeResponse.SerializeToString,
             ),
             'RotateKey': grpc.unary_unary_rpc_method_handler(
                     servicer.RotateKey,
@@ -196,6 +225,33 @@ class AdmissionService(object):
             '/yutha.control_plane.v1.AdmissionService/Revoke',
             control__plane_dot_v1__pb2.RevokeRequest.SerializeToString,
             control__plane_dot_v1__pb2.RevokeResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def OperatorRevoke(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/yutha.control_plane.v1.AdmissionService/OperatorRevoke',
+            control__plane_dot_v1__pb2.OperatorRevokeRequest.SerializeToString,
+            control__plane_dot_v1__pb2.OperatorRevokeResponse.FromString,
             options,
             channel_credentials,
             insecure,

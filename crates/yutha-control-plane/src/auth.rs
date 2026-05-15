@@ -48,10 +48,49 @@ use yutha_proto::control_plane::v1 as cp_proto;
 use yutha_proto::Message;
 use yutha_receipt::PassportResolver;
 
+use crate::grpc::ControlPlaneState;
+
 /// Metadata header key. Lowercase per HTTP/2 / gRPC convention; tonic
 /// internally normalizes, but we use the canonical form here for clarity.
 const AUTHORIZATION_HEADER: &str = "authorization";
 const BEARER_PREFIX: &str = "bearer ";
+
+/// Which bearer-token variant the wire header carries (RFC 0009 §3.1).
+///
+/// Header forms:
+///   `bearer agent <hex>`     → [`BearerVariant::Agent`]
+///   `bearer operator <hex>`  → [`BearerVariant::Operator`]
+///   `bearer <hex>`           → [`BearerVariant::Agent`] (v1.1 back-compat)
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum BearerVariant {
+    Agent,
+    Operator,
+}
+
+/// Parse the `authorization` header value into its (variant, hex-body)
+/// pair. Returns `Status::unauthenticated` for any malformed header so
+/// callers can early-exit uniformly.
+//
+// clippy::result_large_err: returns `Result<(BearerVariant, &str), Status>`
+// where Status is ~176 bytes. Boxing Status would force the entire gRPC
+// handler layer to un-box (Status is tonic's canonical Err); accept the
+// imbalance locally, same as the other auth.rs / handler call sites.
+#[allow(clippy::result_large_err)]
+fn parse_bearer_header(header: &str) -> Result<(BearerVariant, &str), Status> {
+    let rest = header
+        .strip_prefix(BEARER_PREFIX)
+        .or_else(|| header.strip_prefix("Bearer "))
+        .ok_or_else(|| Status::unauthenticated("authorization must start with 'bearer '"))?
+        .trim();
+    if let Some(hex) = rest.strip_prefix("agent ") {
+        Ok((BearerVariant::Agent, hex.trim()))
+    } else if let Some(hex) = rest.strip_prefix("operator ") {
+        Ok((BearerVariant::Operator, hex.trim()))
+    } else {
+        // No explicit variant prefix → agent (back-compat with v1.1).
+        Ok((BearerVariant::Agent, rest))
+    }
+}
 
 /// What the auth layer hands to handlers after successful verification.
 ///
@@ -144,11 +183,14 @@ pub async fn require_bearer_auth<T>(
     let header_str = header_value
         .to_str()
         .map_err(|_| Status::unauthenticated("authorization metadata is not valid ASCII"))?;
-    let hex_part = header_str
-        .strip_prefix(BEARER_PREFIX)
-        .or_else(|| header_str.strip_prefix("Bearer "))
-        .ok_or_else(|| Status::unauthenticated("authorization must start with 'bearer '"))?
-        .trim();
+    let (variant, hex_part) = parse_bearer_header(header_str)?;
+    if variant != BearerVariant::Agent {
+        // This entry point is for AgentBearerToken. OperatorBearerToken
+        // goes through `require_operator_bearer_auth`.
+        return Err(Status::unauthenticated(
+            "this RPC requires an agent bearer; got operator variant",
+        ));
+    }
     let token_bytes = hex::decode(hex_part)
         .map_err(|e| Status::unauthenticated(format!("authorization hex decode failed: {e}")))?;
 
@@ -193,13 +235,16 @@ pub async fn require_bearer_auth<T>(
 
     // -- Expiry. -------------------------------------------------------------
     // Tokens are recommended ≤ 5 minutes (per /spec/control-plane/v1.proto).
-    // We compare monotonic_ns against the local process's monotonic clock —
-    // this is exact for SDK/CP loopback; for remote deployments the SDK and
-    // CP necessarily share the wall_clock timeline which is what mints set
-    // expires_at against in practice. Operators concerned about clock skew
-    // should add an mTLS layer on top.
+    // Compare on wall_clock per RFC 0008 — SDK-minted expires_at and
+    // CP-checked "now" come from different processes whose monotonic
+    // clocks have unrelated origins. Default-fail-closed on malformed
+    // wall_clock in either timestamp: an unparseable token expiry
+    // counts as expired.
     let now = Timestamp::now();
-    if expires_at.monotonic_ns <= now.monotonic_ns {
+    let expired = now.wall_at_or_after(&expires_at)
+        || now.parsed_wall_clock().is_none()
+        || expires_at.parsed_wall_clock().is_none();
+    if expired {
         return Err(Status::unauthenticated("bearer token expired"));
     }
 
@@ -231,6 +276,201 @@ pub async fn require_bearer_auth<T>(
 
     Ok(AuthContext {
         agent_id,
+        swarm_id,
+        expires_at,
+    })
+}
+
+/// What the operator-auth layer hands back. Distinct from
+/// [`AuthContext`] because operator bearer tokens carry an
+/// `operator_id` (free-form audit string) rather than an `agent_id`.
+#[derive(Debug, Clone)]
+#[allow(dead_code)]
+pub struct OperatorAuthContext {
+    /// The operator identifier from the token. Free-form; used for
+    /// audit-trail clarity. Trust is rooted in the signature
+    /// verifying against a configured operator public key.
+    pub operator_id: String,
+    /// Swarm the token was minted for. Verified to equal this
+    /// control plane's swarm before the context is returned.
+    pub swarm_id: SwarmId,
+    /// When the token expires.
+    pub expires_at: Timestamp,
+}
+
+/// Best-effort extraction of the `agent_id` from an agent bearer
+/// header WITHOUT verifying its signature, decoding swarm/expiry, or
+/// touching the registry.
+///
+/// Returns `None` whenever any step fails — the caller will hit the
+/// same failure under full verification and produce a more specific
+/// `UNAUTHENTICATED` message there. The only purpose of peeking is
+/// to give [`require_active_bearer_auth`] a chance to consult the
+/// revoked-set BEFORE the registry-resolver lookup; without this,
+/// an evicted agent whose passport has already been deregistered
+/// would always surface as "agent is not registered" and the
+/// revoked-set check at the bottom of `require_active_bearer_auth`
+/// would be dead code on the post-eviction path (RFC 0009 §3.3
+/// expects the revoked-set to be the authoritative signal).
+///
+/// **Safety:** the returned `agent_id` is untrusted. We only use it
+/// as a key into a hash set — no policy decision is made beyond
+/// "reject with `revoked` instead of `not registered`", and a forged
+/// token claiming to be a revoked agent gets rejected either way.
+/// Operator bearers are silently ignored (the variant check returns
+/// `None`); the dedicated operator path runs through
+/// [`require_operator_bearer_auth`].
+fn peek_agent_bearer_agent_id<T>(request: &Request<T>) -> Option<AgentId> {
+    let header_value = request.metadata().get(AUTHORIZATION_HEADER)?;
+    let header_str = header_value.to_str().ok()?;
+    let (variant, hex_part) = parse_bearer_header(header_str).ok()?;
+    if variant != BearerVariant::Agent {
+        return None;
+    }
+    let token_bytes = hex::decode(hex_part).ok()?;
+    let token = cp_proto::AgentBearerToken::decode(token_bytes.as_slice()).ok()?;
+    let agent_id_proto = token.agent_id.as_ref()?;
+    AgentId::try_from(agent_id_proto).ok()
+}
+
+/// Wrapper around [`require_bearer_auth`] that additionally consults
+/// the in-process revoked-agents set (RFC 0009 §3.3).
+///
+/// Use this from any handler whose auth check should reject agents
+/// that have been revoked during this process's lifetime — which is
+/// every authenticated handler under the v1.2 spec. The bare
+/// [`require_bearer_auth`] is kept for callers that don't need the
+/// revoked-set check (and to keep existing unit tests stable).
+///
+/// ## Ordering: revoked-set BEFORE resolver lookup
+///
+/// `AdmissionService.OperatorRevoke` not only stamps the target into
+/// the revoked-set, it also deregisters the target's passport (so
+/// future Send-path resolves can't accept the agent as a recipient).
+/// That deregistration races AHEAD of any post-eviction bearer-auth
+/// check on the fresh-RPC path — without a pre-resolver consult of
+/// the revoked-set, every such check would surface "agent is not
+/// registered" and the revoked-set would have no observable effect
+/// at the gRPC error-message layer. RFC 0009 §3.3 specifies the
+/// revoked-set IS the post-eviction rejection signal, so we peek
+/// the token's claimed agent_id (without signature verification)
+/// and check the set first.
+pub async fn require_active_bearer_auth<T>(
+    request: &Request<T>,
+    state: &ControlPlaneState,
+) -> Result<AuthContext, Status> {
+    if let Some(claimed_id) = peek_agent_bearer_agent_id(request) {
+        if state.is_revoked(&claimed_id).await {
+            // Pre-resolver short-circuit — see the doc-comment on
+            // this function for why we trust an unverified agent_id
+            // here. Full bearer-auth (signature + swarm + expiry)
+            // is bypassed because we have an authoritative reason
+            // to reject already; a forged-token attacker only gets
+            // a different rejection message, not access.
+            return Err(Status::unauthenticated("agent revoked"));
+        }
+    }
+    let topology = state.registry.topology();
+    let auth = require_bearer_auth(request, &state.resolver, topology.swarm_id).await?;
+    // Belt-and-braces re-check: a revoke that lands between the
+    // peek above and the resolver lookup completing would otherwise
+    // slip through. Keeps the invariant "no authenticated handler
+    // ever sees a revoked agent" tight.
+    if state.is_revoked(&auth.agent_id).await {
+        return Err(Status::unauthenticated("agent revoked"));
+    }
+    Ok(auth)
+}
+
+/// Verify an operator bearer token (RFC 0009 §3.1). Returns
+/// [`OperatorAuthContext`] on success; `Status::unauthenticated`
+/// otherwise.
+///
+/// Verification steps:
+/// 1. Header parses to the `operator` variant (`bearer operator <hex>`).
+/// 2. Server has an operator public key configured (otherwise
+///    `FAILED_PRECONDITION` — operator credentials disabled).
+/// 3. Hex-decode + prost-decode the body into `OperatorBearerToken`.
+/// 4. Swarm binding: token's `swarm_id` matches this control plane's.
+/// 5. Wall-clock expiry not in the past (RFC 0008).
+/// 6. Ed25519 signature over canonical bytes verifies against the
+///    configured operator public key.
+pub async fn require_operator_bearer_auth<T>(
+    request: &Request<T>,
+    state: &ControlPlaneState,
+) -> Result<OperatorAuthContext, Status> {
+    let operator_pk = state
+        .operator_public_key
+        .as_ref()
+        .ok_or_else(|| Status::failed_precondition("operator credentials not enabled"))?;
+
+    // -- Header parsing. -----------------------------------------------------
+    let header_value = request
+        .metadata()
+        .get(AUTHORIZATION_HEADER)
+        .ok_or_else(|| Status::unauthenticated("missing authorization metadata"))?;
+    let header_str = header_value
+        .to_str()
+        .map_err(|_| Status::unauthenticated("authorization metadata is not valid ASCII"))?;
+    let (variant, hex_part) = parse_bearer_header(header_str)?;
+    if variant != BearerVariant::Operator {
+        return Err(Status::unauthenticated(
+            "this RPC requires an operator bearer; got agent variant",
+        ));
+    }
+    let token_bytes = hex::decode(hex_part)
+        .map_err(|e| Status::unauthenticated(format!("authorization hex decode failed: {e}")))?;
+
+    // -- Proto decode. -------------------------------------------------------
+    let token = cp_proto::OperatorBearerToken::decode(token_bytes.as_slice())
+        .map_err(|e| Status::unauthenticated(format!("operator token decode failed: {e}")))?;
+    let swarm_id_proto = token
+        .swarm_id
+        .as_ref()
+        .ok_or_else(|| Status::unauthenticated("operator token missing swarm_id"))?;
+    let swarm_id = SwarmId::try_from(swarm_id_proto)
+        .map_err(|e| Status::unauthenticated(format!("operator token swarm_id invalid: {e}")))?;
+    let expires_at_proto = token
+        .expires_at
+        .as_ref()
+        .ok_or_else(|| Status::unauthenticated("operator token missing expires_at"))?;
+    let expires_at = Timestamp::try_from(expires_at_proto)
+        .map_err(|e| Status::unauthenticated(format!("operator token expires_at invalid: {e}")))?;
+    let signature_proto = token
+        .signature
+        .as_ref()
+        .ok_or_else(|| Status::unauthenticated("operator token missing signature"))?;
+    let signature = Signature::try_from(signature_proto)
+        .map_err(|e| Status::unauthenticated(format!("operator token signature invalid: {e}")))?;
+
+    // -- Swarm binding. ------------------------------------------------------
+    let expected_swarm = state.registry.topology().swarm_id;
+    if swarm_id != expected_swarm {
+        return Err(Status::unauthenticated(
+            "operator token swarm_id does not match this control plane",
+        ));
+    }
+
+    // -- Expiry (wall-clock per RFC 0008). -----------------------------------
+    let now = Timestamp::now();
+    let expired = now.wall_at_or_after(&expires_at)
+        || now.parsed_wall_clock().is_none()
+        || expires_at.parsed_wall_clock().is_none();
+    if expired {
+        return Err(Status::unauthenticated("operator token expired"));
+    }
+
+    // -- Signature. ----------------------------------------------------------
+    let mut canonical = token.clone();
+    canonical.signature = None;
+    canonical.extensions = None;
+    let canonical_bytes = canonical.encode_to_vec();
+    yutha_crypto::sign::verify(operator_pk, &canonical_bytes, &signature).map_err(|e| {
+        Status::unauthenticated(format!("operator token signature verification failed: {e}"))
+    })?;
+
+    Ok(OperatorAuthContext {
+        operator_id: token.operator_id,
         swarm_id,
         expires_at,
     })
@@ -300,8 +540,14 @@ mod tests {
     }
 
     fn future_timestamp() -> Timestamp {
-        let now = Timestamp::now();
-        Timestamp::new(now.wall_clock, now.monotonic_ns + 60_000_000_000).unwrap()
+        // Wall-clock anchored well into the future. The previous
+        // monotonic-only construction (incrementing monotonic_ns
+        // alone) stopped working under RFC 0008's wall-clock
+        // semantics — the expiry check parses wall_clock and
+        // ignores monotonic_ns. Picking a far-future RFC 3339
+        // string keeps the test intent ("token is not expired
+        // yet") regardless of when this test runs.
+        Timestamp::new("2099-01-01T00:00:00Z".into(), u64::MAX / 2).unwrap()
     }
 
     #[tokio::test]

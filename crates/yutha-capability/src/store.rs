@@ -72,4 +72,17 @@ pub trait CapabilityStore: Send + Sync {
         capability_id: &Hash,
         descriptor: &ActionDescriptor,
     ) -> Result<CheckEvaluation>;
+
+    /// Enumerate the content-addresses of every capability whose
+    /// `subject` is `agent_id` — i.e. caps the agent currently holds.
+    /// Excludes already-revoked caps (which `lookup` would also
+    /// return `None` for); the result is the set a cascade-revoke
+    /// pass would need to consult.
+    ///
+    /// Used by `AdmissionService.OperatorRevoke` when called with
+    /// `cascade_capabilities=true` (RFC 0009 §3.2). The method is
+    /// distinct from a generic query so backends that index by
+    /// `subject` can serve it from the index without a full scan.
+    /// Implementations MAY return an empty `Vec` if no caps match.
+    async fn list_for_subject(&self, agent_id: &yutha_core::AgentId) -> Result<Vec<Hash>>;
 }

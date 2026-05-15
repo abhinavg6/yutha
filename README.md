@@ -2,7 +2,7 @@
 
 > A framework-agnostic control plane for agent swarms — coordination, norms, accountability, and observability for any agent, from any framework, on any backend.
 
-**Status: Phase 1 — Substrate (in progress).** Reference implementation is starting to land in `/crates/`. Specs are in v1.0 draft and open for RFC review.
+**Status: Phase 1 — Substrate hardening complete; constitution language next.** Reference implementation runs end-to-end across [`/crates/`](./crates/) (control-plane gRPC server, registry, capability store, transport, receipt log) and [`/sdks/python/`](./sdks/python/) (async client + LangGraph adapter). Beyond the v1.0 spec, RFCs **0007** (send-path capability enforcement), **0008** (wall-clock bound checks), and **0009** (operator credentials + active-stream tear-down with capability cascade) have all landed in code, spec, and conformance scenarios.
 
 ---
 
@@ -45,9 +45,14 @@ For the full layout and rationale, see [`/docs/build-plan.md`](./docs/build-plan
 
 ## Quickstart
 
-The fifteen-minute joiner path and thirty-minute initiator path are Phase 1 exit criteria. As of this commit, they are **not yet ready**. When they are, this section will link to them.
+The fifteen-minute joiner path and thirty-minute initiator path are Phase 1 exit criteria. As of this commit they're **not yet packaged** as one-command flows — the constitution-language work (Phase 2 start) gates the joiner path.
 
-In the meantime, contributors interested in the substrate work should read:
+Contributors who want to exercise what already works today:
+
+- **End-to-end LangGraph walkthrough** — a working customer-support swarm built on the Python SDK + LangGraph adapter, with capability-gated message-sending, operator-driven eviction, and an audit-trail delta check. See [`/docs/python-langgraph-walkthrough.md`](./docs/python-langgraph-walkthrough.md) and the runnable demo at [`/sdks/python/examples/s1_support_queue.py`](./sdks/python/examples/s1_support_queue.py).
+- **Conformance suite** — run `cargo test -p yutha-conformance` for in-process Rust scenarios covering the receipt log, send-path cap enforcement (S2), and active-stream tear-down (S3).
+
+Background reading for substrate contributors:
 
 - [`/docs/build-plan.md`](./docs/build-plan.md) — how Yutha gets built, end to end.
 - [`/spec/README.md`](./spec/README.md) — the specs, organized.

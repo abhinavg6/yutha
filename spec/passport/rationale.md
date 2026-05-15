@@ -42,7 +42,7 @@ The PRD calls passports "a signed manifest with identity, capabilities, owner, n
 
 **`resources` (ResourceDeclaration).** Budget caps the agent expects. The control plane uses these for quotas; the constitution's `forbid` rules can further constrain. Both are inputs to PRD §13.4's "blast-radius bounds" guarantee.
 
-**`issued_at` and `expires_at`.** Wall-clock + monotonic, per the common Timestamp shape. expires_at is optional in closed swarms (long-lived internal agents) but required in open/hybrid (sybil mitigation — attackers that register, behave, and wait must keep paying registration cost).
+**`issued_at` and `expires_at`.** Wall-clock + monotonic, per the common Timestamp shape. expires_at is optional in closed swarms (long-lived internal agents) but required in open/hybrid (sybil mitigation — attackers that register, behave, and wait must keep paying registration cost). The expiry check uses `Timestamp.wall_clock` (RFC 3339) because the passport is minted by the SDK and evaluated by the control plane — see [RFC 0008](../rfcs/0008-wall-clock-bound-checks.md) for why cross-process bound checks can't rely on `monotonic_ns`.
 
 **`default_model_provider`, `default_model_name`.** A2 attribution. Receipts override these per-action; the passport carries the default for cases where the receipt elides them.
 
@@ -66,7 +66,7 @@ A conformant registry implementation:
 
 - **Validates the spec_version** is supported before any other interpretation.
 - **Verifies agent_signature** against canonical serialization with `agent_signature` cleared. Rejects on mismatch.
-- **Checks expires_at** against monotonic time. Rejects expired passports.
+- **Checks expires_at** against wall-clock time (RFC 0008). Rejects expired passports.
 - **Applies admission policy** per the swarm's topology declaration. Closed: allowlist match. Open: registration-cost mechanism passes. Hybrid: closed_core allowlist or open_periphery cost mechanism passes.
 - **Persists the passport** by content-address in the registry's pluggable store; produces a registration receipt with the passport's content-address as evidence.
 - **Rejects duplicate AgentId** registration unless the new passport is a key rotation (same AgentId, different key, signed by an `agent.rotate_key` capability or operator override).
@@ -80,11 +80,11 @@ Three operations that change a passport's effective authority:
 
 - **Key rotation.** Same AgentId, new public key. Implemented as a Register call with the new passport, signed by the old private key (proving continuity), and tagged with `kind = "agent.rotate_key"`. Registry verifies, persists, and issues a rotation receipt. The old key is marked superseded; signatures it produced before rotation remain valid for historical receipts but cannot authorize new actions.
 
-- **Revocation.** AgentId is marked invalid. Implemented as an operator-issued or constitution-driven revocation receipt. Subsequent lookups return the revocation; signatures the agent attempts after revocation are accepted by the receipt store (so audit trail is complete) but rejected by the control plane (so no new authoritative action is taken).
+- **Revocation.** AgentId is marked invalid. Three pathways, each with a distinct receipt action_kind: **self-revoke** by the agent itself (`agent.revoke` via `AdmissionService.Revoke`); **operator-revoke** by a swarm operator presenting an `OperatorBearerToken` (`agent.operator_revoke` via `AdmissionService.OperatorRevoke`, RFC 0009); **constitution-revoke** driven by the norm-enforcement pipeline (Phase 2; receipt kind TBD with the constitution work). On any revocation, the control plane proactively tears down the target's active subscribe streams and rejects subsequent bearer tokens — revocations are immediate, not waiting for token expiry (RFC 0009 §3.3). Signatures the agent attempts after revocation are recorded for audit completeness but produce no new authoritative actions.
 
 - **Reissue.** A fresh AgentId for the same logical agent. Used when continuity is undesirable (post-incident clean restart, end-of-life of a previous identity). This is a new registration, not a rotation; receipts under the old AgentId are not transferred.
 
-These three operations are deliberately distinct in receipt action_kind so audit is unambiguous: `agent.rotate_key`, `agent.revoke`, `agent.register`.
+These operations are deliberately distinct in receipt action_kind so audit is unambiguous: `agent.rotate_key`, `agent.revoke`, `agent.operator_revoke`, `agent.register`.
 
 ## 7. Alternatives considered
 

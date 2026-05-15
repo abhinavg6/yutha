@@ -337,6 +337,22 @@ impl CapabilityStore for MemoryCapabilityStore {
         Ok(guard.by_id.get(capability_id).cloned())
     }
 
+    async fn list_for_subject(&self, agent_id: &yutha_core::AgentId) -> Result<Vec<Hash>> {
+        let guard = self.inner.read().await;
+        // Linear scan over the in-memory cap table; fine for Phase-1
+        // memory backend. A Postgres impl would replace this with a
+        // `WHERE subject = $1 AND revoked_at IS NULL` query against an
+        // indexed column. Skips already-revoked caps so the cascade
+        // doesn't re-revoke (idempotent + audit-clean).
+        let mut out = Vec::new();
+        for (id, cap) in &guard.by_id {
+            if &cap.subject == agent_id && !guard.revoked.contains_key(id) {
+                out.push(id.clone());
+            }
+        }
+        Ok(out)
+    }
+
     async fn check(
         &self,
         capability_id: &Hash,
@@ -522,13 +538,23 @@ mod tests {
     }
 
     fn root_cap(scope: Scope, swarm_id: SwarmId) -> Capability {
+        root_cap_for(AgentId::new(), scope, swarm_id)
+    }
+
+    /// Variant of [`root_cap`] that lets the caller pin the subject —
+    /// needed by tests (e.g. `list_for_subject_*`) that have to issue
+    /// multiple caps under the same recipient and assert filter
+    /// behaviour. `root_cap` picks a random `AgentId` which is fine for
+    /// single-cap flows but useless when the test logic depends on the
+    /// subject value.
+    fn root_cap_for(subject: AgentId, scope: Scope, swarm_id: SwarmId) -> Capability {
         let key = generate_keypair();
         Capability::builder()
             .spec_version(SpecVersion::parse("1.0.0").unwrap())
             .capability_id(vec![1u8; 16])
             .swarm_id(swarm_id)
             .issuer(Issuer::Operator(vec![0u8; 32]))
-            .subject(AgentId::new())
+            .subject(subject)
             .scope(scope)
             .valid_from(Timestamp::now())
             .valid_until(far_future())
@@ -604,6 +630,67 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(page.receipts.len(), 1);
+    }
+
+    #[tokio::test]
+    async fn list_for_subject_empty_store_returns_empty() {
+        let (store, _receipts, _swarm) = harness().await;
+        let ids = store.list_for_subject(&AgentId::new()).await.unwrap();
+        assert!(ids.is_empty());
+    }
+
+    #[tokio::test]
+    async fn list_for_subject_filters_by_subject() {
+        // Three caps, two distinct subjects. The query must return only
+        // the caps whose subject == query target, in any order — the
+        // cascade caller doesn't depend on ordering.
+        let (store, _receipts, swarm) = harness().await;
+        let target = AgentId::new();
+        let other = AgentId::new();
+
+        let cap_a = root_cap_for(target, Scope::for_action("send_message"), swarm);
+        let cap_b = root_cap_for(target, Scope::for_action("envelope.send"), swarm);
+        let cap_c = root_cap_for(other, Scope::for_action("send_message"), swarm);
+
+        let id_a = store.issue(cap_a).await.unwrap().capability_id;
+        let id_b = store.issue(cap_b).await.unwrap().capability_id;
+        let _id_c = store.issue(cap_c).await.unwrap().capability_id;
+
+        let mut got = store.list_for_subject(&target).await.unwrap();
+        got.sort_by(|x, y| x.digest.cmp(&y.digest));
+        let mut want = vec![id_a, id_b];
+        want.sort_by(|x, y| x.digest.cmp(&y.digest));
+        assert_eq!(got, want);
+
+        // Negative: the other subject still resolves to its single cap.
+        let other_ids = store.list_for_subject(&other).await.unwrap();
+        assert_eq!(other_ids.len(), 1);
+    }
+
+    #[tokio::test]
+    async fn list_for_subject_excludes_revoked() {
+        // RFC 0009 §3.2 cascade is supposed to no-op on already-revoked
+        // caps. We enforce that at the source by having
+        // `list_for_subject` filter them out — otherwise the cascade
+        // loop would try to revoke them again and the receipt store
+        // would record duplicate `capability.revoke` entries.
+        let (store, _receipts, swarm) = harness().await;
+        let target = AgentId::new();
+
+        let cap_live = root_cap_for(target, Scope::for_action("send_message"), swarm);
+        let cap_dead = root_cap_for(target, Scope::for_action("envelope.send"), swarm);
+        let id_live = store.issue(cap_live).await.unwrap().capability_id;
+        let id_dead = store.issue(cap_dead).await.unwrap().capability_id;
+
+        // Revoke one directly (simulates the agent self-revoking it
+        // before the operator gets there).
+        store
+            .revoke(&id_dead, "pre-cascade self-revoke")
+            .await
+            .unwrap();
+
+        let ids = store.list_for_subject(&target).await.unwrap();
+        assert_eq!(ids, vec![id_live]);
     }
 
     #[tokio::test]

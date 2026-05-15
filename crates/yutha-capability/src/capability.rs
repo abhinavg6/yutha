@@ -46,11 +46,18 @@ impl Capability {
         CapabilityBuilder::default()
     }
 
-    /// Whether this capability is within its validity window relative to
-    /// the given monotonic time.
+    /// Whether this capability is within its validity window at the
+    /// given time.
+    ///
+    /// Compares on `Timestamp.wall_clock` (RFC 3339) per RFC 0008:
+    /// the substrate's cross-process bound checks can't rely on
+    /// `monotonic_ns` because each process has its own monotonic
+    /// origin. Caps minted by an SDK and evaluated by the control
+    /// plane were the load-bearing case for switching. Default-
+    /// denies on malformed `wall_clock` (in either bound or the
+    /// "now" argument).
     pub fn is_within_window(&self, now: &Timestamp) -> bool {
-        now.monotonic_ns >= self.valid_from.monotonic_ns
-            && now.monotonic_ns <= self.valid_until.monotonic_ns
+        now.wall_at_or_after(&self.valid_from) && self.valid_until.wall_at_or_after(now)
     }
 
     /// Evaluate a single capability against an action descriptor, ignoring
@@ -312,8 +319,30 @@ mod tests {
         let cap = make_cap(Scope::empty());
         assert!(cap.is_within_window(&cap.valid_from));
 
-        let past = Timestamp::new("1990-01-01T00:00:00Z".into(), 0).unwrap();
-        // monotonic_ns of past is 0, which is < cap.valid_from.monotonic_ns
+        // Past wall-clock — well before make_cap()'s valid_from
+        // (which is Timestamp::now()). Wall-clock comparison
+        // (RFC 0008) denies; monotonic_ns is no longer consulted.
+        let past = Timestamp::new("1990-01-01T00:00:00Z".into(), u64::MAX).unwrap();
         assert!(!cap.is_within_window(&past));
+
+        // Future wall-clock — past the cap's valid_until. Mirrors
+        // the upper-bound test that the previous monotonic
+        // implementation did not exercise.
+        let future = Timestamp::new("2150-01-01T00:00:00Z".into(), 0).unwrap();
+        assert!(!cap.is_within_window(&future));
+    }
+
+    #[test]
+    fn is_within_window_denies_on_malformed_wall_clock() {
+        // RFC 0008 §3.3: malformed wall_clock → default-deny. A
+        // hostile caller could bypass `Timestamp::new`'s
+        // construction-time validation by building the struct
+        // directly; the bound check refuses to act on it.
+        let cap = make_cap(Scope::empty());
+        let bad_now = Timestamp {
+            wall_clock: "not-a-timestamp".into(),
+            monotonic_ns: 0,
+        };
+        assert!(!cap.is_within_window(&bad_now));
     }
 }

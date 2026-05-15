@@ -357,27 +357,33 @@ what capabilities are for.
 
 A capability is a signed grant scoped to a specific action (and
 optionally constrained by caveats — recipient, resource tags, numeric
-bounds). The `@capability_required` decorator from
-`yutha.langgraph` wraps an async function: before the function runs,
-it calls `capability.check(...)` against the live control plane. If
-the check denies — because the cap was revoked, expired, or doesn't
-permit this action — the decorator raises `CapabilityDenied` and the
-function never executes.
+bounds). The `@capability_required` decorator from `yutha.langgraph`
+wraps an async function with two pieces of glue:
+
+1. **Local sanity check** — confirms the cap's scope permits the
+   declared `action_kind` and fails fast with `CapabilityDenied`
+   before the wrapped fn runs if there's a mismatch (catches
+   "I decorated this node with the wrong action_kind for the cap"
+   coding errors).
+2. **Context-local cap_id** — sets a contextvar so any
+   `agent.send(...)` inside the wrapped fn picks up the cap_id
+   automatically. The substrate-level capability check runs
+   server-side at Send (RFC 0007); a deny — because the cap was
+   revoked, expired, or has unmet caveats — surfaces as
+   `CapabilityDenied` raised from the send call.
 
 ```python
 from yutha.langgraph import CapabilityDenied, capability_required
 
-# 1. Issue a capability scoped to "send_message". The router holds it.
+# 1. Issue a capability scoped to "envelope.send". The router holds it.
 router_cap = yutha.Capability(
     spec_version="1.0.0",
     capability_id=secrets.token_bytes(16),
     swarm_id=swarm_id,
     issuer=yutha.Issuer.for_agent(router.agent_id),
     subject=router.agent_id,
-    scope=yutha.Scope.for_action("send_message"),
-    valid_from=yutha.Timestamp(
-        wall_clock="1970-01-01T00:00:00Z", monotonic_ns=0
-    ),  # see "gotchas" below
+    scope=yutha.Scope.for_action("envelope.send"),
+    valid_from=yutha.Timestamp.now(),
     valid_until=yutha.Timestamp(
         wall_clock="2099-01-01T00:00:00Z", monotonic_ns=2**62
     ),
@@ -385,7 +391,7 @@ router_cap = yutha.Capability(
 cap_id, _ = await router.client.capability.issue(router_cap)
 
 # 2. Decorate the node that does the sensitive thing.
-@capability_required(router.client, router_cap, action_kind="send_message")
+@capability_required(router.client, router_cap, action_kind="envelope.send")
 async def send_to_handler(state):
     await router.send(
         recipient=yutha.Recipient.for_agent(destinations[state["category"]]),
@@ -460,6 +466,75 @@ the substrate's behavior; it's all here.
 
 ---
 
+## Step 6 — Operator-level eviction
+
+Sometimes you need an out-of-band way to forcibly remove an agent
+from the swarm — a compromised key, a misbehaving worker, a policy
+violation surfaced from outside the substrate. Self-revoke
+(`agent.client.admission.revoke(my_own_id, …)`) covers the case
+where the agent itself decides to leave. Operator-revoke is the
+sibling RPC for everything else.
+
+The operator credential is structurally separate from agent
+credentials — a different bearer-token variant signed by an
+"operator key" the control plane is configured with at startup.
+The operator's private key stays in operator tooling (a separate
+binary, a sealed secret, an HSM); the server only ever sees its
+public counterpart.
+
+```python
+from yutha import YuthaClient
+
+# The operator's signing key. In production this stays in an
+# operator-side secret store. For the demo we derive it from the
+# bootstrap seed (see the S1 demo's derive_operator_identity).
+operator_signing_key = ...
+
+async with YuthaClient.connect_as_operator(
+    "127.0.0.1:50051",
+    operator_id="ops-team-1",
+    swarm_id=swarm_id,
+    operator_signing_key=operator_signing_key,
+) as op_client:
+    receipt = await op_client.admission.operator_revoke(
+        target_agent_id,
+        "compromised credential — rotating",
+    )
+    print(f"revoked, receipt={receipt}")
+```
+
+Three properties worth knowing:
+
+- **Immediate tear-down.** The server adds the target to its
+  revoked-set and fires a per-agent revocation signal. Any active
+  `Subscribe` stream the target holds closes within tens of
+  milliseconds with an `UNAUTHENTICATED: agent revoked` frame. The
+  next bearer-auth call from any of the target's remaining tokens
+  rejects with the same code, regardless of how much wall-clock
+  time the token has left. This is RFC 0009 §3.3.
+- **Distinct receipt kind.** Operator-revoke produces an
+  `agent.operator_revoke` receipt with `operator_id` on its
+  evidence — different from `agent.revoke` (self-revoke) so audit
+  queries can filter by actor type without parsing reason strings.
+- **Server config gate.** Operator credentials are opt-in. If the
+  control plane was started without `--operator-public-key`,
+  `operator_revoke` returns `FAILED_PRECONDITION: operator
+  credentials not enabled`. This keeps the operator surface
+  disabled by default; operators opt in explicitly at binary launch.
+
+The S1 demo's Phase 7.5 exercises this end-to-end: derives an
+operator keypair from the bootstrap seed, connects as operator,
+evicts the `billing` agent, and the audit shape gains
+`agent.operator_revoke: +1`.
+
+**What this RPC does NOT do** in v1: cascade-revoke the target's
+capabilities (still on the roadmap), rotate the operator's own
+key at runtime (stop + restart with a new key), or support
+multiple operator keys (single key per server today). See
+RFC 0009 §9 for the explicit punts.
+
+---
+
 ## Putting it together: the full demo
 
 For a complete five-agent workflow that exercises everything above
@@ -490,16 +565,6 @@ uv run python examples/s1_support_queue.py
 ## Common gotchas
 
 These come up enough that they're worth knowing upfront.
-
-**Cross-process capability windows.** Capabilities have a
-`valid_from`/`valid_until` time window. Today the comparison is on
-`monotonic_ns` (process-local clock readings) rather than wall-clock,
-so a cap minted with `valid_from = Timestamp.now()` in Python lands
-"in the future" relative to a Rust server's clock and fails the
-window check. **Workaround**: anchor `valid_from` at
-`Timestamp(wall_clock="1970-01-01T00:00:00Z", monotonic_ns=0)` so
-it's clearly in the past on any clock. The spec will move window
-semantics to wall-clock in a future revision.
 
 **Closed vs. open admission.** The control plane defaults to closed
 mode, which only admits passports in its allowlist (production

@@ -50,11 +50,51 @@ impl Timestamp {
         }
     }
 
-    /// Compare two timestamps using monotonic_ns. Per spec, spec-mandated
-    /// comparison logic uses monotonic; this helper makes that explicit at
-    /// call sites.
+    /// Compare two timestamps using monotonic_ns.
+    ///
+    /// **Intra-process use only.** `monotonic_ns` is process-local;
+    /// comparing two timestamps that originated in different processes
+    /// is undefined (see [`Self::wall_at_or_after`] and RFC 0008). Use
+    /// this for causal-event sequencing inside a single control-plane
+    /// process; use [`Self::wall_at_or_after`] / [`Self::wall_after`]
+    /// for any check that involves a Timestamp minted in another
+    /// process (capability windows, passport/envelope/bearer expiry).
     pub fn precedes(&self, other: &Self) -> bool {
         self.monotonic_ns < other.monotonic_ns
+    }
+
+    /// Parse `wall_clock` as RFC 3339. Returns `None` on malformed
+    /// input; callers in bound-check positions MUST default-deny on
+    /// `None` per RFC 0008. Exposed for the rare caller that needs
+    /// the parsed `OffsetDateTime` directly; prefer
+    /// [`Self::wall_at_or_after`] / [`Self::wall_after`] otherwise.
+    pub fn parsed_wall_clock(&self) -> Option<OffsetDateTime> {
+        OffsetDateTime::parse(&self.wall_clock, &Rfc3339).ok()
+    }
+
+    /// True iff `self`'s wall_clock is at or after `other`'s
+    /// wall_clock (RFC 3339 comparison). Default-denies on malformed
+    /// input — either side failing to parse returns `false`.
+    ///
+    /// Use this for cross-process bound checks (RFC 0008): cap
+    /// validity windows, passport/envelope/bearer expiry. The
+    /// intra-process variant is [`Self::precedes`] which uses
+    /// `monotonic_ns`.
+    pub fn wall_at_or_after(&self, other: &Self) -> bool {
+        match (self.parsed_wall_clock(), other.parsed_wall_clock()) {
+            (Some(a), Some(b)) => a >= b,
+            _ => false,
+        }
+    }
+
+    /// True iff `self`'s wall_clock is strictly after `other`'s
+    /// wall_clock. Default-denies on malformed input. Companion to
+    /// [`Self::wall_at_or_after`] for the half-open expiry case.
+    pub fn wall_after(&self, other: &Self) -> bool {
+        match (self.parsed_wall_clock(), other.parsed_wall_clock()) {
+            (Some(a), Some(b)) => a > b,
+            _ => false,
+        }
     }
 }
 
@@ -117,5 +157,42 @@ mod tests {
         let late_wall_early_mono = Timestamp::new("2030-01-01T00:00:00Z".into(), 50).unwrap();
         assert!(late_wall_early_mono.precedes(&early_wall_late_mono));
         assert!(!early_wall_late_mono.precedes(&late_wall_early_mono));
+    }
+
+    #[test]
+    fn wall_clock_helpers_use_wall_not_monotonic() {
+        // The wall-clock helpers (RFC 0008) intentionally disregard
+        // monotonic_ns. Construct two timestamps where the two
+        // clocks disagree and verify only wall_clock is consulted.
+        let early_wall_late_mono = Timestamp::new("2020-01-01T00:00:00Z".into(), 100).unwrap();
+        let late_wall_early_mono = Timestamp::new("2030-01-01T00:00:00Z".into(), 50).unwrap();
+        assert!(late_wall_early_mono.wall_at_or_after(&early_wall_late_mono));
+        assert!(late_wall_early_mono.wall_after(&early_wall_late_mono));
+        assert!(!early_wall_late_mono.wall_at_or_after(&late_wall_early_mono));
+        assert!(!early_wall_late_mono.wall_after(&late_wall_early_mono));
+    }
+
+    #[test]
+    fn wall_clock_helpers_default_deny_on_malformed() {
+        // A Timestamp constructed via `new` can't have a malformed
+        // wall_clock — the constructor rejects. Hostile callers can
+        // still build one directly via the struct literal; verify
+        // the helpers return false rather than panic.
+        let good = Timestamp::new("2026-01-01T00:00:00Z".into(), 0).unwrap();
+        let bad = Timestamp {
+            wall_clock: "not a timestamp".into(),
+            monotonic_ns: 0,
+        };
+        assert!(!good.wall_at_or_after(&bad));
+        assert!(!bad.wall_at_or_after(&good));
+        assert!(!bad.wall_at_or_after(&bad));
+        assert!(!good.wall_after(&bad));
+    }
+
+    #[test]
+    fn wall_at_or_after_is_inclusive() {
+        let t = Timestamp::new("2026-01-01T00:00:00Z".into(), 0).unwrap();
+        assert!(t.wall_at_or_after(&t));
+        assert!(!t.wall_after(&t));
     }
 }

@@ -234,7 +234,12 @@ async def test_full_lifecycle(
             epoch=1,
             sent_at=yutha.Timestamp.now(),
         ).sign(signing_key)
-        send_receipt_id = await client.envelope.send(envelope)
+        # Thread the cap issued in step 1 through send — required when
+        # the server has `topology.require_capability_for_send=true`
+        # (E1 / RFC 0007). The pre-E1 shape of this test omitted
+        # capability_id; the post-E1 server rejects with
+        # INVALID_ARGUMENT until we pass it explicitly.
+        send_receipt_id = await client.envelope.send(envelope, capability_id=cap_id)
         assert len(send_receipt_id.digest) == 32
 
         # ---------------------------------------------------------------

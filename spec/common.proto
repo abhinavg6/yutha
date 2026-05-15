@@ -84,12 +84,24 @@ message PublicKey {
 // Time
 // ---------------------------------------------------------------------------
 
-// Timestamp records both wall-clock and monotonic time. Wall-clock is for
-// human operators; monotonic is for ordering decisions where clock skew
-// matters (threat-model §6 cross-cutting).
+// Timestamp records both wall-clock and monotonic time.
 //
-// Implementations MUST emit both fields. Spec-mandated comparison logic uses
-// monotonic_ns; observability and audit display uses wall_clock.
+// Implementations MUST emit both fields. Comparison semantics split by
+// where the comparison happens:
+//   - Cross-process bound checks (validity windows, expiry: cap
+//     valid_from/valid_until, passport/envelope expires_at, bearer
+//     token expires_at) MUST use `wall_clock` parsed as RFC 3339.
+//     `monotonic_ns` is undefined across process boundaries — each
+//     process has its own monotonic origin — so a comparison
+//     between two `monotonic_ns` values produced by different
+//     processes is meaningless. See `/spec/rfcs/0008-wall-clock-bound-checks.md`.
+//   - Intra-process ordering (causal predecessors, receipt
+//     sequence within a single control-plane process) MUST use
+//     `monotonic_ns`. Strictly-increasing across the process's
+//     lifetime regardless of NTP adjustments.
+//
+// `Timestamp::precedes` (helper on the Rust ergonomic type) is the
+// intra-process ordering API; bound-check sites are documented per-spec.
 message Timestamp {
   string wall_clock = 1;       // RFC 3339, e.g. "2026-05-10T19:50:00.123456789Z"
   uint64 monotonic_ns = 2;     // Nanoseconds since an implementation-defined

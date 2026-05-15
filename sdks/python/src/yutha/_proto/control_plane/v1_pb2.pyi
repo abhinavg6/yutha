@@ -30,6 +30,24 @@ class AgentBearerToken(_message.Message):
     signature: _common_pb2.Signature
     def __init__(self, agent_id: _Optional[_Union[_common_pb2.AgentId, _Mapping]] = ..., swarm_id: _Optional[_Union[_common_pb2.SwarmId, _Mapping]] = ..., issued_at: _Optional[_Union[_common_pb2.Timestamp, _Mapping]] = ..., expires_at: _Optional[_Union[_common_pb2.Timestamp, _Mapping]] = ..., nonce: _Optional[bytes] = ..., extensions: _Optional[_Union[_common_pb2.Extensions, _Mapping]] = ..., signature: _Optional[_Union[_common_pb2.Signature, _Mapping]] = ...) -> None: ...
 
+class OperatorBearerToken(_message.Message):
+    __slots__ = ("operator_id", "swarm_id", "issued_at", "expires_at", "nonce", "extensions", "signature")
+    OPERATOR_ID_FIELD_NUMBER: _ClassVar[int]
+    SWARM_ID_FIELD_NUMBER: _ClassVar[int]
+    ISSUED_AT_FIELD_NUMBER: _ClassVar[int]
+    EXPIRES_AT_FIELD_NUMBER: _ClassVar[int]
+    NONCE_FIELD_NUMBER: _ClassVar[int]
+    EXTENSIONS_FIELD_NUMBER: _ClassVar[int]
+    SIGNATURE_FIELD_NUMBER: _ClassVar[int]
+    operator_id: str
+    swarm_id: _common_pb2.SwarmId
+    issued_at: _common_pb2.Timestamp
+    expires_at: _common_pb2.Timestamp
+    nonce: bytes
+    extensions: _common_pb2.Extensions
+    signature: _common_pb2.Signature
+    def __init__(self, operator_id: _Optional[str] = ..., swarm_id: _Optional[_Union[_common_pb2.SwarmId, _Mapping]] = ..., issued_at: _Optional[_Union[_common_pb2.Timestamp, _Mapping]] = ..., expires_at: _Optional[_Union[_common_pb2.Timestamp, _Mapping]] = ..., nonce: _Optional[bytes] = ..., extensions: _Optional[_Union[_common_pb2.Extensions, _Mapping]] = ..., signature: _Optional[_Union[_common_pb2.Signature, _Mapping]] = ...) -> None: ...
+
 class RegisterRequest(_message.Message):
     __slots__ = ("passport",)
     PASSPORT_FIELD_NUMBER: _ClassVar[int]
@@ -55,6 +73,24 @@ class RevokeResponse(_message.Message):
     REVOCATION_RECEIPT_FIELD_NUMBER: _ClassVar[int]
     revocation_receipt: _common_pb2.Hash
     def __init__(self, revocation_receipt: _Optional[_Union[_common_pb2.Hash, _Mapping]] = ...) -> None: ...
+
+class OperatorRevokeRequest(_message.Message):
+    __slots__ = ("target", "reason", "cascade_capabilities")
+    TARGET_FIELD_NUMBER: _ClassVar[int]
+    REASON_FIELD_NUMBER: _ClassVar[int]
+    CASCADE_CAPABILITIES_FIELD_NUMBER: _ClassVar[int]
+    target: _common_pb2.AgentId
+    reason: str
+    cascade_capabilities: bool
+    def __init__(self, target: _Optional[_Union[_common_pb2.AgentId, _Mapping]] = ..., reason: _Optional[str] = ..., cascade_capabilities: bool = ...) -> None: ...
+
+class OperatorRevokeResponse(_message.Message):
+    __slots__ = ("revocation_receipt", "cascade_receipts")
+    REVOCATION_RECEIPT_FIELD_NUMBER: _ClassVar[int]
+    CASCADE_RECEIPTS_FIELD_NUMBER: _ClassVar[int]
+    revocation_receipt: _common_pb2.Hash
+    cascade_receipts: _containers.RepeatedCompositeFieldContainer[_common_pb2.Hash]
+    def __init__(self, revocation_receipt: _Optional[_Union[_common_pb2.Hash, _Mapping]] = ..., cascade_receipts: _Optional[_Iterable[_Union[_common_pb2.Hash, _Mapping]]] = ...) -> None: ...
 
 class RotateKeyRequest(_message.Message):
     __slots__ = ("agent_id", "new_public_key", "authorization_signature")

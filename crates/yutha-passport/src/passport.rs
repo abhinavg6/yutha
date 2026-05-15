@@ -61,13 +61,27 @@ impl Passport {
         PassportBuilder::default()
     }
 
-    /// Check whether this passport has expired against the given monotonic
-    /// timestamp. Returns false for passports without `expires_at`.
+    /// Check whether this passport has expired at the given time.
+    /// Returns `false` for passports without `expires_at`.
+    ///
+    /// Compares on `Timestamp.wall_clock` (RFC 3339) per RFC 0008 —
+    /// the passport is minted by the SDK and evaluated by the
+    /// control plane, so `monotonic_ns` is meaningless across the
+    /// boundary. Default-fails-closed on malformed `wall_clock` in
+    /// either timestamp: a passport with a corrupt expiry string
+    /// is treated as expired, which is the safe direction (denial
+    /// of service is preferable to letting a stale passport keep
+    /// working).
     pub fn is_expired_at(&self, now: &Timestamp) -> bool {
-        self.expires_at
-            .as_ref()
-            .map(|e| e.monotonic_ns <= now.monotonic_ns)
-            .unwrap_or(false)
+        let Some(exp) = self.expires_at.as_ref() else {
+            return false;
+        };
+        // Expired iff now >= exp.
+        if now.wall_at_or_after(exp) {
+            return true;
+        }
+        // If either side failed to parse, fail closed.
+        now.parsed_wall_clock().is_none() || exp.parsed_wall_clock().is_none()
     }
 }
 

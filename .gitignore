@@ -71,3 +71,4 @@ pgdata/
 /build/
 *.tar.gz
 *.zip
+*.bak

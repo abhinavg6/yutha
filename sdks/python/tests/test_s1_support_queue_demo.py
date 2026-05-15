@@ -66,8 +66,12 @@ async def test_s1_demo_audit_shape(open_mode_addr: str) -> None:
     pairs, 1 issue + 3 check.pass + 1 check.deny + 1 cap-revoke, 1
     agent.revoke). Drift in either direction is a behavioral regression
     worth investigating."""
-    # Importable thanks to the sys.path shim in conftest.py.
-    from s1_support_queue import EXPECTED_AUDIT_DELTA, run_s1
+    # Importable thanks to the sys.path shim in conftest.py. mypy
+    # can't see through that shim — the module lives in
+    # `sdks/python/examples/`, outside the source set — so we
+    # suppress the import-not-found error here rather than widening
+    # mypy's package-discovery scope just for one test.
+    from s1_support_queue import EXPECTED_AUDIT_DELTA, run_s1  # type: ignore[import-not-found]
 
     delta = await run_s1(server_addr=open_mode_addr)
 

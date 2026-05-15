@@ -94,6 +94,42 @@ def _build_passport(
     ).sign(signing_key)
 
 
+async def _issue_self_send_cap(
+    client: yutha.YuthaClient,
+    agent_id: yutha.AgentId,
+    swarm_id: yutha.SwarmId,
+) -> yutha.Hash:
+    """Issue a root capability that grants ``agent_id`` permission to
+    perform ``envelope.send`` to itself, and return its content-
+    address.
+
+    Required when the server has
+    ``topology.require_capability_for_send=true`` (the post-E1 / RFC
+    0007 default) — without a threaded cap, every Send rejects with
+    ``INVALID_ARGUMENT``. The cap is self-issued (issuer == subject
+    == ``agent_id``) which keeps these tests independent of any
+    operator/control-plane issuance flow.
+
+    Valid-until is anchored well into the future so the cap doesn't
+    expire mid-test under RFC 0008's wall-clock window semantics.
+    """
+    cap = yutha.Capability(
+        spec_version="1.0.0",
+        capability_id=secrets.token_bytes(16),
+        swarm_id=swarm_id,
+        issuer=yutha.Issuer.for_agent(agent_id),
+        subject=agent_id,
+        scope=yutha.Scope.for_action("envelope.send"),
+        valid_from=yutha.Timestamp.now(),
+        valid_until=yutha.Timestamp(
+            wall_clock="2099-01-01T00:00:00Z",
+            monotonic_ns=2**62,
+        ),
+    )
+    cap_id, _issuance = await client.capability.issue(cap)
+    return cap_id
+
+
 # =============================================================================
 # YuthaAgent
 # =============================================================================
@@ -127,12 +163,18 @@ async def test_agent_receives_envelopes_via_dispatch_loop(
         # as defence in depth against any server-side registration lag.
         await asyncio.sleep(0.1)
 
+        # Servers with `topology.require_capability_for_send=true`
+        # (the post-E1 default) reject sends without a cap. Issue a
+        # root self-cap for envelope.send and thread it through.
+        cap_id = await _issue_self_send_cap(agent.client, agent_id, swarm_id)
+
         send_receipt = await agent.send(
             recipient=yutha.Recipient.for_agent(agent_id),
             performative=yutha.Performative.INFORM,
             payload=b"hello from the 4b adapter",
             payload_schema_id="type.yutha.dev/v1/Text",
             tags=["langgraph-4b"],
+            capability_id=cap_id,
         )
         assert len(send_receipt.digest) == 32
 
@@ -177,15 +219,19 @@ async def test_agent_send_auto_increments_epoch(
         # start() already waits for the subscribe stream to open; the
         # sleep is harmless defence in depth.
         await asyncio.sleep(0.1)
+        # Single cap is reused across both sends — see E1 / RFC 0007.
+        cap_id = await _issue_self_send_cap(agent.client, agent_id, swarm_id)
         await agent.send(
             yutha.Recipient.for_agent(agent_id),
             yutha.Performative.INFORM,
             b"one",
+            capability_id=cap_id,
         )
         await agent.send(
             yutha.Recipient.for_agent(agent_id),
             yutha.Performative.INFORM,
             b"two",
+            capability_id=cap_id,
         )
         # Poll inside the context manager so stop() doesn't cancel the
         # dispatch loop while we're still waiting on the second message.

@@ -21,7 +21,7 @@ from pathlib import Path
 
 import grpc
 
-from yutha.auth import BearerSession, make_interceptors
+from yutha.auth import BearerSession, OperatorBearerSession, make_interceptors
 
 
 def _read(path: str | Path | None) -> bytes | None:
@@ -32,7 +32,7 @@ def _read(path: str | Path | None) -> bytes | None:
 
 def make_channel(
     address: str,
-    session: BearerSession,
+    session: BearerSession | OperatorBearerSession,
     *,
     tls_root_ca: str | Path | bytes | None = None,
     client_cert: str | Path | bytes | None = None,

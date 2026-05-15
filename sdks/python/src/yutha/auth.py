@@ -35,6 +35,7 @@ import os
 import time
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass
+from datetime import UTC, datetime, timedelta
 from typing import Any, cast
 
 import grpc
@@ -61,6 +62,25 @@ NO_AUTH_METADATA_KEY = "yutha-no-auth"
 # =============================================================================
 # Session
 # =============================================================================
+
+
+def _advance_wall_clock(rfc3339: str, seconds: float) -> str:
+    """Advance an RFC 3339 wall-clock string by ``seconds`` and re-render
+    in the same Z-suffixed UTC shape ``Timestamp.now()`` emits.
+
+    Used by :class:`BearerSession` to compute a future ``expires_at``
+    that the server's wall-clock expiry check (RFC 0008) reads as
+    not-yet-elapsed. Python's ``datetime.fromisoformat`` handles
+    ``"…Z"`` natively on 3.11+, so we round-trip through naive UTC
+    aware datetime arithmetic."""
+    # `fromisoformat` accepts both "...+00:00" and "...Z" on 3.11+.
+    # Normalize a trailing 'Z' to '+00:00' for older runtimes too.
+    parsed = datetime.fromisoformat(rfc3339.replace("Z", "+00:00"))
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=UTC)
+    future = parsed + timedelta(seconds=seconds)
+    # Render in the same Z-suffixed UTC shape `Timestamp.now()` emits.
+    return future.astimezone(UTC).isoformat().replace("+00:00", "Z")
 
 
 @dataclass(frozen=True)
@@ -163,10 +183,15 @@ class BearerSession:
         """
         now = Timestamp.now()
         expires_monotonic_ns = now.monotonic_ns + self._lifetime_ns
-        # wall_clock is just a string preserved verbatim; we add the
-        # same ns offset so audit logs can correlate.
+        # RFC 0008: the server checks expiry on `wall_clock`, not
+        # `monotonic_ns`. Advance both: wall_clock by lifetime
+        # seconds (parsed as RFC 3339, advanced as a real datetime,
+        # re-rendered Z-suffixed UTC) so the future-anchored token
+        # actually reads as not-yet-expired server-side. monotonic_ns
+        # still advances too — kept for the in-process cache's
+        # refresh-lead logic and for audit-log correlation.
         expires_at = Timestamp(
-            wall_clock=now.wall_clock,
+            wall_clock=_advance_wall_clock(now.wall_clock, self._lifetime_ns / 1_000_000_000),
             monotonic_ns=expires_monotonic_ns,
         )
 
@@ -179,6 +204,114 @@ class BearerSession:
             nonce=os.urandom(16),
         )
         # Canonical bytes: token with signature + extensions cleared.
+        canonical = canonical_bytes(token)
+        sig = self._signing_key.sign_message(canonical)
+        token.signature.CopyFrom(sig.to_proto())
+
+        wire = token.SerializeToString()
+        return _CachedToken(
+            hex_value=wire.hex(),
+            expires_monotonic_ns=expires_monotonic_ns,
+        )
+
+
+class OperatorBearerSession:
+    """Owns an operator signing key; mints and caches
+    ``OperatorBearerToken`` headers for outbound gRPC calls.
+
+    Sibling of :class:`BearerSession` for the operator credential path
+    (RFC 0009). Same cache + async-lock semantics; same wall-clock
+    expiry rules. The wire prefix is ``"bearer operator <hex>"`` —
+    that's how the server's auth helper distinguishes operator tokens
+    from agent tokens on the same ``authorization`` header.
+
+    The ``operator_signing_key``'s public counterpart MUST match the
+    public key the control plane was started with
+    (``--operator-public-key``). The server rejects tokens whose
+    signature can't be verified against that configured key.
+
+    Parameters
+    ----------
+    operator_id
+        Free-form identifier persisted on the receipt's evidence.
+        Useful for distinguishing multiple operators when (a future
+        RFC ships) the server accepts multiple operator public keys.
+    swarm_id
+        The swarm this operator's tokens target.
+    operator_signing_key
+        Ed25519 private key. Stays in operator tooling; never
+        transmitted.
+    """
+
+    def __init__(
+        self,
+        operator_id: str,
+        swarm_id: SwarmId,
+        operator_signing_key: SigningKey,
+        *,
+        token_lifetime_seconds: int = 300,
+        refresh_lead_seconds: int = 30,
+    ) -> None:
+        if refresh_lead_seconds >= token_lifetime_seconds:
+            raise ValueError(
+                "refresh_lead_seconds must be smaller than token_lifetime_seconds; "
+                "otherwise the cache is always expired"
+            )
+        self._operator_id = operator_id
+        self._swarm_id = swarm_id
+        self._signing_key = operator_signing_key
+        self._lifetime_ns = token_lifetime_seconds * 1_000_000_000
+        self._refresh_lead_ns = refresh_lead_seconds * 1_000_000_000
+        self._cache: _CachedToken | None = None
+        self._lock = asyncio.Lock()
+
+    @property
+    def operator_id(self) -> str:
+        return self._operator_id
+
+    @property
+    def swarm_id(self) -> SwarmId:
+        return self._swarm_id
+
+    async def header_value(self) -> str:
+        """Return ``"bearer operator <hex>"`` for the
+        ``authorization`` metadata header. Mints (or re-mints) as
+        needed; protocol matches :meth:`BearerSession.header_value`
+        so the same interceptors can consume either session type."""
+        now_ns = time.monotonic_ns()
+        cached = self._cache
+        if cached is not None and cached.expires_monotonic_ns - now_ns > self._refresh_lead_ns:
+            return f"bearer operator {cached.hex_value}"
+
+        async with self._lock:
+            cached = self._cache
+            now_ns = time.monotonic_ns()
+            if cached is not None and cached.expires_monotonic_ns - now_ns > self._refresh_lead_ns:
+                return f"bearer operator {cached.hex_value}"
+            minted = self._mint()
+            self._cache = minted
+            return f"bearer operator {minted.hex_value}"
+
+    def _mint(self) -> _CachedToken:
+        """Build, sign, and hex-encode a fresh operator token. Same
+        canonical-bytes-with-signature-cleared shape every other Yutha
+        signed message uses."""
+        now = Timestamp.now()
+        expires_monotonic_ns = now.monotonic_ns + self._lifetime_ns
+        expires_at = Timestamp(
+            wall_clock=_advance_wall_clock(
+                now.wall_clock, self._lifetime_ns / 1_000_000_000
+            ),
+            monotonic_ns=expires_monotonic_ns,
+        )
+
+        token = cp_pb2.OperatorBearerToken(
+            operator_id=self._operator_id,
+            swarm_id=self._swarm_id.to_proto(),
+            issued_at=now.to_proto(),
+            expires_at=expires_at.to_proto(),
+            nonce=os.urandom(16),
+        )
         canonical = canonical_bytes(token)
         sig = self._signing_key.sign_message(canonical)
         token.signature.CopyFrom(sig.to_proto())
@@ -239,7 +372,7 @@ def _has_no_auth_sentinel(details: ClientCallDetails) -> bool:
 
 
 class _BearerUnaryUnary(UnaryUnaryClientInterceptor):
-    def __init__(self, session: BearerSession) -> None:
+    def __init__(self, session: BearerSession | OperatorBearerSession) -> None:
         self._session = session
 
     async def intercept_unary_unary(
@@ -257,7 +390,7 @@ class _BearerUnaryUnary(UnaryUnaryClientInterceptor):
 
 
 class _BearerUnaryStream(UnaryStreamClientInterceptor):
-    def __init__(self, session: BearerSession) -> None:
+    def __init__(self, session: BearerSession | OperatorBearerSession) -> None:
         self._session = session
 
     async def intercept_unary_stream(
@@ -275,7 +408,7 @@ class _BearerUnaryStream(UnaryStreamClientInterceptor):
 
 
 class _BearerStreamUnary(StreamUnaryClientInterceptor):
-    def __init__(self, session: BearerSession) -> None:
+    def __init__(self, session: BearerSession | OperatorBearerSession) -> None:
         self._session = session
 
     async def intercept_stream_unary(
@@ -293,7 +426,7 @@ class _BearerStreamUnary(StreamUnaryClientInterceptor):
 
 
 class _BearerStreamStream(StreamStreamClientInterceptor):
-    def __init__(self, session: BearerSession) -> None:
+    def __init__(self, session: BearerSession | OperatorBearerSession) -> None:
         self._session = session
 
     async def intercept_stream_stream(
@@ -311,7 +444,7 @@ class _BearerStreamStream(StreamStreamClientInterceptor):
 
 
 def make_interceptors(
-    session: BearerSession,
+    session: BearerSession | OperatorBearerSession,
 ) -> tuple[
     UnaryUnaryClientInterceptor,
     UnaryStreamClientInterceptor,
@@ -322,7 +455,10 @@ def make_interceptors(
 
     Pass the result as ``interceptors=`` to
     :func:`grpc.aio.insecure_channel` /
-    :func:`grpc.aio.secure_channel`."""
+    :func:`grpc.aio.secure_channel`. Works with either an agent
+    :class:`BearerSession` or an :class:`OperatorBearerSession` —
+    both implement the same ``async header_value()`` protocol the
+    interceptors call into."""
     return (
         _BearerUnaryUnary(session),
         _BearerUnaryStream(session),
@@ -342,6 +478,7 @@ def skip_auth_metadata() -> list[tuple[str, str]]:
 # `grpc.aio` types in their own signatures.
 __all__ = [
     "BearerSession",
+    "OperatorBearerSession",
     "make_interceptors",
     "skip_auth_metadata",
     "NO_AUTH_METADATA_KEY",

@@ -83,6 +83,49 @@ message AgentBearerToken {
   yutha.common.v1.Signature signature = 250;
 }
 
+// OperatorBearerToken is the application-layer identity proof for
+// operator-level actions (today: `AdmissionService.OperatorRevoke`).
+// Signed by an operator key the control plane is configured to trust
+// at startup (`--operator-public-key`); the operator's private key
+// stays in operator tooling and the server only ever sees the public
+// key + signatures.
+//
+// Wire format on the `authorization` metadata header is:
+//   "bearer operator <hex-encoded-canonical-bytes>"
+// (See RFC 0009 §3.1 for the variant-prefix scheme; `bearer <hex>` and
+// `bearer agent <hex>` continue to denote AgentBearerToken.)
+//
+// Same short-lived semantics as AgentBearerToken — operators re-mint
+// on expiry.
+message OperatorBearerToken {
+  // Free-form identifier for the operator. Used only for audit-trail
+  // clarity; trust is rooted in the signature verifying against a
+  // configured operator public key.
+  string operator_id = 1;
+
+  // The swarm this token authorizes operator actions in. The server
+  // rejects tokens with a mismatched swarm_id.
+  yutha.common.v1.SwarmId swarm_id = 2;
+
+  // When the token was minted.
+  yutha.common.v1.Timestamp issued_at = 3;
+
+  // When the token expires. Same wall-clock semantics as
+  // AgentBearerToken.expires_at (RFC 0008). Recommended ≤ 5 minutes.
+  yutha.common.v1.Timestamp expires_at = 4;
+
+  // 16-byte random nonce.
+  bytes nonce = 5;
+
+  // Forward-compatibility hatch.
+  yutha.common.v1.Extensions extensions = 200;
+
+  // Signature over canonical_bytes(token with signature cleared),
+  // made with an operator private key whose public counterpart the
+  // control plane has been configured to trust at startup.
+  yutha.common.v1.Signature signature = 250;
+}
+
 // ---------------------------------------------------------------------------
 // AdmissionService — registry-facing operations
 // ---------------------------------------------------------------------------
@@ -98,10 +141,25 @@ service AdmissionService {
   // the receipt via ReceiptService.Get.
   rpc Register(RegisterRequest) returns (RegisterResponse);
 
-  // Revoke an agent. The caller MUST be either the agent itself
-  // (self-revoke) or an operator-level identity. Produces an
-  // `agent.revoke` receipt.
+  // Self-revoke an agent. The caller MUST present an
+  // `AgentBearerToken` whose agent_id matches `RevokeRequest.agent_id`
+  // (cross-agent revocation on this RPC is refused with
+  // `PERMISSION_DENIED`). Produces an `agent.revoke` receipt and
+  // triggers active-stream tear-down (RFC 0009 §3.3) — the caller's
+  // own subscribe streams close and subsequent bearer tokens reject.
   rpc Revoke(RevokeRequest) returns (RevokeResponse);
+
+  // Operator-level eviction of an agent. The caller MUST present an
+  // `OperatorBearerToken` (see RFC 0009). Produces an
+  // `agent.operator_revoke` receipt (distinct from `agent.revoke`
+  // for audit clarity) and triggers the same active-stream tear-down
+  // on the target. When `cascade_capabilities` is true, every
+  // capability issued by or held by the target is also revoked with
+  // a `capability.revoke` receipt per cap.
+  //
+  // Returns `FAILED_PRECONDITION: operator credentials not enabled`
+  // if the server was started without `--operator-public-key`.
+  rpc OperatorRevoke(OperatorRevokeRequest) returns (OperatorRevokeResponse);
 
   // Rotate an agent's signing key. Produces an `agent.rotate_key`
   // receipt. Future tokens / envelopes / capabilities signed by the
@@ -132,6 +190,31 @@ message RevokeRequest {
 message RevokeResponse {
   // Content-address of the `agent.revoke` receipt.
   yutha.common.v1.Hash revocation_receipt = 1;
+}
+
+message OperatorRevokeRequest {
+  // Target agent to evict. Distinct from the bearer-token agent
+  // (which is implicitly the operator identity).
+  yutha.common.v1.AgentId target = 1;
+
+  // Free-form reason; persisted on the receipt's evidence.
+  string reason = 2;
+
+  // When true, the server also revokes every capability the target
+  // holds (where `issuer == target` OR `subject == target`) and
+  // emits a `capability.revoke` receipt per cap. Default false —
+  // operators opt in explicitly when they want the audit trail.
+  bool cascade_capabilities = 3;
+}
+
+message OperatorRevokeResponse {
+  // Content-address of the `agent.operator_revoke` receipt.
+  yutha.common.v1.Hash revocation_receipt = 1;
+
+  // Content-addresses of any `capability.revoke` receipts produced
+  // as part of the cascade. Empty when `cascade_capabilities` was
+  // false or the agent held no caps.
+  repeated yutha.common.v1.Hash cascade_receipts = 2;
 }
 
 message RotateKeyRequest {

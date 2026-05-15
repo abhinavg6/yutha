@@ -26,6 +26,7 @@ from yutha.client import (
     AdmissionAPI,
     CapabilityAPI,
     EnvelopeAPI,
+    OperatorRevokeOutcome,
     ReceiptAPI,
     YuthaClient,
 )
@@ -88,6 +89,7 @@ __all__ = [
     "AdmissionAPI",
     "CapabilityAPI",
     "EnvelopeAPI",
+    "OperatorRevokeOutcome",
     "ReceiptAPI",
     "BearerSession",
     "make_interceptors",

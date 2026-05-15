@@ -51,7 +51,7 @@ use yutha_proto::control_plane::v1::{
     RevokeCapabilityRequest, RevokeCapabilityResponse,
 };
 
-use crate::auth::require_bearer_auth;
+use crate::auth::require_active_bearer_auth;
 
 use super::error::{missing_field, ErrorIntoStatus};
 use super::ControlPlaneState;
@@ -63,10 +63,6 @@ pub struct CapabilityHandler {
 impl CapabilityHandler {
     pub fn new(state: Arc<ControlPlaneState>) -> Self {
         Self { state }
-    }
-
-    fn swarm_id(&self) -> yutha_core::SwarmId {
-        self.state.registry.topology().swarm_id
     }
 
     /// Scaffolding shortcut: if the capability arrives unsigned, sign it
@@ -98,7 +94,7 @@ impl CapabilityService for CapabilityHandler {
         &self,
         request: Request<IssueCapabilityRequest>,
     ) -> Result<Response<IssueCapabilityResponse>, Status> {
-        let _auth = require_bearer_auth(&request, &self.state.resolver, self.swarm_id()).await?;
+        let _auth = require_active_bearer_auth(&request, &self.state).await?;
         let req = request.into_inner();
 
         let cap_proto = req
@@ -125,7 +121,7 @@ impl CapabilityService for CapabilityHandler {
         &self,
         request: Request<AttenuateRequest>,
     ) -> Result<Response<AttenuateResponse>, Status> {
-        let _auth = require_bearer_auth(&request, &self.state.resolver, self.swarm_id()).await?;
+        let _auth = require_active_bearer_auth(&request, &self.state).await?;
         let req = request.into_inner();
 
         // Unwrap the wire shape: control_plane.v1.AttenuateRequest wraps
@@ -229,7 +225,7 @@ impl CapabilityService for CapabilityHandler {
         // an operator-identity concept the current scaffolding doesn't
         // yet model — same TODO as `AdmissionService.Revoke`'s
         // cross-agent path.
-        let _auth = require_bearer_auth(&request, &self.state.resolver, self.swarm_id()).await?;
+        let _auth = require_active_bearer_auth(&request, &self.state).await?;
         let req = request.into_inner();
 
         let inner = req
@@ -263,7 +259,7 @@ impl CapabilityService for CapabilityHandler {
         &self,
         request: Request<CheckRequest>,
     ) -> Result<Response<CheckResponse>, Status> {
-        let _auth = require_bearer_auth(&request, &self.state.resolver, self.swarm_id()).await?;
+        let _auth = require_active_bearer_auth(&request, &self.state).await?;
         let req = request.into_inner();
 
         let inner = req

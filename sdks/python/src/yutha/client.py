@@ -27,6 +27,7 @@ arguments and return values; the raw stubs remain accessible as
 from __future__ import annotations
 
 from collections.abc import AsyncIterator
+from dataclasses import dataclass
 from pathlib import Path
 from types import TracebackType
 from typing import Self, cast
@@ -35,7 +36,7 @@ import grpc
 
 from yutha._proto.control_plane import v1_pb2 as cp_pb2
 from yutha._proto.control_plane import v1_pb2_grpc as cp_grpc
-from yutha.auth import BearerSession, skip_auth_metadata
+from yutha.auth import BearerSession, OperatorBearerSession, skip_auth_metadata
 from yutha.channel import make_channel
 from yutha.crypto import SigningKey
 from yutha.identity import AgentId, Hash, SwarmId
@@ -65,6 +66,33 @@ from yutha.models.capability import ActionDescriptor, CheckOutcome
 # =============================================================================
 
 
+# Prefix the Rust Send handler uses for capability-deny errors. We
+# match on this string to convert server-side cap denies into the
+# structured `CapabilityDenied` exception. Keep in sync with
+# ``crates/yutha-control-plane/src/grpc/envelope.rs``.
+_CAP_DENY_PREFIX = "capability check denied:"
+
+
+def _maybe_raise_capability_denied(err: grpc.aio.AioRpcError) -> None:
+    """If ``err`` is a server-side capability deny, translate it into
+    :class:`yutha.langgraph.CapabilityDenied`. Otherwise return so the
+    caller can re-raise the original ``AioRpcError``.
+
+    Lazy-imports the exception class to keep :mod:`yutha.client` free
+    of any ``yutha.langgraph`` dependency (which is an optional extra)."""
+    if err.code() != grpc.StatusCode.PERMISSION_DENIED:
+        return
+    details = err.details() or ""
+    if not details.startswith(_CAP_DENY_PREFIX):
+        return
+    reason = details[len(_CAP_DENY_PREFIX) :].strip()
+    # Lazy import: yutha.langgraph depends on yutha.client, not the
+    # other way around.
+    from yutha.langgraph.tools import CapabilityDenied
+
+    raise CapabilityDenied(reason) from err
+
+
 async def _wrap_subscribe_stream(
     response_stream: AsyncIterator[cp_pb2.SubscribedEnvelope],
 ) -> AsyncIterator[tuple[Envelope, Hash]]:
@@ -81,6 +109,31 @@ async def _wrap_subscribe_stream(
             Envelope.from_proto(item.envelope),
             Hash.from_proto(item.deliver_receipt),
         )
+
+
+@dataclass(frozen=True)
+class OperatorRevokeOutcome:
+    """Both halves of an
+    :meth:`AdmissionAPI.operator_revoke` result.
+
+    ``eviction_receipt`` is the content-address of the
+    ``agent.operator_revoke`` substrate receipt — present on every
+    call. ``cascade_receipts`` carries the per-capability
+    ``capability.revoke`` receipts produced when the caller passed
+    ``cascade_capabilities=True``; the list is empty when cascade was
+    not requested or when the target held no live capabilities (RFC
+    0009 §3.2).
+
+    Ordering of ``cascade_receipts`` mirrors the server's
+    ``list_for_subject`` iteration order; the server gives no
+    stability guarantee beyond "matches the order of the
+    ``capability.revoke`` receipts in the receipt log over the same
+    window", so audit consumers should sort by
+    ``Receipt.monotonic_ns`` rather than relying on list position.
+    """
+
+    eviction_receipt: Hash
+    cascade_receipts: list[Hash]
 
 
 class AdmissionAPI:
@@ -118,8 +171,10 @@ class AdmissionAPI:
         return cast(cp_pb2.GetTopologyResponse, resp)
 
     async def revoke(self, target: AgentId, reason: str) -> Hash:
-        """Revoke ``target`` (must equal the bearer's own agent id —
-        operator-level revocation is not yet permitted by the server)."""
+        """Self-revoke ``target`` — agent-bearer-authenticated;
+        ``target`` MUST equal the bearer's own agent id (the server
+        returns ``PERMISSION_DENIED`` otherwise). For cross-agent
+        eviction by a swarm operator, see :meth:`operator_revoke`."""
         resp = cast(
             cp_pb2.RevokeResponse,
             await self._stub.Revoke(
@@ -127,6 +182,51 @@ class AdmissionAPI:
             ),
         )
         return Hash.from_proto(resp.revocation_receipt)
+
+    async def operator_revoke(
+        self,
+        target: AgentId,
+        reason: str,
+        *,
+        cascade_capabilities: bool = False,
+    ) -> OperatorRevokeOutcome:
+        """Operator-level eviction of ``target`` (RFC 0009).
+
+        Requires the client to have been built via
+        :meth:`YuthaClient.connect_as_operator` so the bearer
+        interceptor mints ``OperatorBearerToken`` headers; calling
+        this from an agent-authenticated client gets
+        ``UNAUTHENTICATED`` from the server.
+
+        Returns an :class:`OperatorRevokeOutcome` carrying the
+        ``agent.operator_revoke`` eviction receipt and — when the
+        caller asked for ``cascade_capabilities=True`` — the list of
+        per-capability ``capability.revoke`` receipts emitted as the
+        server walked the target's outstanding caps (RFC 0009 §3.2).
+        With cascade off, ``cascade_receipts`` is always the empty
+        list; with cascade on, the list may still be empty if the
+        target held no live caps at the moment of eviction.
+
+        Note: prior to the cascade implementation landing, this
+        method returned a bare ``Hash`` and the server returned
+        ``UNIMPLEMENTED`` whenever ``cascade_capabilities=True``.
+        Callers updating across that boundary need both the new
+        return-type adoption and the awareness that cascade now
+        succeeds rather than failing."""
+        resp = cast(
+            cp_pb2.OperatorRevokeResponse,
+            await self._stub.OperatorRevoke(
+                cp_pb2.OperatorRevokeRequest(
+                    target=target.to_proto(),
+                    reason=reason,
+                    cascade_capabilities=cascade_capabilities,
+                )
+            ),
+        )
+        return OperatorRevokeOutcome(
+            eviction_receipt=Hash.from_proto(resp.revocation_receipt),
+            cascade_receipts=[Hash.from_proto(h) for h in resp.cascade_receipts],
+        )
 
 
 class CapabilityAPI:
@@ -199,15 +299,39 @@ class EnvelopeAPI:
     def __init__(self, stub: cp_grpc.EnvelopeServiceStub) -> None:
         self._stub = stub
 
-    async def send(self, envelope: Envelope) -> Hash:
+    async def send(self, envelope: Envelope, *, capability_id: Hash | None = None) -> Hash:
         """Send an envelope. Returns the ``envelope.send`` receipt id.
-        The envelope's ``from_agent`` MUST equal the bearer's agent id
-        — the server rejects mismatched-sender envelopes with
-        ``PERMISSION_DENIED``."""
-        resp = cast(
-            cp_pb2.SendEnvelopeResponse,
-            await self._stub.Send(cp_pb2.SendEnvelopeRequest(envelope=envelope.to_proto())),
-        )
+
+        ``envelope.from_agent`` MUST equal the bearer's agent id; the
+        server rejects mismatched-sender envelopes with
+        ``PERMISSION_DENIED``.
+
+        ``capability_id`` is the content-address of the capability
+        authorizing this send (RFC 0007). Required when the swarm's
+        topology declares ``require_capability_for_send = true``; the
+        server returns ``INVALID_ARGUMENT`` if it's missing. Optional
+        in permissive topologies — but if supplied, the server runs
+        the check anyway and emits a ``capability.check.{pass,deny}``
+        receipt, which is useful for audit-trail completeness.
+
+        On a server-side cap-check deny (revoked, expired, out-of-scope,
+        unmet caveat), this method translates the resulting
+        ``PERMISSION_DENIED: capability check denied: …`` into a
+        :class:`yutha.langgraph.CapabilityDenied` exception so callers
+        get a structured Python error rather than a raw gRPC one. Other
+        ``PERMISSION_DENIED`` codes (e.g. sender/bearer mismatch)
+        propagate unchanged as :class:`grpc.aio.AioRpcError`."""
+        request = cp_pb2.SendEnvelopeRequest(envelope=envelope.to_proto())
+        if capability_id is not None:
+            request.capability_id.CopyFrom(capability_id.to_proto())
+        try:
+            resp = cast(
+                cp_pb2.SendEnvelopeResponse,
+                await self._stub.Send(request),
+            )
+        except grpc.aio.AioRpcError as e:
+            _maybe_raise_capability_denied(e)
+            raise
         return Hash.from_proto(resp.send_receipt)
 
     def subscribe(self, agent_id: AgentId | None = None) -> AsyncIterator[tuple[Envelope, Hash]]:
@@ -337,7 +461,7 @@ class YuthaClient:
     def __init__(
         self,
         channel: grpc.aio.Channel,
-        session: BearerSession,
+        session: BearerSession | OperatorBearerSession,
     ) -> None:
         self._channel = channel
         self._session = session
@@ -385,9 +509,89 @@ class YuthaClient:
         )
         return cls(channel, session)
 
+    @classmethod
+    def connect_as_operator(
+        cls,
+        address: str,
+        *,
+        operator_id: str,
+        swarm_id: SwarmId,
+        operator_signing_key: SigningKey,
+        token_lifetime_seconds: int = 300,
+        refresh_lead_seconds: int = 30,
+        tls_root_ca: str | Path | bytes | None = None,
+        client_cert: str | Path | bytes | None = None,
+        client_key: str | Path | bytes | None = None,
+    ) -> Self:
+        """Build a client whose bearer interceptor mints
+        ``OperatorBearerToken`` headers (RFC 0009).
+
+        The control plane must have been started with
+        ``--operator-public-key`` matching ``operator_signing_key``'s
+        public counterpart, otherwise every operator RPC returns
+        ``FAILED_PRECONDITION: operator credentials not enabled``.
+
+        The returned client carries the same four service surfaces
+        agent clients do, but most RPCs reject operator tokens with
+        ``UNAUTHENTICATED: this RPC requires an agent bearer; got
+        operator variant``. Today the only RPC that accepts operator
+        bearers is :meth:`AdmissionAPI.operator_revoke` — calls
+        through any other endpoint are expected to fail until the
+        spec grows additional operator-only RPCs (key rotation,
+        per-RFC-future scenarios).
+
+        Parameters
+        ----------
+        operator_id
+            Free-form identifier embedded in the token and persisted
+            on the resulting ``agent.operator_revoke`` receipt's
+            evidence. Useful for distinguishing multiple operators in
+            audit-trail queries.
+        swarm_id
+            The swarm this operator manages. Must match the running
+            control plane's swarm.
+        operator_signing_key
+            Ed25519 private key. The control plane is configured
+            with its public counterpart at startup.
+        """
+        session = OperatorBearerSession(
+            operator_id=operator_id,
+            swarm_id=swarm_id,
+            operator_signing_key=operator_signing_key,
+            token_lifetime_seconds=token_lifetime_seconds,
+            refresh_lead_seconds=refresh_lead_seconds,
+        )
+        channel = make_channel(
+            address,
+            session,
+            tls_root_ca=tls_root_ca,
+            client_cert=client_cert,
+            client_key=client_key,
+        )
+        return cls(channel, session)
+
     @property
     def agent_id(self) -> AgentId:
+        """The bearer's agent id. Raises :class:`AttributeError` for
+        operator-authenticated clients — they don't carry an agent
+        identity (use :attr:`operator_id` instead)."""
+        if isinstance(self._session, OperatorBearerSession):
+            raise AttributeError(
+                "operator-authenticated clients have no agent_id; "
+                "use `operator_id` instead"
+            )
         return self._session.agent_id
+
+    @property
+    def operator_id(self) -> str:
+        """The bearer's operator id. Raises :class:`AttributeError`
+        for agent-authenticated clients."""
+        if isinstance(self._session, BearerSession):
+            raise AttributeError(
+                "agent-authenticated clients have no operator_id; "
+                "use `agent_id` instead"
+            )
+        return self._session.operator_id
 
     @property
     def swarm_id(self) -> SwarmId:

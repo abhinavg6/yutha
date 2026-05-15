@@ -193,6 +193,46 @@ impl Registry for MemoryRegistry {
         Ok(outcome.receipt_id)
     }
 
+    async fn operator_revoke(
+        &self,
+        target: &AgentId,
+        operator_id: &str,
+        reason: &str,
+    ) -> Result<yutha_core::Hash> {
+        // Same storage-level effect as `revoke` — the passport store
+        // marks the target revoked — but emits `agent.operator_revoke`
+        // (distinct from `agent.revoke`) so audit-trail filtering can
+        // separate operator-driven evictions from self-revocations.
+        // See RFC 0009 §3.5 for the receipt-kind rationale.
+        self.passports.revoke(target, reason).await?;
+
+        let receipt = self.build_signed_receipt(
+            "agent.operator_revoke",
+            vec![
+                Evidence::new(
+                    "target_agent_id",
+                    "type.yutha.dev/v1/AgentId",
+                    target.as_bytes().to_vec(),
+                ),
+                Evidence::new(
+                    "operator_id",
+                    "type.yutha.dev/v1/String",
+                    operator_id.as_bytes().to_vec(),
+                ),
+                Evidence::new(
+                    "reason",
+                    "type.yutha.dev/v1/String",
+                    reason.as_bytes().to_vec(),
+                ),
+            ],
+        )?;
+        let outcome = self
+            .receipts
+            .append(receipt, AppendOptions::default(), self.resolver.as_ref())
+            .await?;
+        Ok(outcome.receipt_id)
+    }
+
     fn topology(&self) -> &Topology {
         &self.topology
     }

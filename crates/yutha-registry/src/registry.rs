@@ -31,11 +31,28 @@ pub trait Registry: Send + Sync {
     ///   (when the receipt-store side is wired).
     async fn register(&self, passport: Passport) -> Result<RegistrationOutcome>;
 
-    /// Revoke an agent's membership. Produces an `agent.revoke` receipt
+    /// Revoke an agent's membership via the **self-revoke** path
+    /// (`AdmissionService.Revoke`). Produces an `agent.revoke` receipt
     /// signed by the control plane. Returns the receipt's content-address
     /// so callers (gRPC handlers, scenarios) can echo it back without
     /// re-querying the receipt store.
     async fn revoke(&self, agent_id: &AgentId, reason: &str) -> Result<Hash>;
+
+    /// Revoke an agent via the **operator-revoke** path
+    /// (`AdmissionService.OperatorRevoke`, RFC 0009). Same storage-level
+    /// effect as [`Self::revoke`] — the target's passport is marked
+    /// revoked — but emits a distinct `agent.operator_revoke` receipt
+    /// so audit trails can filter by actor.
+    ///
+    /// `operator_id` is the free-form identifier from the
+    /// `OperatorBearerToken` that authorized the call; persisted on the
+    /// receipt's evidence.
+    async fn operator_revoke(
+        &self,
+        target: &AgentId,
+        operator_id: &str,
+        reason: &str,
+    ) -> Result<Hash>;
 
     /// Rotate an agent's signing key. The new passport carries the new
     /// public key, signed with the new key. Continuity (proof that the

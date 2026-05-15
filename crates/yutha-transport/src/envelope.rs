@@ -53,11 +53,20 @@ impl Envelope {
     }
 
     /// Whether the envelope has expired relative to `now`.
+    ///
+    /// Compares on `Timestamp.wall_clock` (RFC 3339) per RFC 0008
+    /// — the envelope is minted by the SDK and evaluated by the
+    /// control plane, so `monotonic_ns` is not meaningful across
+    /// the boundary. Fail-closed on malformed `wall_clock`: a
+    /// corrupt expiry is treated as expired.
     pub fn is_expired_at(&self, now: &Timestamp) -> bool {
-        self.expires_at
-            .as_ref()
-            .map(|e| e.monotonic_ns <= now.monotonic_ns)
-            .unwrap_or(false)
+        let Some(exp) = self.expires_at.as_ref() else {
+            return false;
+        };
+        if now.wall_at_or_after(exp) {
+            return true;
+        }
+        now.parsed_wall_clock().is_none() || exp.parsed_wall_clock().is_none()
     }
 
     /// Verify the sender's signature against the supplied public key.

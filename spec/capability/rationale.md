@@ -40,7 +40,7 @@ Attenuation semantics: a child's effective scope is `parent.scope ∩ child.scop
 
 **`parent`.** Content-address of the parent capability for attenuated children. Empty for root capabilities. Verifiers walk this chain to a root; the chain length is bounded (default max depth 8, configurable via topology) to prevent attack-via-deep-chain.
 
-**`valid_from`, `valid_until`.** Both required. valid_until MUST be set; the spec does not permit non-expiring capabilities. Long-lived capabilities are revoked-then-reissued, not held indefinitely. Default maximum lifetime is 90 days, configurable in topology, with shorter defaults strongly recommended for production.
+**`valid_from`, `valid_until`.** Both required. valid_until MUST be set; the spec does not permit non-expiring capabilities. Long-lived capabilities are revoked-then-reissued, not held indefinitely. Default maximum lifetime is 90 days, configurable in topology, with shorter defaults strongly recommended for production. The validity-window check (`now >= valid_from && now <= valid_until`) uses the `Timestamp.wall_clock` RFC 3339 field — see [RFC 0008](../rfcs/0008-wall-clock-bound-checks.md) for the rationale (cross-process `monotonic_ns` is undefined behavior; `wall_clock` is the substrate's authoritative bound).
 
 **`caveats`.** Typed, closed vocabulary at v1.0. Six caveat kinds:
 - TimeOfDayCaveat: business-hours-only, on-call-only, etc.

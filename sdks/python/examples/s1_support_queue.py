@@ -80,18 +80,6 @@ SERVER_ADDR = os.environ.get("YUTHA_GRPC_ADDR", "127.0.0.1:50051")
 # without expires_at; we set one that obviously outlasts the demo run.
 FAR_FUTURE = yutha.Timestamp(wall_clock="2099-01-01T00:00:00Z", monotonic_ns=2**62)
 
-# Past-anchor for capability windows. The substrate's
-# ``Capability::is_within_window`` compares ``monotonic_ns`` numerically,
-# but Python's ``time.monotonic_ns()`` and Rust's monotonic clock have
-# process-local origins — a cap built client-side with ``valid_from =
-# Timestamp.now()`` lands in the *future* relative to the server's
-# monotonic clock and fails the window check. Until the spec/substrate
-# moves window semantics to wall-clock (tracked in memory), the
-# cross-process workaround is to anchor ``valid_from`` at zero. The
-# wall_clock field is informational and unused by the check; we set it
-# to the Unix epoch for readability.
-EPOCH_ZERO = yutha.Timestamp(wall_clock="1970-01-01T00:00:00Z", monotonic_ns=0)
-
 
 def derive_bootstrap_identity(
     seed: bytes,
@@ -114,11 +102,32 @@ def derive_bootstrap_identity(
     return signing_key, agent_id, swarm_id
 
 
-def load_bootstrap_identity_from_env() -> tuple[yutha.SigningKey, yutha.AgentId, yutha.SwarmId]:
+def derive_operator_identity(seed: bytes) -> tuple[yutha.SigningKey, yutha.PublicKey]:
+    """Domain-separated derivation of an Ed25519 operator keypair
+    from the same bootstrap seed (RFC 0009 §3.4 — operator key is
+    configured server-side; this is the demo's "matching pair"
+    pattern).
+
+    Uses ``sha256(seed || 0x03)[:32]`` as the operator's Ed25519
+    private-key seed. The ``0x03`` byte separates this stream from
+    the bootstrap-identity ones (``0x01`` for agent_id, ``0x02`` for
+    swarm_id) so an attacker who knows one derivation can't pivot
+    to another."""
+    if len(seed) != 32:
+        raise ValueError(f"seed must be exactly 32 bytes, got {len(seed)}")
+    op_seed = hashlib.sha256(seed + b"\x03").digest()
+    op_signing = yutha.SigningKey.from_seed_bytes(op_seed)
+    return op_signing, op_signing.public_key()
+
+
+def load_bootstrap_identity_from_env() -> (
+    tuple[yutha.SigningKey, yutha.AgentId, yutha.SwarmId, bytes]
+):
     """Read ``YUTHA_BOOTSTRAP_SEED`` and derive the full bootstrap
-    identity from it. Raises a clear error if the env var is missing
-    or malformed — cleaner than hitting an ``AioRpcError`` deep in
-    Phase 1."""
+    identity from it. Returns the raw seed bytes too so callers can
+    do further seed-derived derivations (operator key, etc.) without
+    re-reading + re-validating the env var. Raises a clear error if
+    the env var is missing or malformed."""
     seed_hex = os.environ.get("YUTHA_BOOTSTRAP_SEED")
     if not seed_hex:
         raise RuntimeError(
@@ -141,7 +150,8 @@ def load_bootstrap_identity_from_env() -> tuple[yutha.SigningKey, yutha.AgentId,
         raise RuntimeError(
             f"YUTHA_BOOTSTRAP_SEED must be exactly 64 hex chars (32 bytes); got {len(seed)} bytes"
         )
-    return derive_bootstrap_identity(seed)
+    signing_key, agent_id, swarm_id = derive_bootstrap_identity(seed)
+    return signing_key, agent_id, swarm_id, seed
 
 
 # Expected receipt-count delta for one demo run. The test wrapper
@@ -155,6 +165,7 @@ EXPECTED_AUDIT_DELTA: dict[str, int] = {
     "capability.check.deny": 1,
     "capability.revoke": 1,
     "agent.revoke": 1,
+    "agent.operator_revoke": 1,
 }
 
 # The five-agent cast and their framework tags. Two frameworks mirrors
@@ -256,7 +267,7 @@ def build_router_graph(
     :class:`CapabilityDenied` at the gated node — see Phase 6 in
     :func:`run_s1`."""
 
-    @capability_required(router_agent.client, router_cap, action_kind="send_message")
+    @capability_required(router_agent.client, router_cap, action_kind="envelope.send")
     async def send_to_handler(state: ClassifierState) -> ClassifierState:
         dest = destinations[state["category"]]
         receipt = await router_agent.send(
@@ -355,8 +366,20 @@ async def run_s1(server_addr: str = SERVER_ADDR) -> dict[str, int]:
     print(f"# S1 customer-support queue demo · server={server_addr}")
 
     # --- bootstrap identity (used for swarm_id binding + pre-snapshot) ---
-    bootstrap_key, bootstrap_agent_id, swarm_id = load_bootstrap_identity_from_env()
+    bootstrap_key, bootstrap_agent_id, swarm_id, seed = load_bootstrap_identity_from_env()
     print(f"# swarm_id={swarm_id.value.hex()} (from YUTHA_BOOTSTRAP_SEED)")
+
+    # Operator pubkey for Phase 7.5 — derived from the same seed.
+    # Operator's PRIVATE key stays in the demo; the public key
+    # must be passed to the server via --operator-public-key for the
+    # operator-revoke RPC to be enabled. Printing it here so the
+    # operator running the demo can copy-paste into the server
+    # invocation. Mismatched key → FAILED_PRECONDITION on phase 7.5.
+    _op_signing_key_preview, _op_public_key_preview = derive_operator_identity(seed)
+    print(
+        f"# operator pubkey (pass as --operator-public-key): "
+        f"{_op_public_key_preview.value.hex()}"
+    )
 
     # --- Phase 0: pre-flow audit snapshot ---
     # Taken BEFORE the five demo agents register, using the bootstrap
@@ -461,10 +484,17 @@ async def run_s1(server_addr: str = SERVER_ADDR) -> dict[str, int]:
                 swarm_id=swarm_id,
                 issuer=yutha.Issuer.for_agent(router_id),
                 subject=router_id,
-                scope=yutha.Scope.for_action("send_message"),
-                # See EPOCH_ZERO docstring: cross-process monotonic
-                # clocks can't agree on "now", so anchor in the past.
-                valid_from=EPOCH_ZERO,
+                # Cap scope matches the action_kind the server
+                # synthesizes from the envelope (RFC 0007). For
+                # finer-grained semantic gating, layer caveats
+                # (OnlyIfTagged/NeverIfTagged) over this scope.
+                scope=yutha.Scope.for_action("envelope.send"),
+                # `Timestamp.now()` is now safe here under RFC 0008:
+                # validity-window comparison parses wall_clock, which
+                # is consistent across processes. (Before E2, the
+                # cross-process monotonic_ns numeric compare required
+                # an EPOCH_ZERO anchor — retired.)
+                valid_from=yutha.Timestamp.now(),
                 valid_until=FAR_FUTURE,
             )
             cap_id, issue_receipt = await router.client.capability.issue(router_cap)
@@ -522,6 +552,35 @@ async def run_s1(server_addr: str = SERVER_ADDR) -> dict[str, int]:
                 returns_id, "s1 scenario cleanup"
             )
             print(f"  returns revoke receipt={revoke_receipt.digest.hex()[:16]}…")
+
+            # --- Phase 7.5: operator evicts billing --------------------
+            # Demonstrates RFC 0009 — a swarm operator presenting an
+            # `OperatorBearerToken` evicts an agent the operator-revoke
+            # path doesn't share with self-revoke (different RPC,
+            # different bearer variant, different receipt kind).
+            #
+            # The operator's signing key is derived from the same
+            # YUTHA_BOOTSTRAP_SEED via `derive_operator_identity`; the
+            # control plane must have been started with the matching
+            # public key as `--operator-public-key <hex>`.
+            print("\n# Phase 7.5 — operator evicts billing")
+            op_signing_key, op_public_key = derive_operator_identity(seed)
+            print(f"  operator pubkey: {op_public_key.value.hex()}")
+            billing_id = identities["billing"][1]
+            async with yutha.YuthaClient.connect_as_operator(
+                server_addr,
+                operator_id="s1-demo-operator",
+                swarm_id=swarm_id,
+                operator_signing_key=op_signing_key,
+            ) as op_client:
+                op_outcome = await op_client.admission.operator_revoke(
+                    billing_id,
+                    "s1 demo: operator-driven eviction",
+                )
+                print(
+                    f"  operator revoke receipt="
+                    f"{op_outcome.eviction_receipt.digest.hex()[:16]}…"
+                )
 
             # --- Phase 8: snapshot delta and report --------------------
             print("\n# Phase 8 — audit-trail delta")

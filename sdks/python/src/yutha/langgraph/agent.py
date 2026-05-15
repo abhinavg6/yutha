@@ -296,6 +296,7 @@ class YuthaAgent:
         payload_schema_id: str = "",
         tags: list[str] | None = None,
         in_reply_to: Hash | None = None,
+        capability_id: Hash | None = None,
     ) -> Hash:
         """Construct, sign, and ship an envelope from this agent.
 
@@ -305,7 +306,24 @@ class YuthaAgent:
         replay-protection sees strictly-increasing values from this
         agent.
 
-        Returns the ``envelope.send`` receipt id.
+        ``capability_id`` is the content-address of the capability
+        authorizing this send (RFC 0007). Resolution order:
+
+        1. Explicit kwarg, when supplied.
+        2. The context-local
+           :data:`yutha.langgraph.tools.ACTIVE_CAPABILITY_ID`, set by
+           the :func:`yutha.langgraph.capability_required` decorator.
+        3. None (cap omitted; server-side check is skipped unless the
+           topology declares ``require_capability_for_send = true``,
+           in which case the server rejects with
+           ``INVALID_ARGUMENT``).
+
+        On a server-side cap deny, raises
+        :class:`yutha.langgraph.CapabilityDenied`. On any other
+        ``PERMISSION_DENIED`` (e.g. sender/bearer mismatch), the raw
+        :class:`grpc.aio.AioRpcError` propagates.
+
+        Returns the ``envelope.send`` receipt id on permit.
         """
         async with self._epoch_lock:
             epoch = self._epoch
@@ -327,7 +345,16 @@ class YuthaAgent:
             in_reply_to=in_reply_to,
         ).sign(self._signing_key)
 
-        return await self._client.envelope.send(envelope)
+        # Resolve cap_id: explicit kwarg wins; otherwise pick up the
+        # decorator-supplied context-local id; otherwise None.
+        if capability_id is None:
+            # Lazy import: keeps `yutha.langgraph.agent` from
+            # cycle-depending on `tools` at module-load time.
+            from yutha.langgraph.tools import ACTIVE_CAPABILITY_ID
+
+            capability_id = ACTIVE_CAPABILITY_ID.get()
+
+        return await self._client.envelope.send(envelope, capability_id=capability_id)
 
     async def get_receipt(self, receipt_id: Hash) -> Receipt | None:
         """Pass-through to ``client.receipt.get`` for handler
