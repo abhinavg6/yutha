@@ -57,10 +57,9 @@ const BEARER_PREFIX: &str = "bearer ";
 
 /// Which bearer-token variant the wire header carries (RFC 0009 §3.1).
 ///
-/// Header forms:
+/// Header forms (the variant prefix is required):
 ///   `bearer agent <hex>`     → [`BearerVariant::Agent`]
 ///   `bearer operator <hex>`  → [`BearerVariant::Operator`]
-///   `bearer <hex>`           → [`BearerVariant::Agent`] (v1.1 back-compat)
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum BearerVariant {
     Agent,
@@ -70,6 +69,11 @@ enum BearerVariant {
 /// Parse the `authorization` header value into its (variant, hex-body)
 /// pair. Returns `Status::unauthenticated` for any malformed header so
 /// callers can early-exit uniformly.
+///
+/// The variant prefix (`agent` / `operator`) is REQUIRED. Pre-RFC-0009
+/// drafts admitted `bearer <hex>` without an explicit variant as agent;
+/// that compat shim is removed pre-public-release — every SDK we ship
+/// emits the explicit variant.
 //
 // clippy::result_large_err: returns `Result<(BearerVariant, &str), Status>`
 // where Status is ~176 bytes. Boxing Status would force the entire gRPC
@@ -87,8 +91,9 @@ fn parse_bearer_header(header: &str) -> Result<(BearerVariant, &str), Status> {
     } else if let Some(hex) = rest.strip_prefix("operator ") {
         Ok((BearerVariant::Operator, hex.trim()))
     } else {
-        // No explicit variant prefix → agent (back-compat with v1.1).
-        Ok((BearerVariant::Agent, rest))
+        Err(Status::unauthenticated(
+            "authorization must specify variant: 'bearer agent <hex>' or 'bearer operator <hex>'",
+        ))
     }
 }
 
@@ -555,7 +560,7 @@ mod tests {
         let swarm = SwarmId::new();
         let (resolver, agent_id, key) = register_agent(swarm).await;
         let hex_token = mint_token(agent_id, swarm, &key, future_timestamp());
-        let req = request_with_auth(&format!("bearer {hex_token}"));
+        let req = request_with_auth(&format!("bearer agent {hex_token}"));
         let ctx = require_bearer_auth(&req, &resolver, swarm).await.unwrap();
         assert_eq!(ctx.agent_id, agent_id);
         assert_eq!(ctx.swarm_id, swarm);
@@ -590,7 +595,7 @@ mod tests {
         let cp_swarm = SwarmId::new();
         let (resolver, agent_id, key) = register_agent(issuer_swarm).await;
         let hex_token = mint_token(agent_id, issuer_swarm, &key, future_timestamp());
-        let req = request_with_auth(&format!("bearer {hex_token}"));
+        let req = request_with_auth(&format!("bearer agent {hex_token}"));
         let err = require_bearer_auth(&req, &resolver, cp_swarm)
             .await
             .unwrap_err();
@@ -605,7 +610,7 @@ mod tests {
         // Mint with expiry strictly before now.
         let past = Timestamp::new("2020-01-01T00:00:00Z".into(), 1).unwrap();
         let hex_token = mint_token(agent_id, swarm, &key, past);
-        let req = request_with_auth(&format!("bearer {hex_token}"));
+        let req = request_with_auth(&format!("bearer agent {hex_token}"));
         let err = require_bearer_auth(&req, &resolver, swarm)
             .await
             .unwrap_err();
@@ -620,7 +625,7 @@ mod tests {
         let other_key = generate_keypair();
         let stranger = AgentId::new();
         let hex_token = mint_token(stranger, swarm, &other_key, future_timestamp());
-        let req = request_with_auth(&format!("bearer {hex_token}"));
+        let req = request_with_auth(&format!("bearer agent {hex_token}"));
         let err = require_bearer_auth(&req, &resolver, swarm)
             .await
             .unwrap_err();
@@ -656,7 +661,7 @@ mod tests {
         token.signature = Some((&bogus_sig).into());
         let hex_token = hex::encode(token.encode_to_vec());
 
-        let req = request_with_auth(&format!("bearer {hex_token}"));
+        let req = request_with_auth(&format!("bearer agent {hex_token}"));
         let err = require_bearer_auth(&req, &resolver, swarm)
             .await
             .unwrap_err();

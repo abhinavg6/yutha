@@ -25,6 +25,7 @@ use std::sync::Arc;
 
 use tokio::sync::{Notify, RwLock};
 use yutha_capability::CapabilityStore;
+use yutha_cedar_plus::{CedarPlusEvaluator, EnforcementEngine};
 use yutha_core::{AgentId, PublicKey};
 use yutha_passport::{ControlPlaneIdentity, PassportStore};
 use yutha_receipt::{PassportResolver, ReceiptStore};
@@ -33,6 +34,7 @@ use yutha_transport::Transport;
 
 pub mod admission;
 pub mod capability;
+pub mod constitution;
 pub mod envelope;
 pub mod error;
 pub mod receipt;
@@ -90,6 +92,21 @@ pub struct ControlPlaneState {
     /// milliseconds and the gRPC stream closes from the client's
     /// perspective.
     pub revocation_signals: Arc<RwLock<HashMap<AgentId, Arc<Notify>>>>,
+
+    /// The Phase 2 constitution evaluator (RFCs 0010-0013). Wired
+    /// via [`crate::grpc::constitution::ConstitutionHandler::activate`].
+    /// Layer A (Cedar gating) + Layer B (scoring + procedures) both
+    /// live here. `EnvelopeHandler::send` and the cap-handler RPCs
+    /// will consult this once F10d-e land.
+    pub cedar_plus: Arc<CedarPlusEvaluator>,
+
+    /// The Phase 2 enforcement engine (RFC 0013). Long-lived
+    /// stateful subscriber to the receipt stream; produces
+    /// `enforcement.*` effects from pattern matches. Owns per-agent
+    /// reputation + quarantine state; the cap layer consults
+    /// [`yutha_cedar_plus::EnforcementEngine::is_agent_quarantined`]
+    /// before each check / issue / attenuate once F10g lands.
+    pub enforcement: Arc<EnforcementEngine>,
 }
 
 impl ControlPlaneState {

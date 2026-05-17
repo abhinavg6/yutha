@@ -15,7 +15,7 @@ Three decisions structure the design:
 
 - **Macaroon-style attenuation, not OAuth-style scopes.** A held capability can be attenuated — narrowed, never broadened — into a child capability that the holder gives to a delegate. The child references the parent by content-address; the verifier walks the chain to a root. This makes delegation safe by construction: the child cannot exceed the parent. Delegating is a local operation that does not require contacting the issuer.
 
-- **Caveats over policy languages.** Capabilities are decidable on their own — a check is a finite walk over scope and caveats. Constitution norms (Cedar+) live one layer up; a constitution may *require* a capability for an action, but the capability itself is not a Cedar+ predicate. Keeping these layers separate keeps both decidable and keeps the security boundary small.
+- **Caveats over policy languages.** Capabilities are decidable on their own — a check is a finite walk over scope and caveats. [Constitution norms (Cedar+)](../constitution/rationale.md) live one layer up; a constitution may *require* a capability for an action, but the capability itself is not a Cedar+ predicate. Keeping these layers separate keeps both decidable and keeps the security boundary small. See [RFC 0010](../rfcs/0010-constitution-language-v1.md) §3 for the gating order.
 
 - **Default-deny, surfaced denials.** Every denied check produces a `capability.check.deny` receipt with the deny reason and the unmet caveats. There is no silent failure. PRD §13.2: "Default-deny on ambiguity. When norms are silent, the system errs toward inaction and surfaces the decision."
 

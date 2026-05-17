@@ -33,6 +33,7 @@
 //! `MemoryTransport::subscribe` notices `tx.send` errored and shuts
 //! itself down.
 
+use std::collections::HashMap;
 use std::pin::Pin;
 use std::sync::Arc;
 
@@ -40,7 +41,10 @@ use futures::StreamExt;
 use tokio_stream::Stream;
 use tonic::{Request, Response, Status};
 use yutha_capability::ActionDescriptor;
-use yutha_core::{AgentId, Hash};
+use yutha_cedar_plus::{
+    ConstitutionEvaluator, Decision, EntityRecord, EntitySnapshot, EntityUid, EvaluationRequest,
+};
+use yutha_core::{AgentId, Hash, Timestamp};
 use yutha_proto::control_plane::v1::{
     envelope_service_server::EnvelopeService, SendEnvelopeRequest, SendEnvelopeResponse,
     SubscribeRequest, SubscribedEnvelope,
@@ -78,6 +82,123 @@ fn recipient_descriptor_string(r: &Recipient) -> String {
         Recipient::External(e) => {
             format!("external:{}://{}{}", e.scheme, e.authority, e.path_hint)
         }
+    }
+}
+
+/// Construct an [`EvaluationRequest`] for a SendEnvelope action, plus a
+/// minimal [`EntitySnapshot`] containing the sender Agent + Swarm.
+///
+/// F10d intentionally keeps the snapshot lean — sender Agent (with the
+/// Swarm as parent for Cedar's `in [Swarm]` relation) and the Swarm
+/// itself. Cedar policies that only check action/principal identity
+/// work out of the box; policies that reference rich Agent attributes
+/// (`passport_tier`, `framework`, `reputation`, budget fields) need
+/// the F11/F12 enrichment pass that walks the passport store + the
+/// enforcement engine. Until that lands, such expressions will see
+/// `null` for unprovided attrs and Cedar will deny on the attribute
+/// lookup — which is the fail-closed default per evaluation.md §2.3.
+fn build_eval_request_for_send(
+    constitution_hash: Hash,
+    principal_id: &AgentId,
+    envelope: &Envelope,
+    cap_id: Option<&Hash>,
+    swarm_id: &yutha_core::SwarmId,
+) -> EvaluationRequest {
+    let principal_uid_str = principal_id.to_string();
+    let swarm_uid_str = swarm_id.to_string();
+
+    // Resource UID depends on the recipient variant. For Agent
+    // recipients we hand Cedar a Yutha::Agent; for Role / Swarm /
+    // External we use a generic Resource identifier so the policy
+    // can still gate by `recipient_kind` from context.
+    let resource_uid = match &envelope.recipient {
+        Recipient::Agent(id) => EntityUid::new("Yutha::Agent", id.to_string()),
+        Recipient::Role(role) => EntityUid::new("Yutha::Resource", format!("role:{role}")),
+        Recipient::Swarm(_) => EntityUid::new("Yutha::Resource", "swarm:*".to_string()),
+        Recipient::External(e) => EntityUid::new(
+            "Yutha::Resource",
+            format!("external:{}://{}{}", e.scheme, e.authority, e.path_hint),
+        ),
+    };
+
+    // Minimal entity snapshot — sender Agent (parented under Swarm)
+    // + the Swarm itself. Policies that reach for richer attrs will
+    // see missing keys and default-deny per RFC 0012 §2.3.
+    let now = Timestamp::now();
+    let mut entities = vec![
+        EntityRecord {
+            uid: EntityUid::new("Yutha::Agent", principal_uid_str.clone()),
+            attrs: HashMap::new(),
+            parents: vec![EntityUid::new("Yutha::Swarm", swarm_uid_str.clone())],
+        },
+        EntityRecord {
+            uid: EntityUid::new("Yutha::Swarm", swarm_uid_str.clone()),
+            attrs: HashMap::new(),
+            parents: Vec::new(),
+        },
+    ];
+    if let Recipient::Agent(rid) = &envelope.recipient {
+        entities.push(EntityRecord {
+            uid: EntityUid::new("Yutha::Agent", rid.to_string()),
+            attrs: HashMap::new(),
+            parents: vec![EntityUid::new("Yutha::Swarm", swarm_uid_str.clone())],
+        });
+    }
+    let entity_snapshot = EntitySnapshot { entities };
+
+    // Action-context fields the schema's SendEnvelope expects per
+    // schema.cedarschema. Zeros for the budget/cost dimensions
+    // (F11+ wires real values from the SDK). The capability_id
+    // field tells policies which cap the sender presented.
+    let mut context_attrs: HashMap<String, serde_json::Value> = HashMap::new();
+    context_attrs.insert(
+        "performative".into(),
+        serde_json::Value::String(format!("{:?}", envelope.performative)),
+    );
+    context_attrs.insert(
+        "payload_schema_id".into(),
+        serde_json::Value::String(envelope.payload_schema_id.clone()),
+    );
+    context_attrs.insert(
+        "tags".into(),
+        serde_json::Value::Array(
+            envelope
+                .tags
+                .iter()
+                .map(|t| serde_json::Value::String(t.clone()))
+                .collect(),
+        ),
+    );
+    context_attrs.insert(
+        "capability_id".into(),
+        serde_json::Value::String(cap_id.map(|h| hex::encode(&h.digest)).unwrap_or_default()),
+    );
+    for k in [
+        "estimated_cost_usd_cents",
+        "estimated_cost_tool_calls",
+        "estimated_cost_compute_ms",
+    ] {
+        context_attrs.insert(k.into(), serde_json::Value::Number(0.into()));
+    }
+    context_attrs.insert(
+        "current_wall_clock".into(),
+        serde_json::Value::String(now.wall_clock.clone()),
+    );
+    context_attrs.insert(
+        "current_time_unix_ns".into(),
+        serde_json::Value::Number(now.monotonic_ns.into()),
+    );
+
+    EvaluationRequest {
+        constitution_hash,
+        schema_version: "1.1.0".into(),
+        action_kind: "SendEnvelope".into(),
+        principal_id: *principal_id,
+        resource_uid,
+        context_attrs,
+        entity_snapshot,
+        current_wall_clock: now.wall_clock.clone(),
+        current_time_unix_ns: now.monotonic_ns,
     }
 }
 
@@ -139,7 +260,7 @@ impl EnvelopeService for EnvelopeHandler {
             ));
         }
 
-        if let Some(cap_id) = cap_id_opt {
+        if let Some(cap_id) = cap_id_opt.clone() {
             let descriptor = ActionDescriptor {
                 action_kind: "envelope.send".to_string(),
                 resource_tags: envelope.tags.clone(),
@@ -159,6 +280,51 @@ impl EnvelopeService for EnvelopeHandler {
                 )));
             }
         }
+
+        // RFC 0010-0013: constitution evaluation (F10d).
+        //
+        // Layered on top of E1's cap check: the cap layer answers "does
+        // this agent have authority"; the constitution layer answers
+        // "do the swarm's norms permit this authority to be exercised
+        // right now." Both must pass.
+        //
+        // A swarm MUST have an active constitution before any send
+        // succeeds. The operator publishes one via
+        // `ConstitutionService.Activate` as part of bringing the swarm
+        // online; a Send arriving before that activation is a
+        // misconfiguration and surfaces as `FAILED_PRECONDITION`.
+        let active = self.state.cedar_plus.current().await.ok_or_else(|| {
+            Status::failed_precondition(
+                "no active constitution; operator must call ConstitutionService.Activate before \
+                 envelope sends are permitted",
+            )
+        })?;
+        let constitution_hash = active.constitution.constitution_hash.clone();
+        drop(active);
+        let eval_request = build_eval_request_for_send(
+            constitution_hash,
+            &auth.agent_id,
+            &envelope,
+            cap_id_opt.as_ref(),
+            &topology.swarm_id,
+        );
+        let outcome = self
+            .state
+            .cedar_plus
+            .evaluate(eval_request)
+            .await
+            .map_err(|e| Status::internal(format!("constitution eval: {e}")))?;
+        if outcome.decision == Decision::Deny {
+            let reason = outcome.deny_reason.as_deref().unwrap_or("unknown");
+            return Err(Status::permission_denied(format!(
+                "constitution check denied: {reason}"
+            )));
+        }
+        // F10e (receipt emission for constitution.evaluate.{pass,deny})
+        // is the follow-on — landing it requires the receipt-store
+        // emission helper plus a sign-with-control-plane-identity
+        // pass that's still under construction.
+        let _ = outcome;
 
         let send_receipt = self
             .state

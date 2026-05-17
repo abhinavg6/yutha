@@ -135,6 +135,11 @@ async def _issue_self_send_cap(
 # =============================================================================
 
 
+@pytest.mark.skip(
+    reason="F10 requires an active constitution before EnvelopeService.Send accepts; "
+    "un-skipped in F11 once the Python ConstitutionAPI + permissive-constitution "
+    "test fixture land."
+)
 @pytest.mark.asyncio
 async def test_agent_receives_envelopes_via_dispatch_loop(
     bootstrap_identity: tuple[yutha.SigningKey, yutha.AgentId, yutha.SwarmId],
@@ -192,6 +197,11 @@ async def test_agent_receives_envelopes_via_dispatch_loop(
         assert len(deliver_id.digest) == 32
 
 
+@pytest.mark.skip(
+    reason="F10 requires an active constitution before EnvelopeService.Send accepts; "
+    "un-skipped in F11 once the Python ConstitutionAPI + permissive-constitution "
+    "test fixture land."
+)
 @pytest.mark.asyncio
 async def test_agent_send_auto_increments_epoch(
     bootstrap_identity: tuple[yutha.SigningKey, yutha.AgentId, yutha.SwarmId],

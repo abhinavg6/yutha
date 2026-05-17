@@ -1,0 +1,46 @@
+[package]
+name = "yutha-cedar-plus"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+authors.workspace = true
+description = "Yutha constitution stack: stock Cedar gating + engine-side scoring, procedures, enforcement. Phase 2 substrate."
+readme = "README.md"
+
+[dependencies]
+# Yutha substrate. The constitution layer reads from passport/capability/
+# memory contexts and produces receipts via the receipt fabric; it does NOT
+# reach into the registry or transport directly — the control plane is
+# responsible for synthesizing eval contexts (RFC 0012 §1.1) and forwarding
+# decisions.
+yutha-core.workspace = true
+yutha-crypto.workspace = true
+yutha-proto.workspace = true
+yutha-receipt.workspace = true
+yutha-capability.workspace = true
+yutha-passport.workspace = true
+
+# Upstream Cedar — Layer A of the two-layer evaluator (RFC 0012 §2). We
+# depend on stock cedar-policy unmodified per the RFC 0011 §3 engine-
+# construct decision; no Cedar parser/analyzer extensions.
+cedar-policy.workspace = true
+
+# Engine-config artifact is YAML per extensions.md §2.2 and §3.2 (the
+# human-friendly form). Protobuf is the canonical machine-readable
+# form, which we'll add when a wire-format vector pass is wired in.
+serde.workspace = true
+serde_yaml.workspace = true
+serde_json.workspace = true
+
+async-trait.workspace = true
+tokio = { workspace = true, features = ["sync", "time"] }
+thiserror.workspace = true
+tracing.workspace = true
+hex.workspace = true
+time = { workspace = true }
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }

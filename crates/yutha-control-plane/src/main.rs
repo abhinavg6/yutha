@@ -54,6 +54,7 @@ use yutha_passport::{
 use yutha_proto::control_plane::v1::{
     admission_service_server::AdmissionServiceServer,
     capability_service_server::CapabilityServiceServer,
+    constitution_service_server::ConstitutionServiceServer,
     envelope_service_server::EnvelopeServiceServer, receipt_service_server::ReceiptServiceServer,
 };
 use yutha_proto::FILE_DESCRIPTOR_SET;
@@ -67,8 +68,8 @@ use yutha_transport::{MemoryTransport, Transport};
 
 use auth::BearerInterceptor;
 use grpc::{
-    admission::AdmissionHandler, capability::CapabilityHandler, envelope::EnvelopeHandler,
-    receipt::ReceiptHandler, ControlPlaneState,
+    admission::AdmissionHandler, capability::CapabilityHandler, constitution::ConstitutionHandler,
+    envelope::EnvelopeHandler, receipt::ReceiptHandler, ControlPlaneState,
 };
 
 /// Yutha control plane.
@@ -487,6 +488,24 @@ async fn bootstrap_backends(
         info!("operator credentials enabled (RFC 0009)");
     }
 
+    // Phase 2 constitution stack — F10b wiring.
+    //
+    // Construct the cedar-plus evaluator with the embedded v1.1
+    // canonical schema (via `include_str!` inside `yutha-cedar-plus`)
+    // and the default sandbox bounds from RFC 0012 §3.3. The
+    // enforcement engine is freshly empty; both bind to a constitution
+    // once an operator calls `ConstitutionService.Activate` (RFC 0010
+    // §3.6). Before that activation, EnvelopeService.Send and the
+    // capability handlers behave exactly as they did pre-F10 — the
+    // constitution layer is opt-in via activate.
+    let cedar_schema = yutha_cedar_plus::canonical_schema_v1_1()
+        .context("yutha-cedar-plus canonical schema failed to load")?;
+    let cedar_loader = yutha_cedar_plus::ConstitutionLoader::with_default_bounds(cedar_schema);
+    let cedar_plus = Arc::new(yutha_cedar_plus::CedarPlusEvaluator::with_default_bounds(
+        cedar_loader,
+    ));
+    let enforcement = Arc::new(yutha_cedar_plus::EnforcementEngine::new());
+
     Ok(Arc::new(ControlPlaneState {
         registry,
         passport_store,
@@ -498,6 +517,8 @@ async fn bootstrap_backends(
         operator_public_key,
         revoked_agents: Arc::new(tokio::sync::RwLock::new(std::collections::HashSet::new())),
         revocation_signals: Arc::new(tokio::sync::RwLock::new(std::collections::HashMap::new())),
+        cedar_plus,
+        enforcement,
     }))
 }
 
@@ -542,6 +563,10 @@ async fn serve_grpc(cli: &Cli, state: Arc<ControlPlaneState>) -> anyhow::Result<
     );
     let receipt = ReceiptServiceServer::with_interceptor(
         ReceiptHandler::new(Arc::clone(&state)),
+        interceptor.clone(),
+    );
+    let constitution = ConstitutionServiceServer::with_interceptor(
+        ConstitutionHandler::new(Arc::clone(&state)),
         interceptor,
     );
 
@@ -599,6 +624,7 @@ async fn serve_grpc(cli: &Cli, state: Arc<ControlPlaneState>) -> anyhow::Result<
         .add_service(capability)
         .add_service(envelope)
         .add_service(receipt)
+        .add_service(constitution)
         .add_service(reflection);
 
     info!(

@@ -1,7 +1,8 @@
 """Bearer-token authentication for the async gRPC client.
 
 The Yutha control plane (Rust ``crates/yutha-control-plane/src/auth.rs``)
-gates every authenticated RPC on an ``authorization: bearer <hex>``
+gates every authenticated RPC on an ``authorization: bearer agent <hex>``
+(or ``bearer operator <hex>`` for operator clients)
 metadata header. The hex bytes are a prost-encoded
 :class:`yutha._proto.control_plane.v1.AgentBearerToken` with the
 signature already attached; the server hex-decodes, prost-decodes,
@@ -151,14 +152,14 @@ class BearerSession:
         return self._swarm_id
 
     async def header_value(self) -> str:
-        """Return ``"bearer <hex>"`` suitable for the
+        """Return ``"bearer agent <hex>"`` suitable for the
         ``authorization`` metadata header. Mints (or re-mints) the
         underlying token as needed."""
         now_ns = time.monotonic_ns()
         cached = self._cache
         # Fast path: token still has plenty of life.
         if cached is not None and cached.expires_monotonic_ns - now_ns > self._refresh_lead_ns:
-            return f"bearer {cached.hex_value}"
+            return f"bearer agent {cached.hex_value}"
 
         async with self._lock:
             # Re-check under the lock — another waiter may have already
@@ -166,10 +167,10 @@ class BearerSession:
             cached = self._cache
             now_ns = time.monotonic_ns()
             if cached is not None and cached.expires_monotonic_ns - now_ns > self._refresh_lead_ns:
-                return f"bearer {cached.hex_value}"
+                return f"bearer agent {cached.hex_value}"
             minted = self._mint()
             self._cache = minted
-            return f"bearer {minted.hex_value}"
+            return f"bearer agent {minted.hex_value}"
 
     def _mint(self) -> _CachedToken:
         """Build, sign, and hex-encode a fresh bearer token.

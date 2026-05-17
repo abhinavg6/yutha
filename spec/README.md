@@ -22,10 +22,14 @@ The Phase 1 launch specs:
 | [`receipt/`](./receipt/) | v1.0 draft | Append-only, content-addressed, signed record of consequential actions |
 | [`capability/`](./capability/) | v1.0 draft | Macaroon-style attenuable authority tokens |
 | [`topology/`](./topology/) | v1.0 draft | Closed / open / hybrid swarm-mode declaration and admission policy |
+| [`constitution/`](./constitution/) | v1.0 draft (RFC 0010, schema-only) | Cedar+ canonical schema; entity and action types every constitution conforms to. Extensions, evaluation, enforcement land in RFCs 0011-0013. |
 
-Phase 2 will add:
+Phase 2 will further extend `constitution/` with:
 
-- `constitution/` — Cedar+ schema spec, canonical schemas for queue/campaign/topology baselines
+- `extensions.md` — `prefer`, procedures, resource budgets, memory norms (RFC 0011)
+- `evaluation.md` — evaluation model + sandbox contract (RFC 0012)
+- `enforcement.md` — four-stage enforcement loop (RFC 0013)
+- `canonical-schemas/` — workload-specific schemas (queue-mode, campaign-mode, topology baselines)
 
 Phase 4 will add:
 

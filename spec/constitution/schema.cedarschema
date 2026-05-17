@@ -1,0 +1,338 @@
+// =============================================================================
+// Yutha Constitution — Canonical Schema (v1.1)
+// =============================================================================
+//
+// This is stock Cedar — no language extensions. It is the schema-of-
+// schemas every Yutha constitution authored against v1.1 conforms to.
+// "Cedar+" is the brand name for the layered constitution stack (this
+// schema + the engine-config artifact specced in extensions.md); the
+// schema itself is plain Cedar 3.x.
+//
+// The schema defines:
+//
+//   * the entity types a constitution policy can name (Agent, Swarm,
+//     Capability, Envelope, Resource, Memory)
+//   * the action types a constitution policy can gate (SendEnvelope,
+//     IssueCapability, AttenuateCapability, RevokeCapability,
+//     ReadMemory, WriteMemory, ShareMemory)
+//   * the context shape each action receives at evaluation time
+//   * budget-related attributes on Agent (added at v1.1 — see §4 of
+//     extensions.md for the budgets idiom)
+//
+// What the schema does NOT cover (handled by the engine-config
+// artifact, not Cedar): scoring rules (`prefer`-equivalent — see
+// extensions.md §2) and procedures (state machines — see extensions.md
+// §3). Those are loaded alongside the Cedar policy file and reference
+// Cedar predicates by name. Cedar's analyzer is not extended to
+// understand them.
+//
+// Version history:
+//   v1.0.0 — initial schema (RFC 0010): five entity types, four action
+//            types covering substrate gating only.
+//   v1.1.0 — RFC 0011: adds Memory entity, three memory action types,
+//            budget attributes on Agent, estimated-cost context fields
+//            on SendEnvelope + IssueCapability. Additive — v1.0
+//            constitutions continue to evaluate under their pinned
+//            version per RFC 0010 §3.5.
+//
+// Operators DO NOT typically author this file. Yutha ships canonical
+// schemas (this file + workload-specific extensions under
+// `canonical-schemas/`) and operators extend them by signed delta —
+// see `rationale.md` §4 ("schema authoring posture") for the policy.
+//
+// Format: Cedar 3.x human-readable schema syntax. The JSON-equivalent
+// is derivable via `cedar translate-schema --direction cedar-to-json`
+// from cedar-policy 3.x.
+//
+// Spec version: 1.1.0. The constitution artifact's `schema_version`
+// field MUST pin a specific version of this schema; an evaluator
+// loads schemas at the pinned version (see rationale.md §5 for
+// schema-evolution semantics).
+//
+// =============================================================================
+
+namespace Yutha {
+
+    // -------------------------------------------------------------------------
+    // Entity types
+    // -------------------------------------------------------------------------
+    //
+    // Each entity type mirrors a substrate concept. The attribute set is
+    // intentionally minimal at v1.0 — every attribute added is something
+    // the control plane must marshal at evaluation time, and a wide
+    // attribute surface is an attack surface (a malicious schema could
+    // demand attributes the control plane cannot honor, surfacing as a
+    // default-deny). Workstream A widens this surface only via RFC.
+
+    // An Agent corresponds to a registered Passport (`/spec/passport/`).
+    // The `in [Swarm]` parent relation is what lets policies write
+    // `principal in Yutha::Swarm::"<swarm-id>"` to gate on swarm
+    // membership without naming agents individually.
+    entity Agent in [Swarm] = {
+        // UUIDv7 string form. Same value as `Passport.agent_id` rendered
+        // through `AgentId::Display`.
+        agent_id: String,
+
+        // Mirror of `Passport.tier`. Allows policies to gate on tier
+        // (e.g. "supervisor only").
+        passport_tier: String,
+
+        // Mirror of `Passport.framework` (free-form string, e.g.
+        // "langgraph", "crewai", "agno"). Allows topology-aware
+        // policies to discriminate by SDK.
+        framework: String,
+
+        // Content-address of the registered passport. Useful for
+        // policies that want to bind a decision to a specific passport
+        // revision (e.g. only permit if the agent's passport matches
+        // the version that signed an earlier authorization).
+        passport_hash: String,
+
+        // Reputation scalar — see PRD §11. v1.0 admits the field in the
+        // schema so scoring rules (engine-config artifact, RFC 0011 §2)
+        // and ordinary Cedar predicates can reference it; the scalar
+        // itself is computed by the supervisor layer and passed in by
+        // the control plane at evaluation time.
+        //
+        // Cedar's `decimal` is the fixed-precision extension type
+        // (lowercase per Cedar 3.x schema convention — extension type
+        // names are lowercase, primitives like `String`/`Long` are
+        // PascalCase). Score arithmetic on this field is bounded
+        // precision (4 fractional digits) per evaluation.md §4.
+        reputation: decimal,
+
+        // -- Resource-budget attributes (v1.1, RFC 0011 §4) ---------
+        //
+        // Remaining budget for the relevant dimensions. The control
+        // plane synthesizes these into the Agent entity at evaluation
+        // time; the constitution layer never writes them. Policies
+        // gate via the canonical idiom:
+        //   forbid when principal.budget_remaining_X < context.estimated_cost_X
+        //
+        // Units are operator-defined and documented in the
+        // constitution's metadata. A `Long` (64-bit signed integer) is
+        // wide enough for cents, milliseconds, or call counts at the
+        // scale operators will see in practice. Decimal scoring lives
+        // separately in `prefer` rules (extensions.md §2).
+        budget_remaining_usd_cents: Long,
+        budget_remaining_tool_calls: Long,
+        budget_remaining_compute_ms: Long,
+    };
+
+    // A Swarm corresponds to a single Topology document
+    // (`/spec/topology/`). The constitution layer is scoped to one
+    // swarm; cross-swarm decisions are Phase 4 federation work.
+    entity Swarm = {
+        // UUIDv7 string form (`SwarmId::Display`).
+        swarm_id: String,
+
+        // One of: "closed", "open", "hybrid".
+        // See `/spec/topology/rationale.md` for semantics.
+        topology_mode: String,
+
+        // Semver string identifying which constitution version is
+        // currently active in this swarm. Constitutions reference each
+        // other via this field plus `parent_version`; the receipt
+        // fabric records the transitions as `constitution.activate`
+        // events.
+        constitution_version: String,
+    };
+
+    // A Capability corresponds to a Capability artifact
+    // (`/spec/capability/`). Visible to constitution policies because
+    // norms layered above capabilities (RFC 0007 Send-path enforcement
+    // and beyond) need to inspect what authority an agent already holds
+    // before deciding whether to grant more.
+    entity Capability in [Agent] = {
+        // UUIDv7 string form of `Capability.capability_id` (NOT the
+        // content-address; the lookup index is keyed on this field).
+        capability_id: String,
+
+        // Content-address of the capability.
+        capability_hash: String,
+
+        // `Capability.subject` rendered as AgentId string.
+        subject: String,
+
+        // Set of action-kind strings the capability's scope covers
+        // (e.g. {"envelope.send", "capability.attenuate"}). Set
+        // membership is the evaluator's preferred test; ordering is
+        // not significant.
+        scope_action_kinds: Set<String>,
+    };
+
+    // An Envelope is exposed to policies primarily so the SendEnvelope
+    // action can carry its descriptor in `context`. We also model it as
+    // a first-class entity so policies that index multiple envelopes
+    // (e.g. supervisor reviewing a recent batch) can do so.
+    entity Envelope = {
+        envelope_id: String,
+        envelope_hash: String,
+        from_agent: String,
+        recipient_kind: String,   // "agent" | "role" | "swarm" oneof discriminator
+        recipient_value: String,  // the underlying id for whichever oneof variant matched
+        performative: String,
+        payload_schema_id: String,
+        tags: Set<String>,
+        epoch: Long,
+    };
+
+    // A generic Resource type for actions whose target isn't one of the
+    // typed substrate artifacts above. Used by tool calls (the
+    // tool-call action arrives in a future RFC); v1.0 admits the type
+    // so policies authored against future canonical schemas can
+    // reference it without a schema migration. Memory operations
+    // were initially planned to use Resource; v1.1 promotes Memory to
+    // a first-class entity (below) because the owner-relation is
+    // load-bearing enough to deserve its own type.
+    entity Resource = {
+        resource_kind: String,
+        scope: String,
+        tags: Set<String>,
+    };
+
+    // -- Memory (v1.1, RFC 0011 §5) ---------------------------------
+    //
+    // A first-class memory entity. The owner attribute is a direct
+    // Agent reference so the canonical idiom
+    //   permit when resource.owner == principal
+    // works without indirection. Scope is a string for operator
+    // extensibility; canonical values are "private", "shared",
+    // "swarm", "external" — operators MAY add their own (e.g.
+    // "team-alpha") via signed schema delta per RFC 0010 §3.4.
+    entity Memory = {
+        memory_id: String,
+        owner: Agent,
+        scope: String,
+        tags: Set<String>,
+        payload_schema_id: String,
+        created_at_unix_ns: Long,
+    };
+
+    // -------------------------------------------------------------------------
+    // Action types
+    // -------------------------------------------------------------------------
+    //
+    // v1.0 admits only the four substrate-gating actions that map
+    // 1:1 onto existing control-plane RPCs. Memory operations, tool
+    // calls, and the prefer/procedures/budgets extensions arrive in
+    // RFC 0011.
+    //
+    // Every action declares (principal, resource, context) signatures.
+    // Context fields are what the control plane synthesizes per
+    // invocation; see `rationale.md` §3 for how the synthesizer is
+    // bound to the action.
+
+    // Gates an `EnvelopeService.Send` call. Composes with RFC 0007's
+    // capability-check (both must pass: cap check AND constitution
+    // eval). Evidence recorded as `constitution.evaluate.{pass,deny}`.
+    action "SendEnvelope" appliesTo {
+        principal: [Agent],
+        resource: [Agent, Envelope],
+        context: {
+            performative: String,
+            payload_schema_id: String,
+            tags: Set<String>,
+            // The capability_id the sender is presenting on this call.
+            // Empty string ("") when the topology does not require a
+            // capability for send. Policies that gate on which cap was
+            // presented use this field.
+            capability_id: String,
+            // Resource-budget cost estimates (v1.1, RFC 0011 §4).
+            // Populated by the SDK; control plane forwards into eval
+            // context. Zero indicates "no cost in this dimension";
+            // policies that don't gate on the dimension simply ignore
+            // it.
+            estimated_cost_usd_cents: Long,
+            estimated_cost_tool_calls: Long,
+            estimated_cost_compute_ms: Long,
+            current_time_unix_ns: Long,
+            current_wall_clock: String,
+        }
+    };
+
+    // Gates a `CapabilityService.Issue` call. The resource is the
+    // intended subject of the new capability.
+    action "IssueCapability" appliesTo {
+        principal: [Agent],
+        resource: [Agent],
+        context: {
+            // "operator" | "agent" | "control_plane" — matches the
+            // Capability.issuer oneof.
+            issuer_kind: String,
+            scope_action_kinds: Set<String>,
+            // Resource-budget cost estimates (v1.1, RFC 0011 §4).
+            estimated_cost_usd_cents: Long,
+            estimated_cost_tool_calls: Long,
+            estimated_cost_compute_ms: Long,
+            current_time_unix_ns: Long,
+            current_wall_clock: String,
+        }
+    };
+
+    // Gates a `CapabilityService.Attenuate` call. The resource is the
+    // parent capability the principal is attenuating from.
+    action "AttenuateCapability" appliesTo {
+        principal: [Agent],
+        resource: [Capability],
+        context: {
+            child_scope_action_kinds: Set<String>,
+            current_time_unix_ns: Long,
+            current_wall_clock: String,
+        }
+    };
+
+    // Gates a `CapabilityService.Revoke` call. The resource is the cap
+    // being revoked. Self-revoke (subject revoking own cap) and
+    // operator-revoke take different policy paths; the difference is
+    // surfaced via `context.revoker_kind`.
+    action "RevokeCapability" appliesTo {
+        principal: [Agent],
+        resource: [Capability],
+        context: {
+            // "self" | "issuer" | "operator"
+            revoker_kind: String,
+            reason: String,
+            current_time_unix_ns: Long,
+            current_wall_clock: String,
+        }
+    };
+
+    // -----------------------------------------------------------------
+    // Memory action types (v1.1, RFC 0011 §5)
+    // -----------------------------------------------------------------
+    //
+    // Three memory operations. Each gates a memory-layer RPC. Canonical
+    // idioms documented in extensions.md §5.3.
+
+    action "ReadMemory" appliesTo {
+        principal: [Agent],
+        resource: [Memory],
+        context: {
+            current_time_unix_ns: Long,
+            current_wall_clock: String,
+        }
+    };
+
+    action "WriteMemory" appliesTo {
+        principal: [Agent],
+        resource: [Memory],
+        context: {
+            // "create" | "update" | "delete"
+            write_kind: String,
+            current_time_unix_ns: Long,
+            current_wall_clock: String,
+        }
+    };
+
+    action "ShareMemory" appliesTo {
+        principal: [Agent],
+        resource: [Memory],
+        context: {
+            from_scope: String,
+            to_scope: String,
+            current_time_unix_ns: Long,
+            current_wall_clock: String,
+        }
+    };
+}

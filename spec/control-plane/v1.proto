@@ -415,3 +415,92 @@ message QueryReceiptsResponse {
   // Empty when the page is the last.
   bytes next_page_token = 2;
 }
+
+// ---------------------------------------------------------------------------
+// ConstitutionService — operator publishes constitutions; agents query them
+// ---------------------------------------------------------------------------
+//
+// The constitution layer (RFCs 0010-0013) lives one layer above
+// capabilities: capabilities answer "who has authority"; constitutions
+// answer "what authority is permitted to be exercised right now by this
+// principal under our norms." Activate publishes a freshly-authored
+// constitution; the active constitution is what EnvelopeService.Send
+// + CapabilityService.Issue / Attenuate / Revoke evaluate against.
+//
+// Authorization: Activate requires an OperatorBearerToken (RFC 0009);
+// GetActive requires any AgentBearerToken (registered agents need to
+// know what they're bound to).
+
+service ConstitutionService {
+  // Publish a constitution. Replaces the currently-active constitution
+  // for the swarm. Runs the full load-time validation pass from RFC
+  // 0012 §3.3 (structural checks, named-predicate resolution, Cedar
+  // Validator in Strict mode, load-time bound enforcement) before the
+  // activation lands. On success, a `constitution.activate` receipt
+  // is appended and the returned hash content-addresses the
+  // activated constitution.
+  rpc Activate(ActivateConstitutionRequest) returns (ActivateConstitutionResponse);
+
+  // Fetch the currently-active constitution. Returns NOT_FOUND when
+  // no constitution has been activated.
+  rpc GetActive(GetActiveConstitutionRequest) returns (GetActiveConstitutionResponse);
+}
+
+// A constitution artifact carried over the wire. The wire shape
+// mirrors the in-process Constitution struct in `yutha-cedar-plus`
+// closely; canonical bytes for content addressing are the
+// deterministically-serialized proto encoding (per /spec/README.md
+// §5).
+message Constitution {
+  // Yutha spec version of the artifact format itself.
+  yutha.common.v1.Version spec_version = 1;
+  // The canonical Cedar+ schema version this constitution was
+  // authored against. The evaluator loads schemas at this pinned
+  // version per RFC 0010 §3.5.
+  string schema_version = 2;
+  // Semver string. Bumped on each amendment.
+  string constitution_version = 3;
+  // Content-address of the parent constitution; absent for the
+  // swarm's genesis constitution.
+  yutha.common.v1.Hash parent_version = 4;
+  // The swarm this constitution governs. Single-swarm in v1.1;
+  // federation arrives in Phase 4.
+  yutha.common.v1.SwarmId swarm_id = 5;
+  // The Cedar policy source (stock Cedar `permit` / `forbid` rules
+  // plus named predicates per the `@predicate name(...)` convention
+  // from extensions.md §2.4). Stored as the canonical text; the
+  // evaluator parses on load.
+  string cedar_source = 6;
+  // The engine-side config (scoring rules, procedures, enforcement
+  // rules) serialized as YAML per extensions.md §2.2 / §3.2 /
+  // enforcement.md §10. Protobuf is the canonical machine-readable
+  // form long-term; v1.1 ships YAML on the wire for human
+  // authoring ergonomics.
+  string engine_config_yaml = 7;
+  // When the constitution was authored. The activate receipt's
+  // occurred_at is recorded separately by the control plane.
+  yutha.common.v1.Timestamp issued_at = 8;
+}
+
+message ActivateConstitutionRequest {
+  Constitution constitution = 1;
+}
+
+message ActivateConstitutionResponse {
+  // Content-address of the activated constitution.
+  yutha.common.v1.Hash constitution_hash = 1;
+  // Content-address of the constitution.activate receipt the
+  // activation produced.
+  yutha.common.v1.Hash activate_receipt = 2;
+}
+
+message GetActiveConstitutionRequest {}
+
+message GetActiveConstitutionResponse {
+  // The active constitution, or unset if none.
+  Constitution constitution = 1;
+  // Convenience: content-address of the constitution; same as a
+  // re-derivation from the constitution field but pre-computed by
+  // the control plane.
+  yutha.common.v1.Hash constitution_hash = 2;
+}

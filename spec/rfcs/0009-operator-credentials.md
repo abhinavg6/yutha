@@ -73,10 +73,7 @@ bearer agent <hex-of-AgentBearerToken>
 bearer operator <hex-of-OperatorBearerToken>
 ```
 
-The `agent` prefix is the default and matches v1.1 behavior when
-absent (back-compat: a server that sees `bearer <hex>` with no
-explicit variant treats it as `bearer agent <hex>`). New clients
-SHOULD emit the explicit variant.
+The variant prefix is REQUIRED — clients MUST emit either `bearer agent <hex>` or `bearer operator <hex>`. A bare `bearer <hex>` (no variant) is rejected with `UNAUTHENTICATED`. Earlier drafts of this RFC admitted bare-`bearer` as agent for v1.1 back-compat; that compat path was removed pre-public-release since every SDK Yutha ships emits the explicit variant.
 
 ```proto
 message OperatorBearerToken {
@@ -227,11 +224,12 @@ revocation events.
   operator tooling, the control plane only holds public keys, and
   every operator action is a signed receipt the operator (and any
   other observer) can audit.
-- **Wire-format break for bearer header.** Existing v1.1 clients
-  emit `bearer <hex>` without an explicit variant; v1.2 servers
-  treat that as `bearer agent <hex>` for back-compat, but new
-  clients should be explicit. No real break, but a subtle
-  convention shift.
+- **Wire-format break for bearer header.** The variant prefix
+  (`agent` / `operator`) is REQUIRED — a bare `bearer <hex>` is
+  rejected with `UNAUTHENTICATED`. Earlier drafts of this RFC
+  admitted bare-`bearer` as agent for back-compat; the compat
+  shim was removed pre-public-release since every SDK Yutha ships
+  emits the explicit variant.
 - **Revoked-set memory.** Maintaining a revoked-set in the control
   plane is O(n) in revoked agents over the swarm's lifetime. For
   the in-memory backend this is trivial; for Postgres-backed

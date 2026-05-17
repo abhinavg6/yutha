@@ -11,6 +11,7 @@ members = [
     "crates/yutha-transport",
     "crates/yutha-registry",
     "crates/yutha-control-plane",
+    "crates/yutha-cedar-plus",
     "backends/postgres-receipt",
     "backends/s3-blob",
     "backends/walrus-receipt",
@@ -39,6 +40,15 @@ yutha-passport = { path = "crates/yutha-passport", version = "0.1.0-alpha.1" }
 yutha-capability = { path = "crates/yutha-capability", version = "0.1.0-alpha.1" }
 yutha-transport = { path = "crates/yutha-transport", version = "0.1.0-alpha.1" }
 yutha-registry = { path = "crates/yutha-registry", version = "0.1.0-alpha.1" }
+yutha-cedar-plus = { path = "crates/yutha-cedar-plus", version = "0.1.0-alpha.1" }
+
+# Cedar policy engine — Phase 2 constitution evaluator delegates Layer A
+# gating to upstream stock cedar-policy unmodified. Per RFC 0011's
+# engine-construct decision, we do NOT extend Cedar's language; we depend
+# on the published crate as a black box. Pin a stable 3.x; bump cleanly
+# when 4.x is justified by a feature we need.
+cedar-policy = "3.4"
+serde_yaml = "0.9"
 
 # Async runtime.
 tokio = { version = "1.37", features = ["rt-multi-thread", "macros", "sync", "time"] }

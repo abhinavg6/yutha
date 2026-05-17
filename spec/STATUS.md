@@ -1,8 +1,47 @@
-# Workstream A Status — Phase 1 Spec Drafts
+# Workstream A Status — Spec Drafts
 
-> **As of:** 2026-05-10
+> **As of:** 2026-05-15 (Phase 2 entry; original Phase 1 entry below dated 2026-05-10)
 > **Author:** background work session, autonomous
 > **Audience:** Abhinav (returning to the project), incoming Workstream A reviewers
+
+## Phase 2 in flight (added 2026-05-15)
+
+Phase 1 substrate hardening closed cleanly — RFCs 0007, 0008, 0009 landed across spec, reference impl (Rust control plane), Python SDK + LangGraph adapter, and conformance scenarios S1/S2/S3. See the project root commit history for details.
+
+**RFC 0010 — Constitution Language v1.0 (Cedar+ schema spec)** filed today:
+
+| Artifact | Status |
+|----------|--------|
+| [`/spec/constitution/schema.cedarschema`](./constitution/schema.cedarschema) | Draft, **at v1.1.0 after F2**. Six entity types, seven action types, six budget-related schema additions. Cedar 3.x human-readable schema syntax. |
+| [`/spec/constitution/rationale.md`](./constitution/rationale.md) | Draft. Closes the two F1-blocking open Qs from `constitution-language.md` (schema authoring posture + schema evolution semantics). |
+| [`/spec/constitution/extensions.md`](./constitution/extensions.md) | Draft (RFC 0011). Four Cedar+ extensions: `prefer`, `procedure`, resource budgets, memory norms. Per-extension decidability arguments. |
+| [`/spec/constitution/README.md`](./constitution/README.md) | Draft. Directory overview. |
+| [`/spec/receipt/canonical-actions.md`](./receipt/canonical-actions.md) | Updated. Added `constitution.evaluate.{pass,deny}`, four `procedure.*` action-kinds, and extended evidence on existing `constitution.activate` / `constitution.amend.commit` / `constitution.evaluate.pass` (the last for `prefer` scoring). |
+| [`/spec/rfcs/0010-constitution-language-v1.md`](./rfcs/0010-constitution-language-v1.md) | Draft. The RFC for the base schema. |
+| [`/spec/rfcs/0011-cedar-plus-extensions.md`](./rfcs/0011-cedar-plus-extensions.md) | Draft. The RFC for the four v1.1 capabilities (two engine-construct, two schema-pattern). |
+| [`/spec/constitution/evaluation.md`](./constitution/evaluation.md) | Draft (RFC 0012). Two-layer evaluation contract, determinism guarantees, sandbox bounds, procedure-state reconstruction, timeout firing. |
+| [`/spec/rfcs/0012-evaluation-model-and-sandbox.md`](./rfcs/0012-evaluation-model-and-sandbox.md) | Draft. The RFC for the evaluation model and sandbox. |
+| [`/spec/constitution/enforcement.md`](./constitution/enforcement.md) | Draft (RFC 0013). Four-stage loop, reversal, reputation, supervisor countersign, topology defaults, `enforcement_rules:` config surface. |
+| [`/spec/rfcs/0013-four-stage-enforcement-loop.md`](./rfcs/0013-four-stage-enforcement-loop.md) | Draft. The RFC for the four-stage enforcement loop. |
+
+**F10 (control-plane integration, in progress)** wired `ConstitutionService.Activate` + the F10d send-path constitution gate. Per the no-back-compat-pre-public guidance, `EnvelopeService.Send` now hard-requires an active constitution (returns `FAILED_PRECONDITION` otherwise) and the bearer-header variant prefix is mandatory (`bearer agent <hex>` / `bearer operator <hex>` — bare `bearer <hex>` rejected). Four Python integration tests pre-date the constitution layer and are skip-marked pending F11's Python `ConstitutionAPI` + permissive-constitution test fixture: `test_integration::test_full_lifecycle`, `test_langgraph_agent::test_agent_receives_envelopes_via_dispatch_loop`, `test_langgraph_agent::test_agent_send_auto_increments_epoch`, `test_s1_support_queue_demo::test_s1_demo_audit_shape`. Rust conformance scenarios (S1, S2) exercise the substrate directly and are unaffected.
+
+Phase 2 spec staging (workstream F-spec):
+
+| Stage | Deliverable | Status |
+|-------|-------------|--------|
+| F1 | RFC 0010 + `/spec/constitution/` scaffold | **Drafted 2026-05-15** |
+| F2 | RFC 0011 — Cedar+ v1.1 capabilities: two engine-construct (`prefer` scoring + `procedure` state machines, both as engine-config artifacts, NOT Cedar language extensions) + two schema-pattern (resource budgets, memory norms). Schema bump to v1.1.0; `procedure.*` action-kinds added to canonical-actions registry. **Revised 2026-05-15** from an earlier draft that proposed `prefer` and `procedure` as syntactic Cedar extensions — engine-construct is the better architectural fit (stock cedar-policy unmodified, Cedar's analyzer untouched, smaller maintenance surface). | **Drafted 2026-05-15** |
+| F3 | RFC 0012 — Evaluation model + sandbox contract: two-layer evaluation (Cedar gating + engine scoring/procedures), determinism guarantees, per-evaluation sandbox bounds, procedure-state reconstruction from receipts, wall-clock scheduler. New `deny_reason` entries added to canonical-actions. | **Drafted 2026-05-15** |
+| F4 | RFC 0013 — Four-stage enforcement loop (detect → coach → quarantine → evict + reverse). Receipt-driven engine subscribing to the receipt stream; quarantine via cap-check denial; eviction via `AdmissionService.OperatorRevoke` (RFC 0009) with `cascade_capabilities=true`. Reputation scalar dynamics from per-stage deltas. Flat supervisor-tier countersign for evict. Topology-aware defaults. Engine-config `enforcement_rules:` block alongside `scoring_rules` + `procedures` (RFC 0011). Evidence shapes for `enforcement.*` action-kinds filled out. New: `enforcement.evict_timeout` kind for abandoned pending evictions. | **Drafted 2026-05-15** |
+
+Phase 2 code stages (workstream F-code) follow the spec quartet — `yutha-cedar-plus` crate scaffold on top of `cedar-policy`, then extension impls, static analyzer, evaluator + sandbox, control-plane integration, plain-English authoring CLI, canonical schemas under `/spec/constitution/canonical-schemas/`, and S2/S3 behavioral scenarios wired into the conformance runner. Sub-staging firms up after F1-F4 close.
+
+Working pattern is the substrate pattern: strict-order sub-stages, explicit go-ahead between stages, cross-spec consistency sweep at each stage boundary.
+
+---
+
+## Phase 1 entry (original, dated 2026-05-10)
 
 ## What landed
 

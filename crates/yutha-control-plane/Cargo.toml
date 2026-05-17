@@ -23,6 +23,20 @@ yutha-passport.workspace = true
 yutha-capability.workspace = true
 yutha-transport.workspace = true
 yutha-registry.workspace = true
+yutha-cedar-plus.workspace = true
+
+# YAML round-trip for the constitution engine-config wire format
+# (RFC 0011 §9 open Q — YAML is the v1.1 human-facing form). Used
+# by ConstitutionHandler::get_active to re-emit the engine config
+# the operator originally activated.
+serde_yaml.workspace = true
+
+# JSON values for building EvaluationRequest.context_attrs in the
+# EnvelopeHandler send path. yutha-cedar-plus's `EntityRecord.attrs`
+# and `EvaluationRequest.context_attrs` are both
+# `HashMap<String, serde_json::Value>` for forward-compat with
+# Cedar's evolving wire format.
+serde_json.workspace = true
 
 tokio = { workspace = true, features = ["rt-multi-thread", "macros", "signal", "time", "sync"] }
 tokio-stream = "0.1"
