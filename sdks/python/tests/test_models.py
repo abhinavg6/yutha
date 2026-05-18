@@ -288,3 +288,114 @@ def test_receipt_canonical_bytes_omit_signatures() -> None:
     )
     bytes_b = signed.canonical_bytes()
     assert bytes_a == bytes_b
+
+
+# -----------------------------------------------------------------------------
+# Constitution (F11a)
+# -----------------------------------------------------------------------------
+
+
+# A small valid Cedar policy + non-empty engine config. The Activate
+# server rejects empty cedar_source per RFC 0010, but the model itself
+# is free-form on these fields — the round-trip test should still
+# exercise a non-trivial value to catch encoding regressions.
+_CEDAR_PERMIT_ALL = "permit (principal, action, resource);"
+_ENGINE_CONFIG_EMPTY = "scoring_rules: []\nprocedures: []\nenforcement_rules: []\n"
+
+
+def _build_constitution(
+    *,
+    parent: yutha.Hash | None = None,
+) -> yutha.Constitution:
+    return yutha.Constitution(
+        spec_version="1.0.0",
+        schema_version="1.1.0",
+        constitution_version="1.0.0",
+        parent_version=parent,
+        swarm_id=yutha.SwarmId.new(),
+        cedar_source=_CEDAR_PERMIT_ALL,
+        engine_config_yaml=_ENGINE_CONFIG_EMPTY,
+        issued_at=yutha.Timestamp.now(),
+    )
+
+
+def test_constitution_round_trip_genesis() -> None:
+    """Genesis constitution has no parent — the proto's parent_version
+    field is left unset and from_proto must surface it as None."""
+    original = _build_constitution()
+    assert original.parent_version is None
+    back = yutha.Constitution.from_proto(original.to_proto())
+    assert back == original
+    assert back.parent_version is None
+
+
+def test_constitution_round_trip_amendment() -> None:
+    """Amendment constitutions carry the parent's content-address; the
+    proto must round-trip it byte-for-byte."""
+    # A 32-byte SHA-256-shaped digest. We don't care what it actually
+    # hashes — we just want a real Hash value that to_proto / from_proto
+    # has to preserve.
+    parent = yutha.Hash(
+        algorithm=yutha.HashAlgorithm.SHA256,
+        digest=b"\xab" * 32,
+    )
+    original = _build_constitution(parent=parent)
+    back = yutha.Constitution.from_proto(original.to_proto())
+    assert back == original
+    assert back.parent_version == parent
+
+
+def test_constitution_to_proto_omits_unset_parent_version() -> None:
+    """When parent_version is None, the proto must NOT have the field
+    set (callers downstream check HasField). This is the inverse of
+    the from_proto genesis path."""
+    proto = _build_constitution().to_proto()
+    assert not proto.HasField("parent_version")
+
+
+def test_constitution_to_proto_sets_parent_version_when_present() -> None:
+    parent = yutha.Hash(
+        algorithm=yutha.HashAlgorithm.SHA256,
+        digest=b"\xcd" * 32,
+    )
+    proto = _build_constitution(parent=parent).to_proto()
+    assert proto.HasField("parent_version")
+    assert yutha.Hash.from_proto(proto.parent_version) == parent
+
+
+def test_constitution_default_issued_at_is_now() -> None:
+    """The model defaults issued_at to Timestamp.now() if the caller
+    doesn't supply one. The default factory should fire at construction
+    time, not module import time."""
+    c1 = yutha.Constitution(
+        spec_version="1.0.0",
+        schema_version="1.1.0",
+        constitution_version="1.0.0",
+        swarm_id=yutha.SwarmId.new(),
+        cedar_source=_CEDAR_PERMIT_ALL,
+        engine_config_yaml=_ENGINE_CONFIG_EMPTY,
+    )
+    # Issued-at populated, RFC 3339 with a 'Z' suffix.
+    assert c1.issued_at.wall_clock.endswith("Z")
+    # Construct a second one; monotonic_ns must be strictly increasing
+    # within the same process (this is what Timestamp.now() promises).
+    c2 = yutha.Constitution(
+        spec_version="1.0.0",
+        schema_version="1.1.0",
+        constitution_version="1.0.0",
+        swarm_id=yutha.SwarmId.new(),
+        cedar_source=_CEDAR_PERMIT_ALL,
+        engine_config_yaml=_ENGINE_CONFIG_EMPTY,
+    )
+    assert c2.issued_at.monotonic_ns > c1.issued_at.monotonic_ns
+
+
+def test_constitution_is_frozen() -> None:
+    """Constitutions are immutable after construction (matches the
+    other signed-blob models, which are all frozen). Pydantic v2
+    raises ValidationError on frozen-model mutation."""
+    import pydantic
+
+    c = _build_constitution()
+    with pytest.raises(pydantic.ValidationError):
+        c.constitution_version = "2.0.0"  # type: ignore[misc]

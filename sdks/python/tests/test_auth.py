@@ -42,9 +42,12 @@ def _new_session(
 async def test_session_mints_well_formed_header() -> None:
     session, _key, _agent_id, _swarm_id = _new_session()
     header = await session.header_value()
-    assert header.startswith("bearer ")
-    # The hex portion decodes to a valid AgentBearerToken proto.
-    hex_part = header.removeprefix("bearer ")
+    # RFC 0009 §3.1 (post-F10): the bearer header carries an explicit
+    # variant prefix. Agent sessions mint `bearer agent <hex>`; operator
+    # sessions mint `bearer operator <hex>`. Bare `bearer <hex>` was
+    # accepted under v1.0 and rejected at F10's cleanup.
+    assert header.startswith("bearer agent ")
+    hex_part = header.removeprefix("bearer agent ")
     bytes_ = bytes.fromhex(hex_part)
     token = cp_pb2.AgentBearerToken()
     token.ParseFromString(bytes_)
@@ -63,7 +66,7 @@ async def test_minted_token_signature_verifies_against_passport_key() -> None:
     (token with signature + extensions cleared)."""
     session, key, agent_id, swarm_id = _new_session()
     header = await session.header_value()
-    bytes_ = bytes.fromhex(header.removeprefix("bearer "))
+    bytes_ = bytes.fromhex(header.removeprefix("bearer agent "))
     token = cp_pb2.AgentBearerToken()
     token.ParseFromString(bytes_)
 

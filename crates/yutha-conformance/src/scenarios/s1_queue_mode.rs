@@ -20,7 +20,8 @@
 
 use std::sync::Arc;
 use yutha_capability::{
-    ActionDescriptor, Capability, CapabilityStore, Issuer, MemoryCapabilityStore, Scope,
+    ActionDescriptor, AlwaysAllowed, Capability, CapabilityStore, Issuer, MemoryCapabilityStore,
+    Scope,
 };
 use yutha_core::{AgentId, CausalRef, SpecVersion, SwarmId, Timestamp};
 use yutha_crypto::sign::generate_keypair;
@@ -96,6 +97,10 @@ pub async fn run_s1() -> S1Outcome {
         Arc::clone(&receipts),
         Arc::clone(&resolver),
         Arc::clone(&cp),
+        // S1 doesn't exercise the enforcement loop — every agent is
+        // assumed in good standing for the duration of the scenario.
+        // S4 (Phase 2) will add the enforcement-driven variant.
+        Arc::new(AlwaysAllowed),
     ));
 
     // Five support-swarm agents.

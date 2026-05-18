@@ -23,8 +23,11 @@ from yutha import _proto  # noqa: F401
 from yutha.auth import BearerSession, make_interceptors, skip_auth_metadata
 from yutha.channel import make_channel
 from yutha.client import (
+    ActivatedConstitution,
+    ActiveConstitution,
     AdmissionAPI,
     CapabilityAPI,
+    ConstitutionAPI,
     EnvelopeAPI,
     OperatorRevokeOutcome,
     ReceiptAPI,
@@ -57,6 +60,7 @@ from yutha.models import (
     CapabilityDeclaration,
     Caveat,
     CheckOutcome,
+    Constitution,
     ConstitutionVersionCaveat,
     ControlPlaneIssuer,
     Envelope,
@@ -88,8 +92,11 @@ __all__ = [
     "YuthaClient",
     "AdmissionAPI",
     "CapabilityAPI",
+    "ConstitutionAPI",
     "EnvelopeAPI",
     "OperatorRevokeOutcome",
+    "ActivatedConstitution",
+    "ActiveConstitution",
     "ReceiptAPI",
     "BearerSession",
     "make_interceptors",
@@ -139,6 +146,8 @@ __all__ = [
     "NeverIfTaggedCaveat",
     "ActionDescriptor",
     "CheckOutcome",
+    # Constitution.
+    "Constitution",
     # Receipt.
     "Receipt",
     "Evidence",

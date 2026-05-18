@@ -81,6 +81,14 @@ allow = [
     # data). It's a permissive license without copyleft; safe for Apache-2.0
     # downstream distribution.
     "CDLA-Permissive-2.0",
+    # Apache-2.0 WITH LLVM-exception: Apache-2.0 plus the standard LLVM
+    # linking exception (clarifies object-file linking semantics for
+    # compiler outputs). OSI-recognized and widely used by Rust crates
+    # that touch compiler / linker internals. Arrives transitively via
+    # cedar-policy 3.4 → cedar-policy-core → stacker → psm → ar_archive_writer
+    # (build-time only). Permissive; safe for Apache-2.0 downstream
+    # distribution.
+    "Apache-2.0 WITH LLVM-exception",
 ]
 # Removed since not present in current dep graph (cargo-deny warns on
 # unmatched allowances; cleaner to keep tight):

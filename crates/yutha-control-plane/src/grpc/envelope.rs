@@ -42,13 +42,16 @@ use tokio_stream::Stream;
 use tonic::{Request, Response, Status};
 use yutha_capability::ActionDescriptor;
 use yutha_cedar_plus::{
-    ConstitutionEvaluator, Decision, EntityRecord, EntitySnapshot, EntityUid, EvaluationRequest,
+    ConstitutionEvaluator, Decision, EntityRecord, EntitySnapshot, EntityUid, EvaluationOutcome,
+    EvaluationRequest,
 };
-use yutha_core::{AgentId, Hash, Timestamp};
+use yutha_core::{AgentId, Hash, SpecVersion, Timestamp};
+use yutha_crypto::canonical::Canonical;
 use yutha_proto::control_plane::v1::{
     envelope_service_server::EnvelopeService, SendEnvelopeRequest, SendEnvelopeResponse,
     SubscribeRequest, SubscribedEnvelope,
 };
+use yutha_receipt::{AppendOptions, Evidence, Receipt, SignatureRole, SignedBy};
 use yutha_transport::{Envelope, Recipient};
 
 use crate::auth::require_active_bearer_auth;
@@ -103,6 +106,8 @@ fn build_eval_request_for_send(
     envelope: &Envelope,
     cap_id: Option<&Hash>,
     swarm_id: &yutha_core::SwarmId,
+    constitution_version: &str,
+    topology_mode: &str,
 ) -> EvaluationRequest {
     let principal_uid_str = principal_id.to_string();
     let swarm_uid_str = swarm_id.to_string();
@@ -121,28 +126,30 @@ fn build_eval_request_for_send(
         ),
     };
 
-    // Minimal entity snapshot — sender Agent (parented under Swarm)
-    // + the Swarm itself. Policies that reach for richer attrs will
-    // see missing keys and default-deny per RFC 0012 §2.3.
+    // Entity snapshot — sender Agent (parented under Swarm) + the
+    // Swarm + (optionally) the recipient Agent. Every entity carries
+    // the FULL attribute surface the v1.1 canonical schema declares,
+    // because Cedar's Strict-mode entity validation rejects partial
+    // entities even when no policy reads the missing attrs. The
+    // values here are stand-ins: the control plane hasn't yet wired
+    // the resolvers that would pull real passport_tier / framework /
+    // reputation / budgets for the principal (those land alongside
+    // the supervisor-layer + budget-substrate work). The permissive
+    // permit-all policy doesn't read them; rule-authoring operators
+    // who need real values will need the resolver wiring before
+    // those rules evaluate correctly.
     let now = Timestamp::now();
     let mut entities = vec![
-        EntityRecord {
-            uid: EntityUid::new("Yutha::Agent", principal_uid_str.clone()),
-            attrs: HashMap::new(),
-            parents: vec![EntityUid::new("Yutha::Swarm", swarm_uid_str.clone())],
-        },
-        EntityRecord {
-            uid: EntityUid::new("Yutha::Swarm", swarm_uid_str.clone()),
-            attrs: HashMap::new(),
-            parents: Vec::new(),
-        },
+        agent_entity(&principal_uid_str, &swarm_uid_str),
+        swarm_entity(&swarm_uid_str, topology_mode, constitution_version),
     ];
+    // Only add the recipient when it's a *different* agent — Cedar
+    // rejects duplicate entity entries, which self-sends would
+    // otherwise produce (the sender entity is already in the list).
     if let Recipient::Agent(rid) = &envelope.recipient {
-        entities.push(EntityRecord {
-            uid: EntityUid::new("Yutha::Agent", rid.to_string()),
-            attrs: HashMap::new(),
-            parents: vec![EntityUid::new("Yutha::Swarm", swarm_uid_str.clone())],
-        });
+        if rid != principal_id {
+            entities.push(agent_entity(&rid.to_string(), &swarm_uid_str));
+        }
     }
     let entity_snapshot = EntitySnapshot { entities };
 
@@ -200,6 +207,196 @@ fn build_eval_request_for_send(
         current_wall_clock: now.wall_clock.clone(),
         current_time_unix_ns: now.monotonic_ns,
     }
+}
+
+/// Build a `Yutha::Agent` entity record populated with all attributes
+/// the canonical v1.1 schema declares. Values are scaffolding-tier
+/// placeholders — minimal tier, empty framework, all-zero passport
+/// hash, reputation 1.0, generous budgets. Replaced with real values
+/// (wired from the passport store and supervisor layer) when those
+/// resolvers land. Cedar 3.x decimal extension values use the
+/// implicit string form, which the JSON entity parser accepts.
+fn agent_entity(agent_uid: &str, swarm_uid: &str) -> EntityRecord {
+    let mut attrs: HashMap<String, serde_json::Value> = HashMap::new();
+    attrs.insert(
+        "agent_id".into(),
+        serde_json::Value::String(agent_uid.to_string()),
+    );
+    attrs.insert(
+        "passport_tier".into(),
+        serde_json::Value::String("minimal".into()),
+    );
+    attrs.insert("framework".into(), serde_json::Value::String(String::new()));
+    attrs.insert(
+        "passport_hash".into(),
+        // 64-char hex stand-in. Real value lands once the passport
+        // resolver is wired into this path.
+        serde_json::Value::String("0".repeat(64)),
+    );
+    // Cedar 3.x: extension types use the explicit __extn shape with
+    // "fn" + "arg". The implicit short-form ("1.0") also works in
+    // Cedar 3.x JSON entity format, but explicit is unambiguous.
+    attrs.insert(
+        "reputation".into(),
+        serde_json::json!({
+            "__extn": { "fn": "decimal", "arg": "1.0" }
+        }),
+    );
+    attrs.insert(
+        "budget_remaining_usd_cents".into(),
+        serde_json::Value::Number(i64::MAX.into()),
+    );
+    attrs.insert(
+        "budget_remaining_tool_calls".into(),
+        serde_json::Value::Number(i64::MAX.into()),
+    );
+    attrs.insert(
+        "budget_remaining_compute_ms".into(),
+        serde_json::Value::Number(i64::MAX.into()),
+    );
+    EntityRecord {
+        uid: EntityUid::new("Yutha::Agent", agent_uid.to_string()),
+        attrs,
+        parents: vec![EntityUid::new("Yutha::Swarm", swarm_uid.to_string())],
+    }
+}
+
+/// Build a `Yutha::Swarm` entity record with all schema-required
+/// attributes populated. `topology_mode` is the lowercased string
+/// form of `yutha_registry::TopologyMode` (closed / open / hybrid);
+/// `constitution_version` is the version of the currently-active
+/// constitution at evaluation time.
+fn swarm_entity(swarm_uid: &str, topology_mode: &str, constitution_version: &str) -> EntityRecord {
+    let mut attrs: HashMap<String, serde_json::Value> = HashMap::new();
+    attrs.insert(
+        "swarm_id".into(),
+        serde_json::Value::String(swarm_uid.to_string()),
+    );
+    attrs.insert(
+        "topology_mode".into(),
+        serde_json::Value::String(topology_mode.to_string()),
+    );
+    attrs.insert(
+        "constitution_version".into(),
+        serde_json::Value::String(constitution_version.to_string()),
+    );
+    EntityRecord {
+        uid: EntityUid::new("Yutha::Swarm", swarm_uid.to_string()),
+        attrs,
+        parents: Vec::new(),
+    }
+}
+
+/// Build + sign + append a `constitution.evaluate.{pass,deny}` receipt
+/// for the given eval outcome.
+///
+/// Evidence shape mirrors `/spec/receipt/canonical-actions.md`:
+///
+/// - `constitution_hash` — content-address of the active constitution.
+/// - `action_kind` — the action being evaluated (e.g. `"SendEnvelope"`).
+/// - `matched_rule_ids` — comma-joined list of cedar policy ids that
+///   contributed to the decision.
+/// - `input_attribute_digest` — sha256 over the eval request's
+///   canonical bytes (already computed by the evaluator as
+///   `EvaluationOutcome.evidence_digest`).
+/// - `deny_reason` — only on deny.
+/// - `total_score` — only on pass when scoring rules contributed.
+///
+/// The control plane signs the receipt with its own identity
+/// (`Actor` role); on a successful append the receipt's content-
+/// address is returned.
+async fn emit_constitution_eval_receipt(
+    state: &ControlPlaneState,
+    outcome: &EvaluationOutcome,
+    constitution_hash: &Hash,
+    constitution_version: &str,
+    swarm_id: yutha_core::SwarmId,
+    subject_agent_id: &AgentId,
+) -> Result<Hash, Status> {
+    let action_kind = match outcome.decision {
+        yutha_cedar_plus::Decision::Permit => "constitution.evaluate.pass",
+        yutha_cedar_plus::Decision::Deny => "constitution.evaluate.deny",
+    };
+
+    let mut evidence: Vec<Evidence> = vec![
+        Evidence::new(
+            "constitution_hash",
+            "type.yutha.dev/v1/Hash",
+            constitution_hash.digest.clone(),
+        ),
+        Evidence::new(
+            "action_kind",
+            "type.yutha.dev/v1/String",
+            "SendEnvelope".as_bytes().to_vec(),
+        ),
+        Evidence::new(
+            "matched_rule_ids",
+            "type.yutha.dev/v1/String",
+            outcome.matched_rule_ids.join(",").into_bytes(),
+        ),
+        Evidence::new(
+            "input_attribute_digest",
+            "type.yutha.dev/v1/Hash",
+            outcome.evidence_digest.digest.clone(),
+        ),
+        // The subject is the agent whose action was evaluated. The
+        // receipt's `actor` is the control plane (it emits the
+        // signed audit record), so the subject has to ride in
+        // evidence — the enforcement engine downstream (F10f
+        // PublishingReceiptStore + F9 on_receipt) matches on this
+        // field to attribute denies to the right agent.
+        Evidence::new(
+            "subject_agent_id",
+            "type.yutha.dev/v1/AgentId",
+            subject_agent_id.to_string().into_bytes(),
+        ),
+    ];
+    if let Some(reason) = &outcome.deny_reason {
+        evidence.push(Evidence::new(
+            "deny_reason",
+            "type.yutha.dev/v1/String",
+            reason.as_bytes().to_vec(),
+        ));
+    }
+    if let Some(total) = &outcome.total_score {
+        evidence.push(Evidence::new(
+            "total_score",
+            "type.yutha.dev/v1/String",
+            total.0.as_bytes().to_vec(),
+        ));
+    }
+
+    let spec_version = SpecVersion::parse("1.0.0").map_err(|e| {
+        Status::internal(format!("constitution.evaluate receipt spec_version: {e}"))
+    })?;
+    let mut builder = Receipt::builder()
+        .spec_version(spec_version)
+        .swarm_id(swarm_id)
+        .actor(state.control_plane_identity.agent_id)
+        .action_kind(action_kind)
+        .constitution_version(constitution_version)
+        .occurred_at(Timestamp::now());
+    for e in evidence {
+        builder = builder.evidence(e);
+    }
+    let mut receipt = builder
+        .build()
+        .map_err(|e| Status::internal(format!("constitution.evaluate receipt build: {e}")))?;
+
+    let bytes = receipt
+        .canonical_bytes()
+        .map_err(|e| Status::internal(format!("constitution.evaluate canonical: {e}")))?;
+    let sig = state.control_plane_identity.sign(&bytes);
+    receipt
+        .signatures
+        .push(SignedBy::new(SignatureRole::Actor, sig, Timestamp::now()));
+
+    let outcome = state
+        .receipt_store
+        .append(receipt, AppendOptions::default(), state.resolver.as_ref())
+        .await
+        .map_err(|e| Status::internal(format!("constitution.evaluate append: {e}")))?;
+    Ok(outcome.receipt_id)
 }
 
 /// Type alias for the server-streaming Subscribe response — a boxed
@@ -300,13 +497,21 @@ impl EnvelopeService for EnvelopeHandler {
             )
         })?;
         let constitution_hash = active.constitution.constitution_hash.clone();
+        let constitution_version = active.constitution.constitution_version.clone();
         drop(active);
+        let topology_mode_str = match topology.mode {
+            yutha_registry::TopologyMode::Closed => "closed",
+            yutha_registry::TopologyMode::Open => "open",
+            yutha_registry::TopologyMode::Hybrid => "hybrid",
+        };
         let eval_request = build_eval_request_for_send(
-            constitution_hash,
+            constitution_hash.clone(),
             &auth.agent_id,
             &envelope,
             cap_id_opt.as_ref(),
             &topology.swarm_id,
+            &constitution_version,
+            topology_mode_str,
         );
         let outcome = self
             .state
@@ -314,17 +519,29 @@ impl EnvelopeService for EnvelopeHandler {
             .evaluate(eval_request)
             .await
             .map_err(|e| Status::internal(format!("constitution eval: {e}")))?;
+
+        // F10e: emit constitution.evaluate.{pass,deny} receipt with
+        // the eval outcome's evidence digest + matched-rule ids +
+        // (when present) score contributions. Emission happens
+        // BEFORE the deny short-circuit below so the audit trail
+        // records both permits and denies symmetrically — per
+        // /spec/receipt/canonical-actions.md.
+        emit_constitution_eval_receipt(
+            &self.state,
+            &outcome,
+            &constitution_hash,
+            &constitution_version,
+            topology.swarm_id,
+            &auth.agent_id,
+        )
+        .await?;
+
         if outcome.decision == Decision::Deny {
             let reason = outcome.deny_reason.as_deref().unwrap_or("unknown");
             return Err(Status::permission_denied(format!(
                 "constitution check denied: {reason}"
             )));
         }
-        // F10e (receipt emission for constitution.evaluate.{pass,deny})
-        // is the follow-on — landing it requires the receipt-store
-        // emission helper plus a sign-with-control-plane-identity
-        // pass that's still under construction.
-        let _ = outcome;
 
         let send_receipt = self
             .state

@@ -19,12 +19,14 @@ use std::sync::Arc;
 
 use tonic::{Request, Response, Status};
 use yutha_cedar_plus::{parse_engine_config_yaml, Constitution, ConstitutionEvaluator};
-use yutha_core::{SpecVersion, SwarmId, Timestamp};
+use yutha_core::{Hash, SpecVersion, SwarmId, Timestamp};
+use yutha_crypto::canonical::Canonical;
 use yutha_proto::control_plane::v1::{
     constitution_service_server::ConstitutionService, ActivateConstitutionRequest,
     ActivateConstitutionResponse, Constitution as ConstitutionProto, GetActiveConstitutionRequest,
     GetActiveConstitutionResponse,
 };
+use yutha_receipt::{AppendOptions, Evidence, Receipt, SignatureRole, SignedBy};
 
 use crate::auth::{require_active_bearer_auth, require_operator_bearer_auth};
 
@@ -52,7 +54,7 @@ impl ConstitutionService for ConstitutionHandler {
         // Operator-only per RFC 0010 §3.6 — constitutions reshape the
         // swarm's policy surface, so the same trust-root that mints
         // bearer credentials authors them.
-        let _op_auth = require_operator_bearer_auth(&request, &self.state).await?;
+        let op_auth = require_operator_bearer_auth(&request, &self.state).await?;
 
         let req = request.into_inner();
         let constitution_proto = req
@@ -69,7 +71,7 @@ impl ConstitutionService for ConstitutionHandler {
         // load-time bound enforcement, Layer B synthesis. Any failure
         // here means the constitution doesn't activate; the operator
         // sees a specific CedarPlusError mapped to a tonic Status.
-        let activate_hash = self
+        let _activated_hash = self
             .state
             .cedar_plus
             .activate(constitution)
@@ -78,21 +80,34 @@ impl ConstitutionService for ConstitutionHandler {
 
         // Bind the freshly-activated constitution onto the enforcement
         // engine too. The engine needs the active constitution to
-        // match incoming receipts against `enforcement_rules`.
-        if let Some(active) = self.state.cedar_plus.current().await {
-            self.state.enforcement.activate(active).await;
-        }
+        // match incoming receipts against `enforcement_rules`. Re-fetch
+        // the activated constitution to read its constitution_version
+        // for the receipt below.
+        let constitution_version = if let Some(active) = self.state.cedar_plus.current().await {
+            self.state.enforcement.activate(active.clone()).await;
+            active.constitution.constitution_version.clone()
+        } else {
+            // Defensive — `activate` above succeeded, so current()
+            // should always return Some here. If it somehow doesn't,
+            // we still emit the receipt against the constitution
+            // version we just read from the wire.
+            constitution_proto.constitution_version.clone()
+        };
 
-        // F10e: emit a `constitution.activate` receipt. The receipt
-        // emission machinery isn't yet wired through ControlPlaneState
-        // for the constitution layer — that lands in the F10
-        // follow-on alongside the receipt-subscription channel. For
-        // now, return the activate_hash as a stand-in for the
-        // receipt id; the receipt itself will land once the
-        // subscription path is built.
+        // Emit the `constitution.activate` receipt. Audit-trail anchor
+        // for every subsequent `constitution.evaluate.*` receipt run
+        // under this constitution (per /spec/receipt/canonical-actions.md).
+        let activate_receipt = emit_constitution_activate_receipt(
+            &self.state,
+            &constitution_hash,
+            &constitution_version,
+            &op_auth.swarm_id,
+        )
+        .await?;
+
         Ok(Response::new(ActivateConstitutionResponse {
             constitution_hash: Some((&constitution_hash).into()),
-            activate_receipt: Some((&activate_hash).into()),
+            activate_receipt: Some((&activate_receipt).into()),
         }))
     }
 
@@ -204,6 +219,69 @@ fn prost_encode<M: yutha_proto::Message>(m: &M) -> Vec<u8> {
     let mut buf = Vec::with_capacity(m.encoded_len());
     m.encode(&mut buf).expect("encoding into Vec never fails");
     buf
+}
+
+/// Emit a `constitution.activate` receipt. The audit-trail anchor for
+/// every subsequent `constitution.evaluate.*` receipt run under this
+/// constitution (per /spec/receipt/canonical-actions.md).
+///
+/// Mirrors the receipt-emission pattern in
+/// `envelope::emit_constitution_eval_receipt`: build → canonical sign
+/// → append. Actor is the control plane (operator authority lives in
+/// the bearer-token signature on the RPC, not on the receipt itself —
+/// per RFC 0010 §3.6, the receipt records the *event*, not the
+/// authorization chain).
+async fn emit_constitution_activate_receipt(
+    state: &ControlPlaneState,
+    constitution_hash: &Hash,
+    constitution_version: &str,
+    swarm_id: &SwarmId,
+) -> Result<Hash, Status> {
+    let spec_version = SpecVersion::parse("1.0.0").map_err(|e| {
+        Status::internal(format!("constitution.activate receipt spec_version: {e}"))
+    })?;
+
+    let evidence = vec![
+        Evidence::new(
+            "constitution_hash",
+            "type.yutha.dev/v1/Hash",
+            constitution_hash.digest.clone(),
+        ),
+        Evidence::new(
+            "constitution_version",
+            "type.yutha.dev/v1/String",
+            constitution_version.as_bytes().to_vec(),
+        ),
+    ];
+
+    let mut builder = Receipt::builder()
+        .spec_version(spec_version)
+        .swarm_id(*swarm_id)
+        .actor(state.control_plane_identity.agent_id)
+        .action_kind("constitution.activate")
+        .constitution_version(constitution_version)
+        .occurred_at(Timestamp::now());
+    for e in evidence {
+        builder = builder.evidence(e);
+    }
+    let mut receipt = builder
+        .build()
+        .map_err(|e| Status::internal(format!("constitution.activate receipt build: {e}")))?;
+
+    let bytes = receipt
+        .canonical_bytes()
+        .map_err(|e| Status::internal(format!("constitution.activate canonical: {e}")))?;
+    let sig = state.control_plane_identity.sign(&bytes);
+    receipt
+        .signatures
+        .push(SignedBy::new(SignatureRole::Actor, sig, Timestamp::now()));
+
+    let outcome = state
+        .receipt_store
+        .append(receipt, AppendOptions::default(), state.resolver.as_ref())
+        .await
+        .map_err(|e| Status::internal(format!("constitution.activate append: {e}")))?;
+    Ok(outcome.receipt_id)
 }
 
 /// Map a `CedarPlusError` to a tonic `Status`. The mapping mirrors

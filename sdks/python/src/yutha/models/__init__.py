@@ -34,6 +34,7 @@ from yutha.models.capability import (
     SupervisorRequiredCaveat,
     TimeOfDayCaveat,
 )
+from yutha.models.constitution import Constitution
 from yutha.models.envelope import (
     Envelope,
     ExternalEndpoint,
@@ -82,6 +83,8 @@ __all__ = [
     "NeverIfTaggedCaveat",
     "ActionDescriptor",
     "CheckOutcome",
+    # Constitution.
+    "Constitution",
     # Receipt.
     "Receipt",
     "Evidence",

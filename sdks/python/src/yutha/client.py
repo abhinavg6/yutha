@@ -42,6 +42,7 @@ from yutha.crypto import SigningKey
 from yutha.identity import AgentId, Hash, SwarmId
 from yutha.models import (
     Capability,
+    Constitution,
     Envelope,
     Passport,
     Receipt,
@@ -440,6 +441,109 @@ class ReceiptAPI:
         )
 
 
+@dataclass(frozen=True)
+class ActivatedConstitution:
+    """Both halves of a successful
+    :meth:`ConstitutionAPI.activate` call.
+
+    ``constitution_hash`` is the content-address of the activated
+    constitution artifact — the canonical reference operators stash
+    in their config / RFC chain to record what's now in force.
+
+    ``activate_receipt`` is the content-address of the
+    ``constitution.activate`` substrate receipt the control plane
+    emitted as part of the activation. The receipt is queryable via
+    :class:`ReceiptAPI` and forms the audit-trail anchor for every
+    subsequent ``constitution.evaluate.*`` receipt run under this
+    constitution.
+    """
+
+    constitution_hash: Hash
+    activate_receipt: Hash
+
+
+@dataclass(frozen=True)
+class ActiveConstitution:
+    """Result of :meth:`ConstitutionAPI.get_active`.
+
+    Carries both the constitution artifact and the server-pre-computed
+    content-address. Callers verifying audit-trail provenance can
+    re-derive the hash from ``constitution.to_proto()`` (canonical-
+    bytes equivalent), but the server side ships it pre-computed to
+    save the round trip.
+    """
+
+    constitution: Constitution
+    constitution_hash: Hash
+
+
+class ConstitutionAPI:
+    """Wraps :class:`ConstitutionServiceStub` (RFCs 0010-0013, F10a-h).
+
+    Two RPCs:
+
+      * :meth:`activate` — operator-bearer-authenticated. Publishes a
+        constitution; replaces the swarm's currently-active one.
+      * :meth:`get_active` — agent-bearer-authenticated. Reads the
+        currently-active constitution; returns ``None`` if none has
+        been activated yet.
+
+    The constitution layer gates ``EnvelopeService.Send`` (per F10d),
+    so a freshly-started control plane refuses sends with
+    ``FAILED_PRECONDITION`` until an operator calls :meth:`activate`.
+    """
+
+    def __init__(self, stub: cp_grpc.ConstitutionServiceStub) -> None:
+        self._stub = stub
+
+    async def activate(self, constitution: Constitution) -> ActivatedConstitution:
+        """Publish ``constitution`` as the swarm's currently-active one.
+
+        Requires an operator-bearer client (built via
+        :meth:`YuthaClient.connect_as_operator`); agent bearers get
+        ``UNAUTHENTICATED`` from the server.
+
+        The server runs the full load-time validation pass before
+        accepting (structural checks, ``@<name>`` predicate
+        resolution, Cedar Validator in Strict mode, load-time bound
+        enforcement per RFC 0012 §3.3); invalid constitutions are
+        rejected with ``INVALID_ARGUMENT``. Successful activations
+        emit a ``constitution.activate`` receipt and reset the
+        enforcement engine's rule counters (per RFC 0013 §7 —
+        in-flight agent stages / reputation / quarantine state are
+        preserved across amendments)."""
+        resp = cast(
+            cp_pb2.ActivateConstitutionResponse,
+            await self._stub.Activate(
+                cp_pb2.ActivateConstitutionRequest(constitution=constitution.to_proto())
+            ),
+        )
+        return ActivatedConstitution(
+            constitution_hash=Hash.from_proto(resp.constitution_hash),
+            activate_receipt=Hash.from_proto(resp.activate_receipt),
+        )
+
+    async def get_active(self) -> ActiveConstitution | None:
+        """Read the currently-active constitution. Returns ``None`` if
+        no constitution has been activated for this swarm yet (the
+        server returns ``NOT_FOUND``, which we translate to ``None``
+        to match the rest of the SDK's convention for "doesn't
+        exist")."""
+        try:
+            resp = cast(
+                cp_pb2.GetActiveConstitutionResponse,
+                await self._stub.GetActive(cp_pb2.GetActiveConstitutionRequest()),
+            )
+        except grpc.aio.AioRpcError as e:
+            if e.code() == grpc.StatusCode.NOT_FOUND:
+                return None
+            raise
+        return ActiveConstitution(
+            constitution=Constitution.from_proto(resp.constitution),
+            constitution_hash=Hash.from_proto(resp.constitution_hash),
+        )
+
+
 # =============================================================================
 # YuthaClient
 # =============================================================================
@@ -472,6 +576,7 @@ class YuthaClient:
         self.capability = CapabilityAPI(cp_grpc.CapabilityServiceStub(channel))  # type: ignore[no-untyped-call]
         self.envelope = EnvelopeAPI(cp_grpc.EnvelopeServiceStub(channel))  # type: ignore[no-untyped-call]
         self.receipt = ReceiptAPI(cp_grpc.ReceiptServiceStub(channel))  # type: ignore[no-untyped-call]
+        self.constitution = ConstitutionAPI(cp_grpc.ConstitutionServiceStub(channel))  # type: ignore[no-untyped-call]
 
     @classmethod
     def connect(
@@ -617,6 +722,10 @@ __all__ = [
     "YuthaClient",
     "AdmissionAPI",
     "CapabilityAPI",
+    "ConstitutionAPI",
     "EnvelopeAPI",
     "ReceiptAPI",
+    "ActivatedConstitution",
+    "ActiveConstitution",
+    "OperatorRevokeOutcome",
 ]

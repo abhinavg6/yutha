@@ -16,6 +16,7 @@ pub mod error;
 pub mod issuer;
 pub mod memory;
 pub mod proto_conv;
+pub mod quarantine;
 pub mod scope;
 pub mod store;
 
@@ -25,6 +26,7 @@ pub use check::{ActionDescriptor, CheckOutcome};
 pub use error::{CapabilityError, Result};
 pub use issuer::{ControlPlaneIssuer, Issuer};
 pub use memory::MemoryCapabilityStore;
+pub use quarantine::{AlwaysAllowed, QuarantineSource};
 pub use scope::Scope;
 pub use store::{CapabilityStore, CheckEvaluation, IssuanceOutcome};
 

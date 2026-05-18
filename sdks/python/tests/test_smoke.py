@@ -9,6 +9,8 @@ both ``yutha-`` Rust crates and the Python SDK side by side).
 
 from __future__ import annotations
 
+import pytest
+
 
 def test_package_imports() -> None:
     """`import yutha` succeeds and exposes the version."""
@@ -45,10 +47,43 @@ def test_proto_descriptors_load() -> None:
 
 
 def test_grpc_stubs_load() -> None:
-    """The four service stubs are importable."""
+    """The five service stubs are importable. ``ConstitutionServiceStub``
+    arrived in F10a; check explicitly so a stale codegen doesn't slip
+    through (the four other stubs predate it)."""
     from yutha._proto.control_plane import v1_pb2_grpc
 
     assert hasattr(v1_pb2_grpc, "AdmissionServiceStub")
     assert hasattr(v1_pb2_grpc, "CapabilityServiceStub")
+    assert hasattr(v1_pb2_grpc, "ConstitutionServiceStub")
     assert hasattr(v1_pb2_grpc, "EnvelopeServiceStub")
     assert hasattr(v1_pb2_grpc, "ReceiptServiceStub")
+
+
+@pytest.mark.asyncio
+async def test_yuthaclient_exposes_five_service_apis() -> None:
+    """``YuthaClient`` attaches one API wrapper per service. We don't
+    connect (no live server in unit-test land) — just construct a
+    client over a no-op channel and check the attributes exist.
+
+    ``grpc.aio.insecure_channel`` requires a running event loop at
+    construction time, so this test is async; pytest-asyncio's AUTO
+    mode in ``pyproject.toml`` provides the loop."""
+    import grpc
+
+    import yutha
+
+    channel = grpc.aio.insecure_channel("localhost:0")
+    try:
+        session = yutha.BearerSession(
+            agent_id=yutha.AgentId.new(),
+            swarm_id=yutha.SwarmId.new(),
+            signing_key=yutha.SigningKey.generate(),
+        )
+        client = yutha.YuthaClient(channel, session)
+        assert isinstance(client.admission, yutha.AdmissionAPI)
+        assert isinstance(client.capability, yutha.CapabilityAPI)
+        assert isinstance(client.constitution, yutha.ConstitutionAPI)
+        assert isinstance(client.envelope, yutha.EnvelopeAPI)
+        assert isinstance(client.receipt, yutha.ReceiptAPI)
+    finally:
+        await channel.close()

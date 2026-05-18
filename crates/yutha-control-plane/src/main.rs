@@ -34,6 +34,8 @@
 
 mod auth;
 mod grpc;
+mod quarantine_adapter;
+mod receipt_publisher;
 
 use std::net::SocketAddr;
 use std::path::PathBuf;
@@ -71,6 +73,9 @@ use grpc::{
     admission::AdmissionHandler, capability::CapabilityHandler, constitution::ConstitutionHandler,
     envelope::EnvelopeHandler, receipt::ReceiptHandler, ControlPlaneState,
 };
+use receipt_publisher::{EnforcementReceiptView, PublishingReceiptStore};
+use tokio::sync::mpsc;
+use yutha_cedar_plus::ReceiptView;
 
 /// Yutha control plane.
 #[derive(Debug, Parser)]
@@ -230,15 +235,98 @@ async fn main() -> anyhow::Result<()> {
         Some(hex) => Some(parse_operator_public_key(hex)?),
         None => None,
     };
-    let state = bootstrap_backends(
+    let (state, enforcement_rx) = bootstrap_backends(
         bootstrap_identity,
         cli.admission_mode,
         require_cap_for_send,
         operator_public_key,
     )
     .await?;
+
+    // F10f: spin up the enforcement-engine forwarder + scheduler-tick
+    // background tasks. They run for the lifetime of the process; both
+    // exit cleanly when the gRPC server shuts down (the forwarder exits
+    // when every publisher Sender is dropped — and the only Sender
+    // lives inside the receipt-store Arc held by ControlPlaneState).
+    spawn_enforcement_forwarder(Arc::clone(&state), enforcement_rx);
+    spawn_scheduler_tick(Arc::clone(&state));
+
     serve_grpc(&cli, state).await?;
     Ok(())
+}
+
+/// Drain receipts published by [`PublishingReceiptStore`] and forward
+/// them to the [`yutha_cedar_plus::EnforcementEngine`].
+///
+/// Each owned [`EnforcementReceiptView`] is converted into a borrowed
+/// [`ReceiptView`] (the engine's API takes `'_`-borrowed fields to
+/// avoid allocations inside the hot path) and passed to
+/// [`EnforcementEngine::on_receipt`]. Any [`EnforcementEffect`]s the
+/// engine returns are logged for now; the v1 cut does not yet emit
+/// `enforcement.*` receipts back into the store — that closes the
+/// loop in a later workstream once we land full enforcement-receipt
+/// signing (F10 STATUS notes call this out explicitly).
+fn spawn_enforcement_forwarder(
+    state: Arc<ControlPlaneState>,
+    mut rx: mpsc::Receiver<EnforcementReceiptView>,
+) {
+    tokio::spawn(async move {
+        info!("F10f: enforcement-receipt forwarder task started");
+        while let Some(view) = rx.recv().await {
+            let borrowed = ReceiptView {
+                action_kind: view.action_kind.as_str(),
+                principal_id: view.principal_id.as_deref(),
+                deny_reason: view.deny_reason.as_deref(),
+                forbid_rule_id: view.forbid_rule_id.as_deref(),
+                occurred_at_unix_ns: view.occurred_at_unix_ns,
+                occurred_at_wall_clock: view.occurred_at_wall_clock.as_str(),
+                reputation_delta: view.reputation_delta.clone(),
+            };
+            let effects = state.enforcement.on_receipt(borrowed).await;
+            for effect in effects {
+                info!(
+                    action_kind = %effect.action_kind,
+                    target_agent_id = %effect.target_agent_id,
+                    enforcement_rule_id = %effect.enforcement_rule_id,
+                    reputation_delta = %effect.reputation_delta.0,
+                    "F10f: enforcement engine staged effect (receipt emission deferred)"
+                );
+            }
+        }
+        info!("F10f: enforcement-receipt forwarder task exiting (channel closed)");
+    });
+}
+
+/// Drive the enforcement engine's scheduled-transitions queue.
+///
+/// Per [`yutha_cedar_plus::EnforcementEngine::poll_scheduled`] the
+/// control plane is responsible for ticking wall-clock advance. A
+/// 1-second cadence matches the spec's "typically once per second"
+/// note in enforcement.rs and gives sub-second responsiveness without
+/// drowning the engine in empty polls.
+fn spawn_scheduler_tick(state: Arc<ControlPlaneState>) {
+    use std::time::Duration;
+    tokio::spawn(async move {
+        info!("F10f: enforcement scheduler-tick task started (1s cadence)");
+        let mut ticker = tokio::time::interval(Duration::from_secs(1));
+        // First tick fires immediately; skip it so we don't poll
+        // before any receipts have a chance to land.
+        ticker.tick().await;
+        loop {
+            ticker.tick().await;
+            let now = Timestamp::now().wall_clock;
+            let effects = state.enforcement.poll_scheduled(&now).await;
+            for effect in effects {
+                info!(
+                    action_kind = %effect.action_kind,
+                    target_agent_id = %effect.target_agent_id,
+                    enforcement_rule_id = %effect.enforcement_rule_id,
+                    reputation_delta = %effect.reputation_delta.0,
+                    "F10f: scheduled enforcement effect fired (receipt emission deferred)"
+                );
+            }
+        }
+    });
 }
 
 /// Deterministically-derived bootstrap-agent identity, optionally
@@ -306,7 +394,10 @@ async fn bootstrap_backends(
     admission_mode: AdmissionModeArg,
     require_capability_for_send: bool,
     operator_public_key: Option<yutha_core::PublicKey>,
-) -> anyhow::Result<Arc<ControlPlaneState>> {
+) -> anyhow::Result<(
+    Arc<ControlPlaneState>,
+    mpsc::Receiver<EnforcementReceiptView>,
+)> {
     // If the operator supplied a deterministic bootstrap seed, the
     // resulting (signing_key, agent_id, swarm_id) triplet replaces the
     // random defaults below. Everything downstream — the CLOSED
@@ -324,7 +415,17 @@ async fn bootstrap_backends(
         None => SwarmId::new(),
     };
 
-    let receipt_store: Arc<dyn ReceiptStore> = Arc::new(MemoryReceiptStore::new());
+    // F10f: wrap the inner receipt store with a publisher that fans
+    // every successful append onto an mpsc channel. The main task
+    // drains that channel and forwards enforcement-relevant receipts
+    // into the EnforcementEngine. Per the F10 design decision (see
+    // receipt_publisher.rs), the wrapper sits behind the
+    // Arc<dyn ReceiptStore> the rest of the system already holds, so
+    // every existing emit site picks up publishing automatically with
+    // no per-callsite change.
+    let inner_receipt_store: Arc<dyn ReceiptStore> = Arc::new(MemoryReceiptStore::new());
+    let (publishing_store, enforcement_rx) = PublishingReceiptStore::new(inner_receipt_store);
+    let receipt_store: Arc<dyn ReceiptStore> = publishing_store;
     let passport_store: Arc<dyn PassportStore> = Arc::new(MemoryPassportStore::new());
     let resolver: Arc<dyn PassportResolver> =
         Arc::new(PassportResolverAdapter::new(Arc::clone(&passport_store)));
@@ -353,10 +454,20 @@ async fn bootstrap_backends(
     );
     let cp = Arc::new(ControlPlaneIdentity::new(cp_agent_id, cp_key));
 
+    // F10g: the cap layer consults the enforcement engine to refuse
+    // checks / issuances against quarantined subjects. Construct the
+    // engine up-front so it can be shared between the cap store and
+    // the ControlPlaneState (where the ConstitutionService.Activate
+    // path swaps in a fresh enforcement state on activation).
+    let enforcement = Arc::new(yutha_cedar_plus::EnforcementEngine::new());
+    let quarantine_source: Arc<dyn yutha_capability::QuarantineSource> = Arc::new(
+        quarantine_adapter::EnforcementEngineQuarantineSource::new(Arc::clone(&enforcement)),
+    );
     let capability_store: Arc<dyn CapabilityStore> = Arc::new(MemoryCapabilityStore::new(
         Arc::clone(&receipt_store),
         Arc::clone(&resolver),
         Arc::clone(&cp),
+        quarantine_source,
     ));
     let transport: Arc<dyn Transport> = Arc::new(MemoryTransport::new(
         Arc::clone(&receipt_store),
@@ -504,22 +615,28 @@ async fn bootstrap_backends(
     let cedar_plus = Arc::new(yutha_cedar_plus::CedarPlusEvaluator::with_default_bounds(
         cedar_loader,
     ));
-    let enforcement = Arc::new(yutha_cedar_plus::EnforcementEngine::new());
+    // `enforcement` was constructed earlier (F10g hookup) so the cap
+    // store can share it; we just re-use that Arc below.
 
-    Ok(Arc::new(ControlPlaneState {
-        registry,
-        passport_store,
-        capability_store,
-        transport,
-        receipt_store,
-        resolver,
-        control_plane_identity: cp,
-        operator_public_key,
-        revoked_agents: Arc::new(tokio::sync::RwLock::new(std::collections::HashSet::new())),
-        revocation_signals: Arc::new(tokio::sync::RwLock::new(std::collections::HashMap::new())),
-        cedar_plus,
-        enforcement,
-    }))
+    Ok((
+        Arc::new(ControlPlaneState {
+            registry,
+            passport_store,
+            capability_store,
+            transport,
+            receipt_store,
+            resolver,
+            control_plane_identity: cp,
+            operator_public_key,
+            revoked_agents: Arc::new(tokio::sync::RwLock::new(std::collections::HashSet::new())),
+            revocation_signals: Arc::new(
+                tokio::sync::RwLock::new(std::collections::HashMap::new()),
+            ),
+            cedar_plus,
+            enforcement,
+        }),
+        enforcement_rx,
+    ))
 }
 
 /// Parse an operator public key from a hex string. Ed25519 keys are 32

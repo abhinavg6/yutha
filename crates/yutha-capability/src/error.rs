@@ -46,6 +46,15 @@ pub enum CapabilityError {
     #[error("capability revoked")]
     Revoked,
 
+    /// The capability's subject (the agent who would hold or use the
+    /// cap) is currently quarantined per RFC 0013 §4.2. Returned by
+    /// `issue` / `attenuate` when minting would hand a fresh cap to a
+    /// quarantined agent; the `check` path expresses the same
+    /// condition as a `CheckOutcome::deny` instead so the deny still
+    /// rides on a `capability.check.deny` receipt.
+    #[error("capability subject is quarantined: {0}")]
+    SubjectQuarantined(yutha_core::AgentId),
+
     /// Generic backend error.
     #[error("backend error: {0}")]
     Backend(String),

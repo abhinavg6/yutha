@@ -164,20 +164,20 @@ async def test_get_topology_returns_our_swarm(
         )
 
 
-@pytest.mark.skip(
-    reason="F10 requires an active constitution before EnvelopeService.Send accepts; "
-    "this test pre-dates the constitution layer. F11 (Python SDK ConstitutionAPI) "
-    "adds the operator-bearer Activate path + a permissive-constitution test fixture, "
-    "and this test gets un-skipped + threaded through that fixture there."
-)
 @pytest.mark.asyncio
 async def test_full_lifecycle(
     bootstrap_identity: tuple[yutha.SigningKey, yutha.AgentId, yutha.SwarmId],
     address: str,
+    activated_permissive_constitution: object,  # fixture has side-effects only
 ) -> None:
     """The load-bearing end-to-end test: issue a capability, send an
     envelope to self, receive it via the subscribe stream, query the
-    resulting receipts. Exercises all four services."""
+    resulting receipts. Exercises all four services.
+
+    Depends on ``activated_permissive_constitution`` (F11d) — F10's
+    SendEnvelope gate refuses every call until an operator activates
+    a constitution. The fixture does that once per session against the
+    same control plane this test connects to."""
     signing_key, agent_id, swarm_id = bootstrap_identity
 
     async with yutha.YuthaClient.connect(

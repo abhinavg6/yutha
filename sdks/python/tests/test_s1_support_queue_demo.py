@@ -59,19 +59,23 @@ def open_mode_addr() -> str:
     return addr
 
 
-@pytest.mark.skip(
-    reason="F10 requires an active constitution before EnvelopeService.Send accepts; "
-    "the S1 demo's send-heavy flow blocks at the first send. F11 lands the Python "
-    "ConstitutionAPI + a permissive-constitution helper and threads activation into "
-    "the demo's Phase 1 setup; this test un-skips then."
-)
 @pytest.mark.asyncio
-async def test_s1_demo_audit_shape(open_mode_addr: str) -> None:
+async def test_s1_demo_audit_shape(
+    open_mode_addr: str,
+    activated_permissive_constitution: object,  # fixture has side-effects only
+) -> None:
     """Run the demo end-to-end and verify the audit-trail delta exactly
     matches the documented expectations (5 registers, 4 send/deliver
     pairs, 1 issue + 3 check.pass + 1 check.deny + 1 cap-revoke, 1
     agent.revoke). Drift in either direction is a behavioral regression
-    worth investigating."""
+    worth investigating.
+
+    Depends on ``activated_permissive_constitution`` (F11d) — the
+    demo's send-heavy flow needs the F10 SendEnvelope gate open. The
+    fixture activates a permissive constitution bound to the same
+    seed-derived swarm_id that ``run_s1`` uses, so the agents the demo
+    registers will pass through both substrate admission and the
+    constitution layer."""
     # Importable thanks to the sys.path shim in conftest.py. mypy
     # can't see through that shim — the module lives in
     # `sdks/python/examples/`, outside the source set — so we

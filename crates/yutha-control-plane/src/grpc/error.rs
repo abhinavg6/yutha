@@ -134,6 +134,12 @@ impl ErrorIntoStatus for CapabilityError {
             }
             CapabilityError::ParentNotFound(_) => Status::not_found(self.to_string()),
             CapabilityError::Revoked => Status::permission_denied(self.to_string()),
+            // RFC 0013 §4.2: issuance / attenuation refusal because
+            // the subject is quarantined. Surface as PERMISSION_DENIED
+            // — the client is correctly authenticated; the swarm
+            // simply refuses to hand fresh authority to a quarantined
+            // agent.
+            CapabilityError::SubjectQuarantined(_) => Status::permission_denied(self.to_string()),
             CapabilityError::Backend(_) => Status::internal(self.to_string()),
             CapabilityError::Crypto(_) => Status::internal(self.to_string()),
             CapabilityError::Core(c) => c.to_status(),

@@ -815,3 +815,172 @@ class ReceiptService(object):
             timeout,
             metadata,
             _registered_method=True)
+
+
+class ConstitutionServiceStub(object):
+    """---------------------------------------------------------------------------
+    ConstitutionService — operator publishes constitutions; agents query them
+    ---------------------------------------------------------------------------
+
+    The constitution layer (RFCs 0010-0013) lives one layer above
+    capabilities: capabilities answer "who has authority"; constitutions
+    answer "what authority is permitted to be exercised right now by this
+    principal under our norms." Activate publishes a freshly-authored
+    constitution; the active constitution is what EnvelopeService.Send
+    + CapabilityService.Issue / Attenuate / Revoke evaluate against.
+
+    Authorization: Activate requires an OperatorBearerToken (RFC 0009);
+    GetActive requires any AgentBearerToken (registered agents need to
+    know what they're bound to).
+
+    """
+
+    def __init__(self, channel):
+        """Constructor.
+
+        Args:
+            channel: A grpc.Channel.
+        """
+        self.Activate = channel.unary_unary(
+                '/yutha.control_plane.v1.ConstitutionService/Activate',
+                request_serializer=control__plane_dot_v1__pb2.ActivateConstitutionRequest.SerializeToString,
+                response_deserializer=control__plane_dot_v1__pb2.ActivateConstitutionResponse.FromString,
+                _registered_method=True)
+        self.GetActive = channel.unary_unary(
+                '/yutha.control_plane.v1.ConstitutionService/GetActive',
+                request_serializer=control__plane_dot_v1__pb2.GetActiveConstitutionRequest.SerializeToString,
+                response_deserializer=control__plane_dot_v1__pb2.GetActiveConstitutionResponse.FromString,
+                _registered_method=True)
+
+
+class ConstitutionServiceServicer(object):
+    """---------------------------------------------------------------------------
+    ConstitutionService — operator publishes constitutions; agents query them
+    ---------------------------------------------------------------------------
+
+    The constitution layer (RFCs 0010-0013) lives one layer above
+    capabilities: capabilities answer "who has authority"; constitutions
+    answer "what authority is permitted to be exercised right now by this
+    principal under our norms." Activate publishes a freshly-authored
+    constitution; the active constitution is what EnvelopeService.Send
+    + CapabilityService.Issue / Attenuate / Revoke evaluate against.
+
+    Authorization: Activate requires an OperatorBearerToken (RFC 0009);
+    GetActive requires any AgentBearerToken (registered agents need to
+    know what they're bound to).
+
+    """
+
+    def Activate(self, request, context):
+        """Publish a constitution. Replaces the currently-active constitution
+        for the swarm. Runs the full load-time validation pass from RFC
+        0012 §3.3 (structural checks, named-predicate resolution, Cedar
+        Validator in Strict mode, load-time bound enforcement) before the
+        activation lands. On success, a `constitution.activate` receipt
+        is appended and the returned hash content-addresses the
+        activated constitution.
+        """
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def GetActive(self, request, context):
+        """Fetch the currently-active constitution. Returns NOT_FOUND when
+        no constitution has been activated.
+        """
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+
+def add_ConstitutionServiceServicer_to_server(servicer, server):
+    rpc_method_handlers = {
+            'Activate': grpc.unary_unary_rpc_method_handler(
+                    servicer.Activate,
+                    request_deserializer=control__plane_dot_v1__pb2.ActivateConstitutionRequest.FromString,
+                    response_serializer=control__plane_dot_v1__pb2.ActivateConstitutionResponse.SerializeToString,
+            ),
+            'GetActive': grpc.unary_unary_rpc_method_handler(
+                    servicer.GetActive,
+                    request_deserializer=control__plane_dot_v1__pb2.GetActiveConstitutionRequest.FromString,
+                    response_serializer=control__plane_dot_v1__pb2.GetActiveConstitutionResponse.SerializeToString,
+            ),
+    }
+    generic_handler = grpc.method_handlers_generic_handler(
+            'yutha.control_plane.v1.ConstitutionService', rpc_method_handlers)
+    server.add_generic_rpc_handlers((generic_handler,))
+    server.add_registered_method_handlers('yutha.control_plane.v1.ConstitutionService', rpc_method_handlers)
+
+
+ # This class is part of an EXPERIMENTAL API.
+class ConstitutionService(object):
+    """---------------------------------------------------------------------------
+    ConstitutionService — operator publishes constitutions; agents query them
+    ---------------------------------------------------------------------------
+
+    The constitution layer (RFCs 0010-0013) lives one layer above
+    capabilities: capabilities answer "who has authority"; constitutions
+    answer "what authority is permitted to be exercised right now by this
+    principal under our norms." Activate publishes a freshly-authored
+    constitution; the active constitution is what EnvelopeService.Send
+    + CapabilityService.Issue / Attenuate / Revoke evaluate against.
+
+    Authorization: Activate requires an OperatorBearerToken (RFC 0009);
+    GetActive requires any AgentBearerToken (registered agents need to
+    know what they're bound to).
+
+    """
+
+    @staticmethod
+    def Activate(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/yutha.control_plane.v1.ConstitutionService/Activate',
+            control__plane_dot_v1__pb2.ActivateConstitutionRequest.SerializeToString,
+            control__plane_dot_v1__pb2.ActivateConstitutionResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def GetActive(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/yutha.control_plane.v1.ConstitutionService/GetActive',
+            control__plane_dot_v1__pb2.GetActiveConstitutionRequest.SerializeToString,
+            control__plane_dot_v1__pb2.GetActiveConstitutionResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)

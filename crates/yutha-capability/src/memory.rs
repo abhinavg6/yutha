@@ -7,6 +7,7 @@
 use crate::capability::Capability;
 use crate::check::{ActionDescriptor, CheckOutcome};
 use crate::error::{CapabilityError, Result};
+use crate::quarantine::QuarantineSource;
 use crate::scope::Scope;
 use crate::store::{CapabilityStore, CheckEvaluation, IssuanceOutcome};
 use crate::DEFAULT_MAX_CHAIN_DEPTH;
@@ -30,6 +31,11 @@ pub struct MemoryCapabilityStore {
     receipts: Arc<dyn ReceiptStore>,
     resolver: Arc<dyn PassportResolver>,
     control_plane: Arc<ControlPlaneIdentity>,
+    /// Quarantine state consulted on every check / issue / attenuate
+    /// per RFC 0013 §4.2. Backed by the constitution layer's
+    /// `EnforcementEngine` in production; by [`crate::AlwaysAllowed`]
+    /// in tests and demos.
+    quarantine: Arc<dyn QuarantineSource>,
 }
 
 impl std::fmt::Debug for MemoryCapabilityStore {
@@ -37,6 +43,7 @@ impl std::fmt::Debug for MemoryCapabilityStore {
         f.debug_struct("MemoryCapabilityStore")
             .field("max_depth", &self.max_depth)
             .field("control_plane", &self.control_plane)
+            .field("quarantine", &self.quarantine)
             .finish()
     }
 }
@@ -51,12 +58,25 @@ struct Inner {
 
 impl MemoryCapabilityStore {
     /// New store with default max chain depth and receipt emission.
+    ///
+    /// `quarantine` is consulted on every `check`, `issue`, and
+    /// `attenuate` call to enforce RFC 0013 §4.2 ("the cap layer
+    /// denies quarantined agents"). Pass [`crate::AlwaysAllowed`]
+    /// when the constitution layer isn't wired in (tests, demos);
+    /// pass an adapter backed by `EnforcementEngine` in production.
     pub fn new(
         receipts: Arc<dyn ReceiptStore>,
         resolver: Arc<dyn PassportResolver>,
         control_plane: Arc<ControlPlaneIdentity>,
+        quarantine: Arc<dyn QuarantineSource>,
     ) -> Self {
-        Self::with_max_depth(DEFAULT_MAX_CHAIN_DEPTH, receipts, resolver, control_plane)
+        Self::with_max_depth(
+            DEFAULT_MAX_CHAIN_DEPTH,
+            receipts,
+            resolver,
+            control_plane,
+            quarantine,
+        )
     }
 
     /// New store with a custom max chain depth.
@@ -65,6 +85,7 @@ impl MemoryCapabilityStore {
         receipts: Arc<dyn ReceiptStore>,
         resolver: Arc<dyn PassportResolver>,
         control_plane: Arc<ControlPlaneIdentity>,
+        quarantine: Arc<dyn QuarantineSource>,
     ) -> Self {
         Self {
             inner: Arc::new(RwLock::new(Inner::default())),
@@ -72,6 +93,7 @@ impl MemoryCapabilityStore {
             receipts,
             resolver,
             control_plane,
+            quarantine,
         }
     }
 
@@ -253,6 +275,19 @@ impl MemoryCapabilityStore {
 #[async_trait]
 impl CapabilityStore for MemoryCapabilityStore {
     async fn issue(&self, capability: Capability) -> Result<IssuanceOutcome> {
+        // RFC 0013 §4.2: refuse to mint a fresh cap to a quarantined
+        // subject. Errors out (vs the check-path's "deny via receipt")
+        // because there's no `capability.issue.deny` action-kind in
+        // canonical-actions.md — issuance refusal is an exceptional
+        // condition, not a substrate observation.
+        if self
+            .quarantine
+            .is_agent_quarantined(&capability.subject)
+            .await
+        {
+            return Err(CapabilityError::SubjectQuarantined(capability.subject));
+        }
+
         let capability_id = content_address(&capability).map_err(CapabilityError::Crypto)?;
         // Persist first so the resolver / lookup path is consistent before
         // the receipt lands. Mirrors `MemoryRegistry::register` ordering.
@@ -270,6 +305,12 @@ impl CapabilityStore for MemoryCapabilityStore {
     }
 
     async fn attenuate(&self, child: Capability) -> Result<IssuanceOutcome> {
+        // Same quarantine gate as `issue` — attenuation hands a fresh
+        // (narrower) cap to a subject. If they're quarantined, deny.
+        if self.quarantine.is_agent_quarantined(&child.subject).await {
+            return Err(CapabilityError::SubjectQuarantined(child.subject));
+        }
+
         let parent_hash = child
             .parent
             .clone()
@@ -377,6 +418,47 @@ impl MemoryCapabilityStore {
         capability_id: &Hash,
         descriptor: &ActionDescriptor,
     ) -> Result<(CheckOutcome, yutha_core::SwarmId)> {
+        // RFC 0013 §4.2: quarantine fires *before* scope/caveat eval
+        // so a quarantined agent can't squeeze a permitted action
+        // through on the merits — the cap layer denies categorically.
+        // The leaf cap carries the subject (chains don't change it
+        // for v1; if attenuation ever re-delegates to a different
+        // subject in v2, the consultation still uses the leaf's
+        // subject because that's whoever is actually presenting the
+        // token at check time).
+        //
+        // The lookup is intentionally lenient: an unknown leaf id
+        // falls through to the chain walk below, where the
+        // "missing chain link" backend error fires with a clearer
+        // message. Revoked leaves likewise fall through to the
+        // chain-walk's revocation check, so the deny-reason on the
+        // resulting receipt stays "capability revoked in chain"
+        // rather than getting masked by a quarantine check.
+        //
+        // We acquire the read-lock once to snapshot the leaf's
+        // (subject, swarm_id, is_revoked), then drop it before the
+        // async quarantine consultation to avoid holding the inner
+        // lock across an await — the quarantine source has its own
+        // internal lock and ordering is cleaner this way.
+        let leaf_meta: Option<(yutha_core::AgentId, yutha_core::SwarmId)> = {
+            let guard = self.inner.read().await;
+            match (
+                guard.by_id.get(capability_id),
+                guard.revoked.contains_key(capability_id),
+            ) {
+                (Some(leaf), false) => Some((leaf.subject, leaf.swarm_id)),
+                _ => None,
+            }
+        };
+        if let Some((subject, swarm_id)) = leaf_meta {
+            if self.quarantine.is_agent_quarantined(&subject).await {
+                return Ok((
+                    CheckOutcome::deny(Some(capability_id.clone()), "subject_quarantined", vec![]),
+                    swarm_id,
+                ));
+            }
+        }
+
         let guard = self.inner.read().await;
         let now = Timestamp::now();
 
@@ -529,7 +611,12 @@ mod tests {
         passports.register(cp_passport).await.unwrap();
         let cp = Arc::new(ControlPlaneIdentity::new(cp_agent_id, cp_key));
 
-        let store = MemoryCapabilityStore::new(Arc::clone(&receipts), resolver, cp);
+        let store = MemoryCapabilityStore::new(
+            Arc::clone(&receipts),
+            resolver,
+            cp,
+            Arc::new(crate::quarantine::AlwaysAllowed),
+        );
         (store, receipts, swarm_id)
     }
 
@@ -691,6 +778,121 @@ mod tests {
 
         let ids = store.list_for_subject(&target).await.unwrap();
         assert_eq!(ids, vec![id_live]);
+    }
+
+    /// `QuarantineSource` impl used by the F10g tests below. Backed by
+    /// a parking-lot-free `RwLock<HashSet<AgentId>>` so the test can
+    /// flip an agent's quarantine state mid-test.
+    #[derive(Debug, Default)]
+    struct TestQuarantine {
+        set: tokio::sync::RwLock<std::collections::HashSet<AgentId>>,
+    }
+
+    #[async_trait]
+    impl crate::quarantine::QuarantineSource for TestQuarantine {
+        async fn is_agent_quarantined(&self, agent_id: &AgentId) -> bool {
+            self.set.read().await.contains(agent_id)
+        }
+    }
+
+    impl TestQuarantine {
+        async fn quarantine(&self, agent_id: AgentId) {
+            self.set.write().await.insert(agent_id);
+        }
+    }
+
+    /// Variant of [`harness`] that swaps in a controllable quarantine
+    /// source so the F10g tests can flip an agent's state mid-test.
+    async fn harness_with_quarantine(
+        q: Arc<TestQuarantine>,
+    ) -> (MemoryCapabilityStore, Arc<dyn ReceiptStore>, SwarmId) {
+        let swarm_id = SwarmId::new();
+        let receipts: Arc<dyn ReceiptStore> = Arc::new(yutha_receipt::MemoryStore::new());
+        let passports: Arc<dyn PassportStore> = Arc::new(MemoryPassportStore::new());
+        let resolver: Arc<dyn PassportResolver> =
+            Arc::new(PassportResolverAdapter::new(Arc::clone(&passports)));
+
+        let cp_key = generate_keypair();
+        let cp_agent_id = AgentId::new();
+        let cp_passport = Passport::builder()
+            .spec_version(SpecVersion::parse("1.0.0").unwrap())
+            .agent_id(cp_agent_id)
+            .swarm_id(swarm_id)
+            .agent_public_key(cp_key.public())
+            .owner("cp")
+            .accepted_constitution_version("1.0.0")
+            .tier(PassportTier::Minimal)
+            .issued_at(Timestamp::now())
+            .sign(&cp_key)
+            .unwrap();
+        passports.register(cp_passport).await.unwrap();
+        let cp = Arc::new(ControlPlaneIdentity::new(cp_agent_id, cp_key));
+
+        let store = MemoryCapabilityStore::new(Arc::clone(&receipts), resolver, cp, q);
+        (store, receipts, swarm_id)
+    }
+
+    #[tokio::test]
+    async fn check_denies_when_subject_is_quarantined() {
+        // Issue a cap to a fresh subject, then flip the subject to
+        // quarantined before checking. The check should deny with
+        // reason "subject_quarantined" and emit a
+        // `capability.check.deny` receipt — never letting the
+        // quarantined agent's action through on the merits, per
+        // RFC 0013 §4.2.
+        let q = Arc::new(TestQuarantine::default());
+        let (store, receipts, swarm) = harness_with_quarantine(Arc::clone(&q)).await;
+        let target = AgentId::new();
+        let cap = root_cap_for(target, Scope::for_action("send_message"), swarm);
+        let issued = store.issue(cap).await.unwrap();
+
+        // Quarantine the subject *after* issuance — issuance happened
+        // when the agent was still in good standing.
+        q.quarantine(target).await;
+
+        let eval = store
+            .check(
+                &issued.capability_id,
+                &ActionDescriptor {
+                    action_kind: "send_message".into(),
+                    ..Default::default()
+                },
+            )
+            .await
+            .unwrap();
+        assert!(!eval.outcome.permitted, "quarantine must deny");
+        assert_eq!(eval.outcome.deny_reason, "subject_quarantined");
+
+        // Deny receipt landed.
+        let page = receipts
+            .query(
+                yutha_receipt::Query::ByActionKind(yutha_receipt::ActionKindQuery {
+                    action_kind: "capability.check.deny".into(),
+                }),
+                None,
+            )
+            .await
+            .unwrap();
+        assert_eq!(page.receipts.len(), 1);
+    }
+
+    #[tokio::test]
+    async fn issue_refused_when_subject_is_quarantined() {
+        // Quarantine first, then attempt to issue. The store must
+        // refuse with `SubjectQuarantined` — issuance is the cap
+        // layer's way of handing fresh authority to an agent, and
+        // a quarantined agent doesn't get fresh authority.
+        let q = Arc::new(TestQuarantine::default());
+        let (store, _receipts, swarm) = harness_with_quarantine(Arc::clone(&q)).await;
+        let target = AgentId::new();
+        q.quarantine(target).await;
+
+        let cap = root_cap_for(target, Scope::for_action("send_message"), swarm);
+        let err = store.issue(cap).await.unwrap_err();
+        assert!(
+            matches!(err, CapabilityError::SubjectQuarantined(a) if a == target),
+            "expected SubjectQuarantined({target}), got {err:?}"
+        );
     }
 
     #[tokio::test]

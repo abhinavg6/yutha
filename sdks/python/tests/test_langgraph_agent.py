@@ -135,19 +135,19 @@ async def _issue_self_send_cap(
 # =============================================================================
 
 
-@pytest.mark.skip(
-    reason="F10 requires an active constitution before EnvelopeService.Send accepts; "
-    "un-skipped in F11 once the Python ConstitutionAPI + permissive-constitution "
-    "test fixture land."
-)
 @pytest.mark.asyncio
 async def test_agent_receives_envelopes_via_dispatch_loop(
     bootstrap_identity: tuple[yutha.SigningKey, yutha.AgentId, yutha.SwarmId],
     address: str,
+    activated_permissive_constitution: object,  # fixture has side-effects only
 ) -> None:
     """Smoke test for the agent's subscribe + dispatch path: send to
     self, the handler is called with the delivered envelope and its
-    deliver-receipt id."""
+    deliver-receipt id.
+
+    Depends on ``activated_permissive_constitution`` (F11d) — F10's
+    SendEnvelope gate refuses every call until an operator activates
+    a constitution."""
     signing_key, agent_id, swarm_id = bootstrap_identity
     passport = _build_passport(signing_key, agent_id, swarm_id)
     received: list[tuple[yutha.Envelope, yutha.Hash]] = []
@@ -197,20 +197,18 @@ async def test_agent_receives_envelopes_via_dispatch_loop(
         assert len(deliver_id.digest) == 32
 
 
-@pytest.mark.skip(
-    reason="F10 requires an active constitution before EnvelopeService.Send accepts; "
-    "un-skipped in F11 once the Python ConstitutionAPI + permissive-constitution "
-    "test fixture land."
-)
 @pytest.mark.asyncio
 async def test_agent_send_auto_increments_epoch(
     bootstrap_identity: tuple[yutha.SigningKey, yutha.AgentId, yutha.SwarmId],
     address: str,
+    activated_permissive_constitution: object,  # fixture has side-effects only
 ) -> None:
     """Two back-to-back sends carry strictly-increasing epoch values.
     The server's replay-protection relies on this; we surface it as a
     client-side invariant so future bugs in `agent.send` don't silently
-    break replay-protection acceptance."""
+    break replay-protection acceptance.
+
+    Depends on ``activated_permissive_constitution`` (F11d)."""
     signing_key, agent_id, swarm_id = bootstrap_identity
     passport = _build_passport(signing_key, agent_id, swarm_id)
     received: list[yutha.Envelope] = []

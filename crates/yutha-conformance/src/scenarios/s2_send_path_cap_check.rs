@@ -24,7 +24,8 @@
 
 use std::sync::Arc;
 use yutha_capability::{
-    ActionDescriptor, Capability, CapabilityStore, Issuer, MemoryCapabilityStore, Scope,
+    ActionDescriptor, AlwaysAllowed, Capability, CapabilityStore, Issuer, MemoryCapabilityStore,
+    Scope,
 };
 use yutha_core::{AgentId, CausalRef, SpecVersion, SwarmId, Timestamp};
 use yutha_crypto::sign::generate_keypair;
@@ -122,6 +123,11 @@ pub async fn run_s2() -> S2Outcome {
         Arc::clone(&receipts),
         Arc::clone(&resolver),
         Arc::clone(&cp),
+        // S2 focuses on RFC 0007 (Send-path cap enforcement) and does
+        // not exercise the constitution-layer enforcement loop. A
+        // future S4 variant will swap in an EnforcementEngine-backed
+        // quarantine source.
+        Arc::new(AlwaysAllowed),
     ));
 
     // Two demo agents — alice (sender) and bob (recipient).
