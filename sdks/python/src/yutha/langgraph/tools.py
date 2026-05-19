@@ -31,22 +31,14 @@ from __future__ import annotations
 
 import functools
 from collections.abc import Awaitable, Callable
-from contextvars import ContextVar
 from typing import Any, TypeVar
 
+from yutha._capability_context import ACTIVE_CAPABILITY_ID
 from yutha.client import YuthaClient
 from yutha.crypto import sha256
 from yutha.identity import Hash, HashAlgorithm
 from yutha.models import Capability
 from yutha.models.capability import ActionDescriptor, CheckOutcome
-
-# Active capability_id for the current async-context. Set by the
-# `capability_required` decorator; read by `YuthaAgent.send` (and by
-# anyone who wants to integrate). Async-safe: contextvars propagate
-# correctly across awaits and tasks spawned inside the same context.
-ACTIVE_CAPABILITY_ID: ContextVar[Hash | None] = ContextVar(
-    "yutha_active_capability_id", default=None
-)
 
 
 class CapabilityDenied(Exception):

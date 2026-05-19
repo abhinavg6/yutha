@@ -56,6 +56,17 @@ langgraph = [
     "langgraph>=0.2,<0.4",
 ]
 
+# CrewAI framework integration. Users who want `yutha.crewai.*`
+# install via `pip install 'yutha[crewai]'`. CrewAI 0.x carries
+# LangChain + several embedding-model SDKs + transitive HTTP
+# clients; keeping it out of the runtime deps means a 50%+ slimmer
+# install for users on the core SDK or langgraph-only paths.
+#
+# Pin to the 0.x series; we can broaden as CrewAI stabilizes.
+crewai = [
+    "crewai>=0.70,<1.0",
+]
+
 # Dev-only: codegen (regenerate `yutha/_proto/` from /spec/*.proto),
 # linting, and test runners. Contributors install via `pip install -e
 # .[dev]`; end-users only get the runtime deps above.
@@ -68,10 +79,11 @@ dev = [
     # Third-party type stubs for `grpc` / `grpc.aio`. `grpcio` itself
     # ships without inline stubs, so strict mypy needs these.
     "types-grpcio>=1.0",
-    # Include the langgraph extra so dev environments can run the
-    # `yutha.langgraph` tests + the S1 demo without a second install
+    # Include the langgraph + crewai extras so dev environments can
+    # run both adapters' tests + S1 demos without a second install
     # step.
     "langgraph>=0.2,<0.4",
+    "crewai>=0.70,<1.0",
     "pytest>=8",
     "pytest-asyncio>=0.23",
     "ruff>=0.4",
@@ -155,6 +167,17 @@ module = [
     "langgraph.*",
     "langchain_core",
     "langchain_core.*",
+]
+ignore_missing_imports = true
+
+# Same treatment for CrewAI's tree. CrewAI 0.x doesn't ship type
+# stubs strict-mypy would accept, and its transitive deps
+# (langchain, embeddings clients) are even patchier. The
+# `yutha.crewai.*` modules we author still get strict-checked.
+[[tool.mypy.overrides]]
+module = [
+    "crewai",
+    "crewai.*",
 ]
 ignore_missing_imports = true
 

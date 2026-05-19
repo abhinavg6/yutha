@@ -104,11 +104,11 @@ class ActivatedConstitutionFixture:
     runtime import of the SDK at module-load time.
     """
 
-    constitution: "yutha.Constitution"
-    activated: "yutha.ActivatedConstitution"
+    constitution: yutha.Constitution
+    activated: yutha.ActivatedConstitution
 
 
-def _derive_swarm_id_from_seed(seed: bytes) -> "yutha.SwarmId":
+def _derive_swarm_id_from_seed(seed: bytes) -> yutha.SwarmId:
     """Same derivation as ``test_integration._derive_identity_from_seed``
     and the Rust ``BootstrapIdentity::from_seed_hex``. Returns
     :class:`yutha.SwarmId`."""
@@ -119,7 +119,7 @@ def _derive_swarm_id_from_seed(seed: bytes) -> "yutha.SwarmId":
 
 def _derive_operator_keypair_from_seed(
     seed: bytes,
-) -> tuple["yutha.SigningKey", "yutha.PublicKey"]:
+) -> tuple[yutha.SigningKey, yutha.PublicKey]:
     """Same derivation as
     ``tests/test_operator_revoke._derive_operator_keypair``. Returns
     (SigningKey, PublicKey)."""
