@@ -73,6 +73,44 @@ from yutha.models.capability import ActionDescriptor, CheckOutcome
 # ``crates/yutha-control-plane/src/grpc/envelope.rs``.
 _CAP_DENY_PREFIX = "capability check denied:"
 
+# Prefix the Rust Send handler uses for constitution-deny errors. The
+# deny_reason from `EvaluationOutcome` is appended after the colon
+# (or `"unknown"` if absent). Keep in sync with
+# ``crates/yutha-control-plane/src/grpc/envelope.rs`` —
+# ``Status::permission_denied(format!("constitution check denied: {reason}"))``.
+_CONSTITUTION_DENY_PREFIX = "constitution check denied:"
+
+
+class ConstitutionDenied(Exception):
+    """Raised when the active constitution refuses an action.
+
+    Constitution evaluation runs server-side on every
+    :meth:`EnvelopeAPI.send` against the swarm's active Cedar+
+    constitution (RFC 0010). A deny surfaces as a gRPC
+    ``PERMISSION_DENIED`` with the message
+    ``"constitution check denied: <deny_reason>"``;
+    :class:`EnvelopeAPI` translates that into this exception so
+    callers get a structured Python error rather than a raw gRPC
+    one — and so they can distinguish constitution denies from
+    capability denies (which raise
+    :class:`yutha.langgraph.CapabilityDenied`).
+
+    The :attr:`deny_reason` attribute is the structured reason
+    string emitted by the Cedar+ evaluator. It's one of the values
+    enumerated in RFC 0010 §6 / RFC 0012 §8 — common ones include
+    ``"forbid_rule_matched"`` (a Cedar ``forbid`` rule fired),
+    ``"no_permit_rule"`` (closed-by-default schema with no
+    matching permit), ``"evaluation_depth_exceeded"``, and
+    ``"evaluator_internal_error"``. Callers that want to programmatically
+    branch on the reason should match on this string; the same value
+    lands as evidence on the ``constitution.evaluate.deny`` receipt the
+    server emits in parallel.
+    """
+
+    def __init__(self, deny_reason: str) -> None:
+        self.deny_reason = deny_reason
+        super().__init__(deny_reason)
+
 
 def _maybe_raise_capability_denied(err: grpc.aio.AioRpcError) -> None:
     """If ``err`` is a server-side capability deny, translate it into
@@ -92,6 +130,20 @@ def _maybe_raise_capability_denied(err: grpc.aio.AioRpcError) -> None:
     from yutha.langgraph.tools import CapabilityDenied
 
     raise CapabilityDenied(reason) from err
+
+
+def _maybe_raise_constitution_denied(err: grpc.aio.AioRpcError) -> None:
+    """If ``err`` is a server-side constitution deny, translate it
+    into :class:`ConstitutionDenied`. Otherwise return so the caller
+    can re-raise the original ``AioRpcError`` (or fall through to
+    :func:`_maybe_raise_capability_denied`)."""
+    if err.code() != grpc.StatusCode.PERMISSION_DENIED:
+        return
+    details = err.details() or ""
+    if not details.startswith(_CONSTITUTION_DENY_PREFIX):
+        return
+    reason = details[len(_CONSTITUTION_DENY_PREFIX) :].strip()
+    raise ConstitutionDenied(reason) from err
 
 
 async def _wrap_subscribe_stream(
@@ -318,8 +370,12 @@ class EnvelopeAPI:
         On a server-side cap-check deny (revoked, expired, out-of-scope,
         unmet caveat), this method translates the resulting
         ``PERMISSION_DENIED: capability check denied: …`` into a
-        :class:`yutha.langgraph.CapabilityDenied` exception so callers
-        get a structured Python error rather than a raw gRPC one. Other
+        :class:`yutha.langgraph.CapabilityDenied` exception. On a
+        server-side constitution-eval deny (a Cedar+ ``forbid`` rule
+        matched, or the constitution refused for any other reason
+        enumerated in RFC 0010/0012), the
+        ``PERMISSION_DENIED: constitution check denied: …`` form
+        translates into :class:`ConstitutionDenied`. Other
         ``PERMISSION_DENIED`` codes (e.g. sender/bearer mismatch)
         propagate unchanged as :class:`grpc.aio.AioRpcError`."""
         request = cp_pb2.SendEnvelopeRequest(envelope=envelope.to_proto())
@@ -331,6 +387,13 @@ class EnvelopeAPI:
                 await self._stub.Send(request),
             )
         except grpc.aio.AioRpcError as e:
+            # Order matters: cap-check fires before constitution-eval
+            # on the server, but the wire-format prefixes are
+            # disjoint, so either helper raising is fine. Try
+            # constitution first because the message is slightly
+            # more specific (cap-check denies are common enough that
+            # the cap path stays second).
+            _maybe_raise_constitution_denied(e)
             _maybe_raise_capability_denied(e)
             raise
         return Hash.from_proto(resp.send_receipt)

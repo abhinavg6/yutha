@@ -1,0 +1,91 @@
+// =============================================================================
+// Yutha Constitution — Workload extension: code-review (v1.1.0)
+// =============================================================================
+//
+// Adds code-review pull-request-flow entities + actions to the base
+// v1.1 canonical schema. Composes with the base via Cedar 3.x's
+// multi-namespace support — load both this file and
+// `/spec/constitution/schema.cedarschema` as a single concatenated
+// schema string (or use
+// `yutha_cedar_plus::canonical_schema_v1_1_with_extensions(&[
+//     yutha_cedar_plus::WORKLOAD_CODE_REVIEW_V1_1,
+// ])` in Rust).
+//
+// What this extension declares:
+//   * `PullRequest` entity — a unit of proposed code change.
+//     Attributes mirror what any GitHub / GitLab / Gerrit integration
+//     would surface.
+//   * `ApproveMerge` action — agents decide whether a PR may merge.
+//   * `BlockMerge` action — agents veto an in-flight merge.
+//
+// Companion to (future) scenario S5 — code-review approval flow.
+//
+// Demonstrates the same extension pattern as `support-queue` over a
+// different domain; the two are independent and may be loaded
+// together (operators that run both customer-support and code-review
+// agents in one swarm activate both extensions simultaneously).
+//
+// =============================================================================
+
+namespace Yutha::CodeReview {
+
+    // A pull request / merge request. The control plane synthesizes
+    // this entity into the eval snapshot for any action whose resource
+    // is a PullRequest.
+    entity PullRequest = {
+        // Forge-specific PR identifier (e.g. GitHub PR number rendered
+        // as a string for cross-forge uniformity).
+        pr_id: String,
+
+        // Repository the PR targets. Convention: "owner/repo" for
+        // GitHub-style forges; operators on self-hosted Gerrit / Gitea
+        // may prefer the project path.
+        repository: String,
+
+        // Agent that authored the PR. Free-form string so the
+        // attribute marshals cleanly even when the author isn't a
+        // registered swarm agent (e.g. an external contributor).
+        // Policies that need to gate on swarm-internal authorship
+        // pattern-match this against the principal's `agent_id`.
+        author: String,
+
+        // Number of files the PR touches. Operators typically gate
+        // "auto-approve" on small PRs (`files_changed <= 3`) and
+        // require explicit review otherwise.
+        files_changed: Long,
+
+        // Total lines added across the diff. Same gating-pattern role
+        // as `files_changed`. Negative deltas (pure deletions) record
+        // as zero here; granular line-level metrics are workload-
+        // specific and out of scope for v1.1.
+        lines_added: Long,
+    };
+
+    // Agent approves the PR for merge. The forge integration consumes
+    // the resulting `constitution.evaluate.pass` receipt as the
+    // approval-of-record; policies typically gate on author identity,
+    // PR size, or required-approval count.
+    action "ApproveMerge" appliesTo {
+        principal: [Yutha::Agent],
+        resource: [PullRequest],
+        context: {
+            // How the approval was decided. Typical values:
+            // "self-merge", "single-reviewer", "two-person-rule".
+            approval_method: String,
+            current_wall_clock: String,
+        }
+    };
+
+    // Agent blocks an in-flight merge. Distinct from "not yet
+    // approved" — this is an active veto recorded in the audit log.
+    action "BlockMerge" appliesTo {
+        principal: [Yutha::Agent],
+        resource: [PullRequest],
+        context: {
+            // Free-form reason. Recorded on the
+            // `constitution.evaluate` receipt's evidence.
+            reason: String,
+            current_wall_clock: String,
+        }
+    };
+}

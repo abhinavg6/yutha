@@ -1,0 +1,15 @@
+# Example engine config — memory privacy gate (v1.1.0)
+#
+# Pair with `memory-privacy-gate.cedar`. Empty engine config (pure
+# Cedar gate, no scoring / procedures / enforcement). Operators who
+# want repeated privacy violations to trigger detect → coach →
+# quarantine should add an `enforcement_rules` entry here matching
+# on `constitution.evaluate.deny` with this constitution's
+# `forbid_rule_id` ("private-memory-read-gate"); see S4 for the
+# full chain shape.
+
+schema_version: "1.1.0"
+predicates: []
+scoring_rules: []
+procedures: []
+enforcement_rules: []

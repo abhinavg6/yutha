@@ -46,6 +46,7 @@ import hashlib
 import os
 import secrets
 
+import grpc
 import pytest
 
 import yutha
@@ -282,6 +283,101 @@ async def test_full_lifecycle(
         ):
             receipts, _ = await client.receipt.query_by_action_kind(action_kind)
             assert receipts, f"no {action_kind} receipts in the audit log"
+
+
+@pytest.mark.asyncio
+async def test_send_to_role_recipient_passes_constitution_eval(
+    bootstrap_identity: tuple[yutha.SigningKey, yutha.AgentId, yutha.SwarmId],
+    address: str,
+    activated_permissive_constitution: object,  # fixture has side-effects only
+) -> None:
+    """Regression test for the schema-widening fix.
+
+    Pre-fix, the gRPC handler synthesized a ``Yutha::Resource`` UID as
+    the eval-request resource for non-Agent recipients, but the
+    canonical v1.1 schema's ``SendEnvelope.appliesTo.resource`` only
+    listed ``[Agent, Envelope]``. Cedar's Strict-mode request
+    validation rejected the request and the handler returned
+    ``INTERNAL: constitution eval: entity unresolved: ...``.
+
+    Post-fix: schema widened to ``[Agent, Envelope, Resource]`` AND the
+    handler adds the synthesized Resource entity to the snapshot with
+    the schema-required attrs. A Role recipient now passes Cedar
+    request validation; the permissive constitution's permit-all rule
+    fires; the send succeeds.
+
+    We send with capability_id omitted — the topology in this test
+    pipeline accepts sends without a cap (closed-mode bootstrap path)
+    so the resource-shape failure shows up cleanly without other
+    error paths in the way.
+    """
+    signing_key, agent_id, swarm_id = bootstrap_identity
+    # Self-issue a cap permitting envelope.send for the role-recipient
+    # case. Required when the server enforces require_capability_for_send
+    # (closed mode); harmless otherwise.
+    async with yutha.YuthaClient.connect(
+        address,
+        agent_id=agent_id,
+        swarm_id=swarm_id,
+        signing_key=signing_key,
+    ) as client:
+        cap = yutha.Capability(
+            spec_version="1.0.0",
+            capability_id=secrets.token_bytes(16),
+            swarm_id=swarm_id,
+            issuer=yutha.Issuer.for_agent(agent_id),
+            subject=agent_id,
+            scope=yutha.Scope.for_action("envelope.send"),
+            valid_from=yutha.Timestamp.now(),
+            valid_until=yutha.Timestamp(
+                wall_clock="2099-01-01T00:00:00Z", monotonic_ns=2**62
+            ),
+        )
+        cap_id, _ = await client.capability.issue(cap)
+
+        envelope = yutha.Envelope(
+            spec_version="1.0.0",
+            swarm_id=swarm_id,
+            envelope_id=secrets.token_bytes(16),
+            from_agent=agent_id,
+            recipient=yutha.Recipient.for_role("billing"),
+            performative=yutha.Performative.INFORM,
+            payload=b"role-recipient regression check",
+            payload_schema_id="type.yutha.dev/v1/Text",
+            nonce=secrets.token_bytes(16),
+            epoch=1,
+            sent_at=yutha.Timestamp.now(),
+        ).sign(signing_key)
+
+        # Three legal outcomes — the fix is asserted by the ABSENCE of
+        # the pre-fix Cedar-shape error:
+        #   1. The send succeeds (the in-memory transport learned to
+        #      handle role broadcasts).
+        #   2. The send fails with "Role broadcast not implemented"
+        #      (the current MemoryTransport state — known limitation
+        #      downstream of the constitution gate; out of scope here).
+        #   3. The send fails with a constitution-eval error
+        #      (pre-fix; the regression).
+        #
+        # Outcome 3 is what we're catching. Outcomes 1 and 2 both pass.
+        try:
+            receipt_id = await client.envelope.send(envelope, capability_id=cap_id)
+            # Outcome 1: send succeeded end-to-end.
+            assert len(receipt_id.digest) == 32
+        except grpc.aio.AioRpcError as e:
+            details = e.details() or ""
+            # Outcome 3 (regression) — fail loudly.
+            assert "constitution eval" not in details, (
+                f"role recipient still tripping the constitution-eval gate: {details}"
+            )
+            assert "entity unresolved" not in details, (
+                f"role recipient still tripping Cedar's entity-resolution check: {details}"
+            )
+            # Outcome 2 — known-downstream transport limitation. Any
+            # other message is unexpected and worth surfacing.
+            assert "Role broadcast not implemented" in details, (
+                f"unexpected error past the constitution gate: {details}"
+            )
 
 
 @pytest.mark.asyncio

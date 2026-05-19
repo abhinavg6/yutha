@@ -1,0 +1,14 @@
+# Example engine config — refund cap (v1.1.0)
+#
+# Pair with `support-queue-refund-cap.cedar`. This example deliberately
+# keeps the engine config empty: the policy is a pure Cedar gate with
+# no scoring rules, procedures, or enforcement loops. Add an
+# `enforcement_rules` entry here if you want repeated refund-cap
+# violations to trigger detect → coach → quarantine (see S4 for
+# the full chain).
+
+schema_version: "1.1.0"
+predicates: []
+scoring_rules: []
+procedures: []
+enforcement_rules: []

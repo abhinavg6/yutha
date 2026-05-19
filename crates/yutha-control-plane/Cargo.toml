@@ -24,6 +24,15 @@ yutha-capability.workspace = true
 yutha-transport.workspace = true
 yutha-registry.workspace = true
 yutha-cedar-plus.workspace = true
+# Postgres receipt backend. Operators select it at startup with
+# `--receipt-backend postgres --postgres-url <url>`; defaults to the
+# in-memory store for zero-config local development.
+yutha-backend-postgres-receipt.workspace = true
+# sqlx pool for the Postgres backend wiring. Pulled in transitively
+# by yutha-backend-postgres-receipt; declaring explicitly so the
+# `PgPoolOptions` construction in main.rs doesn't depend on
+# private-reexport luck.
+sqlx = { workspace = true, features = ["runtime-tokio", "tls-rustls-aws-lc-rs", "postgres"] }
 
 # YAML round-trip for the constitution engine-config wire format
 # (RFC 0011 §9 open Q — YAML is the v1.1 human-facing form). Used

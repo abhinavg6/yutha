@@ -1,0 +1,42 @@
+# Plain-English authoring DSL — support-queue refund cap (v1.1.0).
+#
+# Same intent as the hand-authored support-queue-refund-cap.cedar +
+# support-queue-refund-cap.yaml pair under this directory; compiled
+# via `yutha-ops compile <this-file>` to emit those two files.
+#
+# Run:
+#   yutha-ops compile spec/constitution/canonical-schemas/v1.1.0/examples/support-queue-refund-cap.yutha
+#
+# Produces support-queue-refund-cap.cedar + support-queue-refund-cap.engine.yaml
+# alongside the input (override paths with --out-cedar / --out-engine-config).
+
+description: "Customer-support refund cap — supervisors only for >$100"
+constitution_version: "1.0.0"
+schema_version: "1.1.0"
+closed_by_default: false
+
+rules:
+  # The one substantive policy: forbid IssueRefund over $100 unless
+  # the principal is verifiable-tier (supervisor).
+  - kind: forbid_action
+    id: refund-cap-requires-supervisor
+    action: Yutha::SupportQueue::Action::IssueRefund
+    when: "context.refund_amount_cents > 10000 && principal.passport_tier != \"verifiable\""
+    description: "Refunds over $100 require supervisor approval"
+
+  # A separate forbid rule with an enforcement chain attached, so
+  # repeated forbidden-payload sends trip the F13 detect → coach →
+  # quarantine → evict loop.
+  - kind: forbid_action
+    id: no-forbidden-payloads
+    action: SendEnvelope
+    when: 'context.payload_schema_id == "type.yutha.dev/v1/Forbidden"'
+    description: "Block payloads tagged as known-forbidden"
+
+  - kind: enforcement_chain
+    id: forbidden-payload-chain
+    detects_on_forbid_rule: no-forbidden-payloads
+    threshold: 3
+    window: 60s
+    full_chain: true
+    description: "Three forbidden sends in a minute → escalate"

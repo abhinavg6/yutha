@@ -5050,9 +5050,12 @@ version = "0.1.0-alpha.1"
 dependencies = [
  "async-trait",
  "futures",
+ "serde_json",
  "thiserror 1.0.69",
+ "time",
  "tokio",
  "yutha-capability",
+ "yutha-cedar-plus",
  "yutha-core",
  "yutha-crypto",
  "yutha-passport",
@@ -5073,6 +5076,7 @@ dependencies = [
  "prost",
  "serde_json",
  "serde_yaml",
+ "sqlx",
  "thiserror 1.0.69",
  "tokio",
  "tokio-stream",
@@ -5080,6 +5084,7 @@ dependencies = [
  "tonic-reflection",
  "tracing",
  "tracing-subscriber",
+ "yutha-backend-postgres-receipt",
  "yutha-capability",
  "yutha-cedar-plus",
  "yutha-core",
@@ -5114,6 +5119,28 @@ dependencies = [
  "sha2 0.10.9",
  "thiserror 1.0.69",
  "yutha-core",
+]
+
+[[package]]
+name = "yutha-ops"
+version = "0.1.0-alpha.1"
+dependencies = [
+ "anyhow",
+ "clap",
+ "hex",
+ "prost",
+ "serde",
+ "serde_json",
+ "serde_yaml",
+ "sha2 0.10.9",
+ "time",
+ "tokio",
+ "tonic",
+ "tracing",
+ "tracing-subscriber",
+ "yutha-core",
+ "yutha-crypto",
+ "yutha-proto",
 ]
 
 [[package]]

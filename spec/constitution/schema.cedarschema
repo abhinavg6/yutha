@@ -228,7 +228,16 @@ namespace Yutha {
     // eval). Evidence recorded as `constitution.evaluate.{pass,deny}`.
     action "SendEnvelope" appliesTo {
         principal: [Agent],
-        resource: [Agent, Envelope],
+        // Three resource shapes for SendEnvelope:
+        //   * Agent — direct send to a known agent.
+        //   * Envelope — when the policy gates on the envelope-as-resource
+        //     (rare; useful for "no envelope with X tag" rules).
+        //   * Resource — for Role / Swarm-broadcast / External recipients
+        //     where the target isn't a single registered agent. The
+        //     control plane synthesizes a `Yutha::Resource` entity with
+        //     `resource_kind` ("role" / "swarm" / "external") + a
+        //     `scope` string carrying the underlying identifier.
+        resource: [Agent, Envelope, Resource],
         context: {
             performative: String,
             payload_schema_id: String,

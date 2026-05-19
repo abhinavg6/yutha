@@ -138,22 +138,25 @@ impl AgentState {
     }
 }
 
-/// The four enforcement stages.
-///
-/// `Quarantine` and `Evict` only land on the scheduled queue once F10
-/// wires the receipt-emission feedback loop — when coach fires and
-/// the control plane emits an `enforcement.coach` receipt that feeds
-/// back into `on_receipt`, the engine schedules the next stage.
-/// Until that loop closes, the variants are reachable via
-/// [`Stage::action_kind`] and [`build_stage_effect`] but never
-/// constructed at runtime, hence the dead-code allow.
+/// The four enforcement stages. Constructed at runtime as the chain
+/// advances: `check_detect` produces `Detect` and schedules `Coach`;
+/// `poll_scheduled` fires `Coach` and (F13) chains to `Quarantine` via
+/// `next_stage_schedule`, which in turn chains to `Evict` when the
+/// rule configures it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-#[allow(dead_code)]
 enum Stage {
     Detect,
     Coach,
     Quarantine,
     Evict,
+    /// Quarantine reversal (RFC 0013 §4.3 / §5). Fires when
+    /// `quarantine.expires_after` elapses without an explicit
+    /// reverse. Carries the spec's partial-restoration reputation
+    /// delta. Clears the agent's quarantine state — the engine's
+    /// `on_receipt` handler for `enforcement.reverse` does that
+    /// uniformly whether the receipt came from this scheduled path
+    /// or from an explicit operator-emitted reverse.
+    Reverse,
 }
 
 impl Stage {
@@ -163,6 +166,7 @@ impl Stage {
             Stage::Coach => "enforcement.coach",
             Stage::Quarantine => "enforcement.quarantine",
             Stage::Evict => "enforcement.evict",
+            Stage::Reverse => "enforcement.reverse",
         }
     }
 }
@@ -337,13 +341,43 @@ impl EnforcementEngine {
     /// `fire_at_wall_clock` is ≤ `now` fire and their effects are
     /// returned. The control plane drives this after wall-clock
     /// advance (typically once per second).
+    ///
+    /// ## Stage chaining (F13)
+    ///
+    /// When a coach effect fires and the corresponding rule has a
+    /// `quarantine:` block, a quarantine transition is scheduled at
+    /// `now + quarantine.escalate_after`. Similarly, quarantine
+    /// effects schedule an evict transition when `evict:` is
+    /// configured. This is how detect → coach → quarantine → evict
+    /// chains end-to-end without each stage needing a separate
+    /// trigger event; the F9-shipped engine only scheduled detect →
+    /// coach, leaving the rest of the chain dormant until F13.
     pub async fn poll_scheduled(&self, now: &str) -> Vec<EnforcementEffect> {
         let mut state = self.inner.write().await;
         let mut effects = Vec::new();
         let mut still_pending = Vec::new();
+        let mut newly_scheduled: Vec<ScheduledAction> = Vec::new();
+
         for entry in std::mem::take(&mut state.scheduled) {
             if entry.fire_at_wall_clock.as_str() <= now {
                 if let Some(effect) = build_stage_effect(&entry, &state) {
+                    // Look up the rule by name to find the next-stage
+                    // cooldown. If the constitution amended away
+                    // mid-flight and the rule is gone, the effect
+                    // still fires but no further stage is scheduled
+                    // (defensive — the existing pending action was
+                    // legitimate when scheduled).
+                    let rule = state.active.as_ref().and_then(|active| {
+                        active
+                            .resolved_engine_config
+                            .enforcement_rules
+                            .iter()
+                            .find(|r| r.name == entry.enforcement_rule_id)
+                            .cloned()
+                    });
+                    if let Some(rule) = rule {
+                        newly_scheduled.extend(next_stage_schedule(&rule, &entry, now));
+                    }
                     effects.push(effect);
                 }
             } else {
@@ -351,6 +385,7 @@ impl EnforcementEngine {
             }
         }
         state.scheduled = still_pending;
+        state.scheduled.extend(newly_scheduled);
         effects
     }
 }
@@ -492,12 +527,17 @@ fn build_stage_effect(action: &ScheduledAction, _state: &EngineState) -> Option<
         target_agent_id: action.target_agent_id.clone(),
         enforcement_rule_id: action.enforcement_rule_id.clone(),
         // Default per-stage deltas from enforcement.md §7.2.
+        // `Reverse` partially restores (`+0.15` per spec) — the
+        // intent is that a reversed quarantine is recoverable but
+        // leaves a small residual penalty for repeat-offender
+        // detection.
         reputation_delta: Score(
             match action.stage {
                 Stage::Detect => "-0.05",
                 Stage::Coach => "0.0",
                 Stage::Quarantine => "-0.25",
                 Stage::Evict => "-1.0",
+                Stage::Reverse => "0.15",
             }
             .into(),
         ),
@@ -536,6 +576,76 @@ fn parse_window_ns(s: &str) -> Option<u64> {
 ///
 /// Returns `None` if the wall-clock can't be parsed; the caller
 /// skips scheduling in that case.
+/// Given the rule + the stage transition that just fired, schedule
+/// the next stage in the four-stage chain (coach → quarantine,
+/// quarantine → evict). Returns `None` when the chain has reached a
+/// terminal stage (detect always terminates here unless `coach` is
+/// configured — but detect's coach scheduling happens in `check_detect`
+/// at receipt-receive time, not here; evict is the final stage).
+fn next_stage_schedule(
+    rule: &EnforcementRule,
+    fired: &ScheduledAction,
+    now: &str,
+) -> Vec<ScheduledAction> {
+    let mut out = Vec::new();
+    match fired.stage {
+        Stage::Coach => {
+            if let Some(q) = rule.quarantine.as_ref() {
+                if let Some(fire_at) = compute_fire_at(now, &q.escalate_after) {
+                    out.push(ScheduledAction {
+                        fire_at_wall_clock: fire_at,
+                        target_agent_id: fired.target_agent_id.clone(),
+                        enforcement_rule_id: fired.enforcement_rule_id.clone(),
+                        stage: Stage::Quarantine,
+                    });
+                }
+            }
+        }
+        Stage::Quarantine => {
+            // Two follow-ons can race off a Quarantine: an Evict
+            // (if `evict:` is configured) and an auto-Reverse (if
+            // `quarantine.expires_after` is set). Whichever fires
+            // first wins on the wall-clock; the other is harmless
+            // in the second-place case (`enforcement.evict` clears
+            // quarantine state too, so a Reverse arriving after
+            // doesn't toggle anything; an Evict arriving after a
+            // Reverse re-fires `set_quarantine(false)` which is a
+            // no-op). Operators wanting strict mutual exclusion
+            // configure ONLY one of the two.
+            if let Some(e) = rule.evict.as_ref() {
+                if let Some(fire_at) = compute_fire_at(now, &e.escalate_after) {
+                    out.push(ScheduledAction {
+                        fire_at_wall_clock: fire_at,
+                        target_agent_id: fired.target_agent_id.clone(),
+                        enforcement_rule_id: fired.enforcement_rule_id.clone(),
+                        stage: Stage::Evict,
+                    });
+                }
+            }
+            if let Some(q) = rule.quarantine.as_ref() {
+                if let Some(expires) = q.expires_after.as_ref() {
+                    if let Some(fire_at) = compute_fire_at(now, expires) {
+                        out.push(ScheduledAction {
+                            fire_at_wall_clock: fire_at,
+                            target_agent_id: fired.target_agent_id.clone(),
+                            enforcement_rule_id: fired.enforcement_rule_id.clone(),
+                            stage: Stage::Reverse,
+                        });
+                    }
+                }
+            }
+        }
+        // Detect schedules coach inline at receipt-receive time in
+        // `check_detect`; nothing to schedule here. Evict is the
+        // final stage in the v1.1 chain — operator-revoke takes
+        // over from there (out-of-engine). Reverse is terminal too
+        // — `enforcement.reverse` clears quarantine and that's the
+        // end of the chain for this run; future detects can re-arm.
+        Stage::Detect | Stage::Evict | Stage::Reverse => {}
+    }
+    out
+}
+
 fn compute_fire_at(now_wall_clock: &str, duration_str: &str) -> Option<String> {
     let dur_ns = parse_window_ns(duration_str)?;
     let dur = Duration::from_nanos(dur_ns);

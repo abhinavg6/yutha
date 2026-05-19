@@ -83,7 +83,9 @@ pub use eval::{
 };
 pub use evaluator::CedarPlusEvaluator;
 pub use loader::{
-    canonical_schema_v1_1, parse_engine_config_yaml, ActivatedConstitution, ConstitutionLoader,
+    canonical_schema_v1_1, canonical_schema_v1_1_with_extensions, parse_engine_config_yaml,
+    workload_extension_by_name, ActivatedConstitution, ConstitutionLoader,
+    WORKLOAD_CODE_REVIEW_V1_1, WORKLOAD_SUPPORT_QUEUE_V1_1,
 };
 pub use sandbox::SandboxConfig;
 

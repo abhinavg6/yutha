@@ -1,0 +1,86 @@
+// =============================================================================
+// Yutha Constitution — Workload extension: support-queue (v1.1.0)
+// =============================================================================
+//
+// Adds support-queue ticket-flow entities + actions to the base v1.1
+// canonical schema. Composes with the base via Cedar 3.x's
+// multi-namespace support — load both this file and
+// `/spec/constitution/schema.cedarschema` as a single concatenated
+// schema string (or use
+// `yutha_cedar_plus::canonical_schema_v1_1_with_extensions(&[
+//     yutha_cedar_plus::WORKLOAD_SUPPORT_QUEUE_V1_1,
+// ])` in Rust).
+//
+// What this extension declares:
+//   * `Ticket` entity — a customer-support ticket. Attributes mirror
+//     the fields any plausible ticket-tracking integration would
+//     surface (id, customer reference, tier band, status).
+//   * `IssueRefund` action — agents in the swarm decide whether a
+//     ticket gets a refund. Operators typically gate this on
+//     `context.refund_amount_cents` thresholds.
+//   * `EscalateToSupervisor` action — bumps a ticket to the
+//     supervisor tier. Operators typically gate this on
+//     `principal.passport_tier` or `context.severity`.
+//
+// Companion to behavioral scenario **S1** (customer-support queue);
+// see `/crates/yutha-conformance/src/scenarios/s1_queue_mode.rs`.
+//
+// =============================================================================
+
+namespace Yutha::SupportQueue {
+
+    // A customer-support ticket. The control plane synthesizes this
+    // entity into the eval snapshot for any action whose resource is
+    // a Ticket. Operators choose how to populate `tier` and `status`
+    // — common conventions documented inline.
+    entity Ticket = {
+        // Workload-defined ticket identifier. Typically the integration
+        // system's primary key (e.g. Zendesk ticket #, Linear issue id).
+        ticket_id: String,
+
+        // Reference to the customer the ticket is about. Operators
+        // typically render their CRM's customer-id here; policies that
+        // gate on customer attributes will need a separate marshalling
+        // step.
+        customer_id: String,
+
+        // Tier band — operator convention. Typical values:
+        // "free", "pro", "enterprise". Policies use this to gate on
+        // "no refunds for free-tier without supervisor approval"
+        // shapes.
+        tier: String,
+
+        // Workflow state. Typical values: "open", "pending",
+        // "resolved", "escalated". Policies use this to refuse
+        // double-resolution / out-of-order transitions.
+        status: String,
+    };
+
+    // Agent decides whether to grant a refund on `resource` (a Ticket).
+    // `context.refund_amount_cents` is the requested amount in the
+    // smallest currency unit; `context.reason` is operator-defined
+    // free-form text recorded on the resulting `constitution.evaluate`
+    // receipt's evidence for audit.
+    action "IssueRefund" appliesTo {
+        principal: [Yutha::Agent],
+        resource: [Ticket],
+        context: {
+            refund_amount_cents: Long,
+            reason: String,
+            current_wall_clock: String,
+        }
+    };
+
+    // Agent escalates the ticket to the supervisor tier. Operators
+    // typically gate on `principal.passport_tier == "minimal"` to
+    // refuse escalations from supervisors themselves, or on
+    // `context.severity` to require an explicit severity label.
+    action "EscalateToSupervisor" appliesTo {
+        principal: [Yutha::Agent],
+        resource: [Ticket],
+        context: {
+            severity: String,
+            current_wall_clock: String,
+        }
+    };
+}

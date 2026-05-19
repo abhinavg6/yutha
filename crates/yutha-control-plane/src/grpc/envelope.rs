@@ -114,16 +114,38 @@ fn build_eval_request_for_send(
 
     // Resource UID depends on the recipient variant. For Agent
     // recipients we hand Cedar a Yutha::Agent; for Role / Swarm /
-    // External we use a generic Resource identifier so the policy
-    // can still gate by `recipient_kind` from context.
-    let resource_uid = match &envelope.recipient {
-        Recipient::Agent(id) => EntityUid::new("Yutha::Agent", id.to_string()),
-        Recipient::Role(role) => EntityUid::new("Yutha::Resource", format!("role:{role}")),
-        Recipient::Swarm(_) => EntityUid::new("Yutha::Resource", "swarm:*".to_string()),
-        Recipient::External(e) => EntityUid::new(
-            "Yutha::Resource",
-            format!("external:{}://{}{}", e.scheme, e.authority, e.path_hint),
-        ),
+    // External we hand Cedar a Yutha::Resource carrying the
+    // recipient's kind + identifier in its `resource_kind` / `scope`
+    // attrs. The schema's SendEnvelope.appliesTo accepts all three
+    // (Agent / Envelope / Resource) per v1.1.x.
+    //
+    // `resource_snapshot` is `Some(...)` exactly when we need to add
+    // a Resource entity to the entity snapshot below; for Agent
+    // recipients the snapshot already contains the agent entity and
+    // there's nothing extra to add.
+    let (resource_uid, resource_snapshot) = match &envelope.recipient {
+        Recipient::Agent(id) => (EntityUid::new("Yutha::Agent", id.to_string()), None),
+        Recipient::Role(role) => {
+            let uid = format!("role:{role}");
+            let entity = resource_entity(&uid, "role", role, &[]);
+            (EntityUid::new("Yutha::Resource", uid), Some(entity))
+        }
+        Recipient::Swarm(b) => {
+            let scope = if b.filter_tags.is_empty() {
+                "*".to_string()
+            } else {
+                b.filter_tags.join(",")
+            };
+            let uid = format!("swarm:{scope}");
+            let entity = resource_entity(&uid, "swarm", &scope, &b.filter_tags);
+            (EntityUid::new("Yutha::Resource", uid), Some(entity))
+        }
+        Recipient::External(e) => {
+            let scope = format!("{}://{}{}", e.scheme, e.authority, e.path_hint);
+            let uid = format!("external:{scope}");
+            let entity = resource_entity(&uid, "external", &scope, &[]);
+            (EntityUid::new("Yutha::Resource", uid), Some(entity))
+        }
     };
 
     // Entity snapshot — sender Agent (parented under Swarm) + the
@@ -150,6 +172,14 @@ fn build_eval_request_for_send(
         if rid != principal_id {
             entities.push(agent_entity(&rid.to_string(), &swarm_uid_str));
         }
+    }
+    // Non-Agent recipients (Role / Swarm / External) need their
+    // synthesized Yutha::Resource entity in the snapshot too — Cedar
+    // resolves attribute accesses on `resource` against the snapshot,
+    // so a missing entity here would surface as "resource has no
+    // attr X" during eval rather than a clean policy decision.
+    if let Some(entity) = resource_snapshot {
+        entities.push(entity);
     }
     let entity_snapshot = EntitySnapshot { entities };
 
@@ -266,6 +296,33 @@ fn agent_entity(agent_uid: &str, swarm_uid: &str) -> EntityRecord {
 /// form of `yutha_registry::TopologyMode` (closed / open / hybrid);
 /// `constitution_version` is the version of the currently-active
 /// constitution at evaluation time.
+/// Build a `Yutha::Resource` entity record for non-Agent recipients
+/// of SendEnvelope. The schema declares Resource with three required
+/// attrs (`resource_kind`, `scope`, `tags`); we populate from the
+/// Recipient variant. Policies that gate on these read them via
+/// `resource.resource_kind == "role"` etc.
+fn resource_entity(uid: &str, kind: &str, scope: &str, tags: &[String]) -> EntityRecord {
+    let mut attrs: HashMap<String, serde_json::Value> = HashMap::new();
+    attrs.insert(
+        "resource_kind".into(),
+        serde_json::Value::String(kind.to_string()),
+    );
+    attrs.insert("scope".into(), serde_json::Value::String(scope.to_string()));
+    attrs.insert(
+        "tags".into(),
+        serde_json::Value::Array(
+            tags.iter()
+                .map(|t| serde_json::Value::String(t.clone()))
+                .collect(),
+        ),
+    );
+    EntityRecord {
+        uid: EntityUid::new("Yutha::Resource", uid.to_string()),
+        attrs,
+        parents: Vec::new(),
+    }
+}
+
 fn swarm_entity(swarm_uid: &str, topology_mode: &str, constitution_version: &str) -> EntityRecord {
     let mut attrs: HashMap<String, serde_json::Value> = HashMap::new();
     attrs.insert(

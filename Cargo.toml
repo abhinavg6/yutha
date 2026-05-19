@@ -12,6 +12,7 @@ members = [
     "crates/yutha-registry",
     "crates/yutha-control-plane",
     "crates/yutha-cedar-plus",
+    "crates/yutha-ops",
     "backends/postgres-receipt",
     "backends/s3-blob",
     "backends/walrus-receipt",
@@ -41,6 +42,7 @@ yutha-capability = { path = "crates/yutha-capability", version = "0.1.0-alpha.1"
 yutha-transport = { path = "crates/yutha-transport", version = "0.1.0-alpha.1" }
 yutha-registry = { path = "crates/yutha-registry", version = "0.1.0-alpha.1" }
 yutha-cedar-plus = { path = "crates/yutha-cedar-plus", version = "0.1.0-alpha.1" }
+yutha-backend-postgres-receipt = { path = "backends/postgres-receipt", version = "0.1.0-alpha.1" }
 
 # Cedar policy engine — Phase 2 constitution evaluator delegates Layer A
 # gating to upstream stock cedar-policy unmodified. Per RFC 0011's

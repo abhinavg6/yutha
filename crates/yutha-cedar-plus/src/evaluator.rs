@@ -135,10 +135,19 @@ impl ConstitutionEvaluator for CedarPlusEvaluator {
             "Yutha::Agent",
             request.principal_id.to_string(),
         ))?;
-        let action_uid = build_cedar_uid(&EntityUid::new(
-            "Yutha::Action",
-            request.action_kind.clone(),
-        ))?;
+        // The evaluator used to hardcode the action entity-type as
+        // "Yutha::Action", which broke any action declared in a
+        // workload-extension namespace (e.g.
+        // `Yutha::SupportQueue::Action::"IssueRefund"`). F14
+        // generalizes: if `action_kind` carries a `::` separator,
+        // treat the substring before the LAST `::` as the entity
+        // type and the trailing substring as the entity id. Bare
+        // names continue to land in `Yutha::Action`.
+        let (action_type, action_id) = match request.action_kind.rfind("::") {
+            Some(idx) => (&request.action_kind[..idx], &request.action_kind[idx + 2..]),
+            None => ("Yutha::Action", request.action_kind.as_str()),
+        };
+        let action_uid = build_cedar_uid(&EntityUid::new(action_type, action_id.to_string()))?;
         let resource_uid = build_cedar_uid(&request.resource_uid)?;
 
         let entities = build_cedar_entities(&request.entity_snapshot, schema_ref(&active))?;

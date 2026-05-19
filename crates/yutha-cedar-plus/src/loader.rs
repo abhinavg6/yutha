@@ -212,11 +212,78 @@ pub fn parse_engine_config_yaml(yaml: &str) -> Result<EngineConfig> {
 /// (e.g. activating a constitution pinned at a future v1.2) construct
 /// a `cedar_policy::Schema` themselves and pass it to the loader.
 pub fn canonical_schema_v1_1() -> Result<cedar_policy::Schema> {
-    let src = include_str!("../../../spec/constitution/schema.cedarschema");
-    let (schema, _warnings) = cedar_policy::Schema::from_cedarschema_str(src).map_err(|e| {
-        CedarPlusError::Parse(format!("v1.1 canonical schema failed to parse: {e}"))
-    })?;
+    canonical_schema_v1_1_with_extensions(&[])
+}
+
+/// Load the v1.1 canonical schema plus zero or more workload
+/// extensions. Cedar 3.x supports multiple namespaces in a single
+/// schema string, so the loader simply concatenates the base schema
+/// with each extension (separated by newlines) and hands the result
+/// to `Schema::from_cedarschema_str`.
+///
+/// Use the [`WORKLOAD_SUPPORT_QUEUE_V1_1`] / [`WORKLOAD_CODE_REVIEW_V1_1`]
+/// constants for the workloads Yutha ships, or pass a custom Cedar
+/// source string to load an operator-authored extension.
+///
+/// See `/spec/constitution/canonical-schemas/v1.1.0/README.md` for
+/// the extension pattern + constraints.
+pub fn canonical_schema_v1_1_with_extensions(extensions: &[&str]) -> Result<cedar_policy::Schema> {
+    let base = include_str!("../../../spec/constitution/schema.cedarschema");
+    let combined = if extensions.is_empty() {
+        // Common case (the activation path most production swarms hit
+        // when they're not yet using workload extensions). Avoid the
+        // String allocation in the empty-extensions case.
+        std::borrow::Cow::Borrowed(base)
+    } else {
+        let mut owned = String::with_capacity(
+            base.len() + extensions.iter().map(|e| e.len() + 1).sum::<usize>(),
+        );
+        owned.push_str(base);
+        for ext in extensions {
+            owned.push('\n');
+            owned.push_str(ext);
+        }
+        std::borrow::Cow::Owned(owned)
+    };
+    let (schema, _warnings) = cedar_policy::Schema::from_cedarschema_str(combined.as_ref())
+        .map_err(|e| {
+            CedarPlusError::Parse(format!(
+                "v1.1 canonical schema + {} extension(s) failed to parse: {e}",
+                extensions.len()
+            ))
+        })?;
     Ok(schema)
+}
+
+/// Embedded source of the `Yutha::SupportQueue` workload extension
+/// shipped under
+/// `/spec/constitution/canonical-schemas/v1.1.0/support-queue.cedarschema`.
+/// Pass to [`canonical_schema_v1_1_with_extensions`] to load it.
+pub const WORKLOAD_SUPPORT_QUEUE_V1_1: &str =
+    include_str!("../../../spec/constitution/canonical-schemas/v1.1.0/support-queue.cedarschema");
+
+/// Embedded source of the `Yutha::CodeReview` workload extension
+/// shipped under
+/// `/spec/constitution/canonical-schemas/v1.1.0/code-review.cedarschema`.
+/// Pass to [`canonical_schema_v1_1_with_extensions`] to load it.
+pub const WORKLOAD_CODE_REVIEW_V1_1: &str =
+    include_str!("../../../spec/constitution/canonical-schemas/v1.1.0/code-review.cedarschema");
+
+/// Resolve a workload-name string (`"support-queue"` / `"code-review"`)
+/// to its embedded schema source. Returns `None` for unknown names —
+/// the control plane uses this to translate operator-supplied
+/// `--workload <name>` CLI args into schema sources without
+/// hard-coding the mapping at the call site.
+///
+/// The accepted names match the file stems under
+/// `/spec/constitution/canonical-schemas/v1.1.0/`; future workloads
+/// shipped under that directory should land here too.
+pub fn workload_extension_by_name(name: &str) -> Option<&'static str> {
+    match name {
+        "support-queue" => Some(WORKLOAD_SUPPORT_QUEUE_V1_1),
+        "code-review" => Some(WORKLOAD_CODE_REVIEW_V1_1),
+        _ => None,
+    }
 }
 
 // =============================================================================
@@ -326,6 +393,47 @@ mod tests {
         let cfg = EngineConfig::default();
         let err = loader().load(make_constitution(cedar, cfg)).unwrap_err();
         assert!(matches!(err, CedarPlusError::Parse(_)));
+    }
+
+    /// F14: canonical schema + workload extension load together and
+    /// a constitution gating one of the extension's actions activates
+    /// cleanly. Validates the multi-namespace concatenation pattern.
+    #[test]
+    fn canonical_plus_support_queue_extension_loads() {
+        let schema = canonical_schema_v1_1_with_extensions(&[WORKLOAD_SUPPORT_QUEUE_V1_1])
+            .expect("canonical + support-queue extension parses");
+        let loader = ConstitutionLoader::with_default_bounds(schema);
+
+        // Policy that gates the workload's IssueRefund action.
+        // Permits everything else (so the policy set is non-empty for
+        // the base namespace too — Cedar requires every appliesTo to
+        // have at least one applicable policy in Strict mode).
+        let cedar = r#"
+            @id("refund-cap")
+            forbid (
+                principal,
+                action == Yutha::SupportQueue::Action::"IssueRefund",
+                resource
+            ) when {
+                context.refund_amount_cents > 10000
+            };
+            permit (principal, action, resource);
+        "#;
+        let activated = loader
+            .load(make_constitution(cedar, EngineConfig::default()))
+            .expect("constitution using SupportQueue action activates");
+        assert_eq!(activated.policy_count, 2);
+    }
+
+    /// F14: loading both shipped workloads together also works — the
+    /// two namespaces don't conflict.
+    #[test]
+    fn canonical_plus_both_workload_extensions_load() {
+        let _schema = canonical_schema_v1_1_with_extensions(&[
+            WORKLOAD_SUPPORT_QUEUE_V1_1,
+            WORKLOAD_CODE_REVIEW_V1_1,
+        ])
+        .expect("canonical + both workload extensions parses");
     }
 
     #[test]

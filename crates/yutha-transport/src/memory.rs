@@ -12,7 +12,7 @@ use crate::recipient::Recipient;
 use crate::replay::ReplayProtection;
 use crate::transport::{EnvelopeStream, Transport};
 use async_trait::async_trait;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use tokio::sync::{mpsc, Mutex, RwLock};
 use tokio_stream::wrappers::ReceiverStream;
@@ -43,6 +43,18 @@ struct Inner {
     inboxes: RwLock<HashMap<AgentId, Arc<Mutex<mpsc::Receiver<Envelope>>>>>,
     /// Per-recipient sender handle.
     senders: RwLock<HashMap<AgentId, mpsc::Sender<Envelope>>>,
+    /// Role-membership map. `Role` recipients fan out to every agent
+    /// listed here. Operators opt agents in via
+    /// [`MemoryTransport::register_role_member`]; the transport
+    /// itself imposes no role schema beyond "free-form string."
+    roles: RwLock<HashMap<String, HashSet<AgentId>>>,
+    /// Per-agent tag set. `Swarm` recipients with non-empty
+    /// `filter_tags` fan out only to agents whose tag set is a
+    /// SUPERSET of `filter_tags` (i.e. the agent carries every
+    /// requested tag). With empty `filter_tags`, the broadcast
+    /// fans out to every subscribed agent in the swarm regardless
+    /// of tags.
+    tags: RwLock<HashMap<AgentId, HashSet<String>>>,
 }
 
 impl std::fmt::Debug for Inner {
@@ -73,6 +85,8 @@ impl MemoryTransport {
             inner: Arc::new(Inner {
                 inboxes: RwLock::new(HashMap::new()),
                 senders: RwLock::new(HashMap::new()),
+                roles: RwLock::new(HashMap::new()),
+                tags: RwLock::new(HashMap::new()),
             }),
             replay: ReplayProtection::new(),
             receipts,
@@ -88,6 +102,24 @@ impl MemoryTransport {
         let mut inboxes = self.inner.inboxes.write().await;
         senders.insert(recipient, tx);
         inboxes.insert(recipient, Arc::new(Mutex::new(rx)));
+    }
+
+    /// Opt `agent` into membership for `role`. Subsequent
+    /// [`Recipient::Role`] sends fan out to every agent currently
+    /// registered for that role. Idempotent.
+    pub async fn register_role_member(&self, role: impl Into<String>, agent: AgentId) {
+        let role = role.into();
+        let mut roles = self.inner.roles.write().await;
+        roles.entry(role).or_default().insert(agent);
+    }
+
+    /// Set `agent`'s tag set. Replaces any prior assignment.
+    /// [`Recipient::Swarm`] sends with `filter_tags` deliver to every
+    /// agent whose tag set is a superset of the filter (i.e. carries
+    /// every requested tag).
+    pub async fn set_agent_tags(&self, agent: AgentId, tags: impl IntoIterator<Item = String>) {
+        let mut t = self.inner.tags.write().await;
+        t.insert(agent, tags.into_iter().collect());
     }
 
     /// Construct and append an envelope-related receipt, signed by the cp.
@@ -165,6 +197,99 @@ impl MemoryTransport {
             Recipient::External(_) => "external",
         }
     }
+
+    /// Snapshot the members of `role`. Returns the empty vec when the
+    /// role has no registered members — broadcasts to empty roles
+    /// succeed at the substrate level (the send happened; nothing got
+    /// delivered) per the standard broadcast semantics.
+    async fn role_members(&self, role: &str) -> Vec<AgentId> {
+        let roles = self.inner.roles.read().await;
+        roles
+            .get(role)
+            .map(|set| set.iter().copied().collect())
+            .unwrap_or_default()
+    }
+
+    /// Snapshot the swarm-broadcast targets given a (possibly empty)
+    /// `filter_tags`. With empty filter, returns every subscribed
+    /// agent. With non-empty filter, returns agents whose tag set is
+    /// a superset of the filter (carries every requested tag).
+    async fn swarm_targets(&self, filter_tags: &[String]) -> Vec<AgentId> {
+        let senders = self.inner.senders.read().await;
+        if filter_tags.is_empty() {
+            return senders.keys().copied().collect();
+        }
+        let tags = self.inner.tags.read().await;
+        senders
+            .keys()
+            .filter(|agent| {
+                let agent_tags = tags.get(agent);
+                let Some(agent_tags) = agent_tags else {
+                    return false;
+                };
+                filter_tags.iter().all(|t| agent_tags.contains(t))
+            })
+            .copied()
+            .collect()
+    }
+
+    /// Common fanout body for role/swarm broadcasts. Returns the
+    /// number of recipients we successfully delivered to.
+    ///
+    /// Failure semantics: missing inboxes are silently skipped
+    /// (broadcasts tolerate stale role memberships and unsubscribed
+    /// agents); `Backpressure` and `Closed` errors are surfaced
+    /// because they indicate a real local problem operators care to
+    /// see.
+    async fn fanout_to(
+        &self,
+        targets: &[AgentId],
+        envelope: Envelope,
+        label: &'static str,
+    ) -> Result<u64> {
+        let senders = self.inner.senders.read().await;
+        let mut delivered = 0u64;
+        for agent in targets {
+            let Some(tx) = senders.get(agent).cloned() else {
+                continue; // skip stale role memberships / unsubscribed agents
+            };
+            tx.try_send(envelope.clone()).map_err(|e| match e {
+                mpsc::error::TrySendError::Full(_) => TransportError::Backpressure,
+                mpsc::error::TrySendError::Closed(_) => TransportError::Delivery(format!(
+                    "{label} fanout: recipient {agent} channel closed",
+                )),
+            })?;
+            delivered += 1;
+        }
+        Ok(delivered)
+    }
+}
+
+/// Evidence shape for a broadcast `envelope.send` receipt — drops the
+/// per-recipient `to_agent` (there's no single recipient) and adds
+/// `recipient_value` (the role name or swarm filter) + `fanout_count`.
+fn broadcast_evidence(
+    recipient_kind: &str,
+    recipient_value: &str,
+    fanout_count: u64,
+) -> Vec<Evidence> {
+    vec![
+        Evidence::new(
+            "recipient_kind",
+            "type.yutha.dev/v1/String",
+            recipient_kind.as_bytes().to_vec(),
+        ),
+        Evidence::new(
+            "recipient_value",
+            "type.yutha.dev/v1/String",
+            recipient_value.as_bytes().to_vec(),
+        ),
+        Evidence::new(
+            "fanout_count",
+            "type.yutha.dev/v1/Long",
+            fanout_count.to_string().into_bytes(),
+        ),
+    ]
 }
 
 #[async_trait]
@@ -174,62 +299,91 @@ impl Transport for MemoryTransport {
         // rejected sends since they didn't happen).
         self.replay.admit(&envelope, &Timestamp::now()).await?;
 
-        let recipient_agent = match &envelope.recipient {
-            Recipient::Agent(id) => *id,
-            Recipient::Role(_) => {
-                return Err(TransportError::Backend(
-                    "Role broadcast not implemented in MemoryTransport yet".into(),
-                ))
-            }
-            Recipient::Swarm(_) => {
-                return Err(TransportError::Backend(
-                    "Swarm broadcast not implemented in MemoryTransport yet".into(),
-                ))
-            }
-            Recipient::External(_) => {
-                return Err(TransportError::Backend(
-                    "External endpoints not implemented in MemoryTransport".into(),
-                ))
-            }
-        };
-
-        let senders = self.inner.senders.read().await;
-        let tx = senders.get(&recipient_agent).cloned().ok_or_else(|| {
-            TransportError::Delivery(format!("recipient not registered: {recipient_agent}"))
-        })?;
-        drop(senders);
-
         let recipient_kind = Self::recipient_kind(&envelope.recipient);
-        let to_evidence = Evidence::new(
-            "to_agent",
-            "type.yutha.dev/v1/AgentId",
-            recipient_agent.as_bytes().to_vec(),
-        );
-        let kind_evidence = Evidence::new(
-            "recipient_kind",
-            "type.yutha.dev/v1/String",
-            recipient_kind.as_bytes().to_vec(),
-        );
         let envelope_for_receipt = envelope.clone();
+        // Clone the recipient into an owned value so the match's
+        // destructured patterns (`role`, `b.filter_tags`) don't hold
+        // a borrow on `envelope`, which the broadcast arms move into
+        // `fanout_to`. Recipient is small (4 variants, mostly Strings).
+        let recipient = envelope.recipient.clone();
 
-        tx.try_send(envelope).map_err(|e| match e {
-            mpsc::error::TrySendError::Full(_) => TransportError::Backpressure,
-            mpsc::error::TrySendError::Closed(_) => {
-                TransportError::Delivery("recipient channel closed".into())
+        match recipient {
+            // Direct unicast — original path. One known recipient.
+            // Delivery failure is an error (caller likely expects the
+            // recipient to be subscribed).
+            Recipient::Agent(id) => {
+                let recipient_agent = id;
+                let senders = self.inner.senders.read().await;
+                let tx = senders.get(&recipient_agent).cloned().ok_or_else(|| {
+                    TransportError::Delivery(format!("recipient not registered: {recipient_agent}"))
+                })?;
+                drop(senders);
+                tx.try_send(envelope).map_err(|e| match e {
+                    mpsc::error::TrySendError::Full(_) => TransportError::Backpressure,
+                    mpsc::error::TrySendError::Closed(_) => {
+                        TransportError::Delivery("recipient channel closed".into())
+                    }
+                })?;
+                let send_receipt_id = self
+                    .record(
+                        "envelope.send",
+                        &envelope_for_receipt,
+                        vec![
+                            Evidence::new(
+                                "to_agent",
+                                "type.yutha.dev/v1/AgentId",
+                                recipient_agent.as_bytes().to_vec(),
+                            ),
+                            Evidence::new(
+                                "recipient_kind",
+                                "type.yutha.dev/v1/String",
+                                recipient_kind.as_bytes().to_vec(),
+                            ),
+                        ],
+                    )
+                    .await?;
+                Ok(send_receipt_id)
             }
-        })?;
 
-        // Produce envelope.send receipt now that delivery to the inbox
-        // succeeded. Return its content-address so the gRPC handler can
-        // echo it on the wire as `SendEnvelopeResponse.send_receipt`.
-        let send_receipt_id = self
-            .record(
-                "envelope.send",
-                &envelope_for_receipt,
-                vec![to_evidence, kind_evidence],
-            )
-            .await?;
-        Ok(send_receipt_id)
+            // Role broadcast — fan out to every agent currently
+            // registered as a member of the role.
+            Recipient::Role(role) => {
+                let targets = self.role_members(&role).await;
+                let fanout_count = self.fanout_to(&targets, envelope, "Role").await?;
+                self.record(
+                    "envelope.send",
+                    &envelope_for_receipt,
+                    broadcast_evidence(recipient_kind, &role, fanout_count),
+                )
+                .await
+            }
+
+            // Swarm broadcast — fan out to every subscribed agent
+            // matching the filter_tags. Empty filter_tags means
+            // "every subscribed agent."
+            Recipient::Swarm(b) => {
+                let scope = if b.filter_tags.is_empty() {
+                    "*".to_string()
+                } else {
+                    b.filter_tags.join(",")
+                };
+                let targets = self.swarm_targets(&b.filter_tags).await;
+                let fanout_count = self.fanout_to(&targets, envelope, "Swarm").await?;
+                self.record(
+                    "envelope.send",
+                    &envelope_for_receipt,
+                    broadcast_evidence(recipient_kind, &scope, fanout_count),
+                )
+                .await
+            }
+
+            // External endpoints are network egress — out of scope for
+            // an in-memory transport. A real implementation (HTTP/gRPC
+            // out-of-band) lives elsewhere.
+            Recipient::External(_) => Err(TransportError::Backend(
+                "External endpoints not implemented in MemoryTransport".into(),
+            )),
+        }
     }
 
     async fn receive(&self, recipient: &AgentId) -> Result<Envelope> {
@@ -460,6 +614,182 @@ mod tests {
         let result = transport.send(envelope).await;
         assert!(matches!(result, Err(TransportError::Delivery(_))));
         assert_eq!(receipts.count().await.unwrap(), 0);
+    }
+
+    fn broadcast_envelope(swarm_id: SwarmId, from: AgentId, recipient: Recipient) -> Envelope {
+        let key = generate_keypair();
+        Envelope::builder()
+            .spec_version(SpecVersion::parse("1.0.0").unwrap())
+            .swarm_id(swarm_id)
+            .envelope_id(vec![rand_nonce(); 16])
+            .from_agent(from)
+            .recipient(recipient)
+            .performative(Performative::Inform)
+            .payload(b"broadcast".to_vec())
+            .causal(CausalRef::empty())
+            .nonce(vec![rand_nonce(); 16])
+            .epoch(1)
+            .sent_at(Timestamp::now())
+            .sign(&key)
+            .unwrap()
+    }
+
+    fn fanout_count_from(receipt: &yutha_receipt::Receipt) -> u64 {
+        let v = receipt
+            .evidence
+            .iter()
+            .find(|e| e.key == "fanout_count")
+            .expect("fanout_count evidence");
+        std::str::from_utf8(&v.value)
+            .unwrap()
+            .parse::<u64>()
+            .unwrap()
+    }
+
+    #[tokio::test]
+    async fn role_broadcast_fans_out_to_all_members() {
+        // Two members opt into role "billing"; one agent opts in to a
+        // different role. Send to "billing" reaches both members and
+        // skips the outsider.
+        let (transport, receipts, swarm_id) = harness().await;
+        let alice = AgentId::new();
+        let bob = AgentId::new();
+        let carol = AgentId::new();
+        for a in [alice, bob, carol] {
+            transport.register_recipient(a).await;
+        }
+        transport.register_role_member("billing", alice).await;
+        transport.register_role_member("billing", bob).await;
+        transport.register_role_member("shipping", carol).await;
+
+        let sender = AgentId::new();
+        let envelope = broadcast_envelope(swarm_id, sender, Recipient::Role("billing".to_string()));
+        transport.send(envelope).await.unwrap();
+
+        // Both billing members got an envelope; carol's inbox stays empty.
+        transport.receive(&alice).await.unwrap();
+        transport.receive(&bob).await.unwrap();
+
+        let send_page = receipts
+            .query(
+                yutha_receipt::Query::ByActionKind(yutha_receipt::ActionKindQuery {
+                    action_kind: "envelope.send".into(),
+                }),
+                None,
+            )
+            .await
+            .unwrap();
+        assert_eq!(send_page.receipts.len(), 1);
+        assert_eq!(fanout_count_from(&send_page.receipts[0]), 2);
+
+        // Two deliver receipts — one per member who drained their inbox.
+        let deliver_page = receipts
+            .query(
+                yutha_receipt::Query::ByActionKind(yutha_receipt::ActionKindQuery {
+                    action_kind: "envelope.deliver".into(),
+                }),
+                None,
+            )
+            .await
+            .unwrap();
+        assert_eq!(deliver_page.receipts.len(), 2);
+    }
+
+    #[tokio::test]
+    async fn role_broadcast_with_zero_members_succeeds_with_fanout_zero() {
+        // Broadcast semantics: no members = nothing gets delivered,
+        // but the send is well-defined. Receipt records fanout_count = 0.
+        let (transport, receipts, swarm_id) = harness().await;
+        let sender = AgentId::new();
+        transport
+            .send(broadcast_envelope(
+                swarm_id,
+                sender,
+                Recipient::Role("nobody".to_string()),
+            ))
+            .await
+            .unwrap();
+
+        let send_page = receipts
+            .query(
+                yutha_receipt::Query::ByActionKind(yutha_receipt::ActionKindQuery {
+                    action_kind: "envelope.send".into(),
+                }),
+                None,
+            )
+            .await
+            .unwrap();
+        assert_eq!(send_page.receipts.len(), 1);
+        assert_eq!(fanout_count_from(&send_page.receipts[0]), 0);
+    }
+
+    #[tokio::test]
+    async fn swarm_broadcast_empty_filter_reaches_all_subscribers() {
+        let (transport, _receipts, swarm_id) = harness().await;
+        let alice = AgentId::new();
+        let bob = AgentId::new();
+        for a in [alice, bob] {
+            transport.register_recipient(a).await;
+        }
+        let sender = AgentId::new();
+        transport
+            .send(broadcast_envelope(
+                swarm_id,
+                sender,
+                Recipient::Swarm(crate::SwarmBroadcast {
+                    filter_tags: vec![],
+                }),
+            ))
+            .await
+            .unwrap();
+        // Both subscribed agents got it.
+        transport.receive(&alice).await.unwrap();
+        transport.receive(&bob).await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn swarm_broadcast_filter_tags_select_only_matching_agents() {
+        // Three agents; only the ones tagged with EVERY filter tag
+        // receive the envelope.
+        let (transport, receipts, swarm_id) = harness().await;
+        let alice = AgentId::new();
+        let bob = AgentId::new();
+        let carol = AgentId::new();
+        for a in [alice, bob, carol] {
+            transport.register_recipient(a).await;
+        }
+        transport
+            .set_agent_tags(alice, ["finance".to_string(), "pii".to_string()])
+            .await;
+        transport.set_agent_tags(bob, ["finance".to_string()]).await;
+        transport.set_agent_tags(carol, ["pii".to_string()]).await;
+
+        let sender = AgentId::new();
+        transport
+            .send(broadcast_envelope(
+                swarm_id,
+                sender,
+                Recipient::Swarm(crate::SwarmBroadcast {
+                    filter_tags: vec!["finance".to_string(), "pii".to_string()],
+                }),
+            ))
+            .await
+            .unwrap();
+
+        // Only alice carries both tags. Bob and carol are skipped.
+        transport.receive(&alice).await.unwrap();
+
+        let send_page = receipts
+            .query(
+                yutha_receipt::Query::ByActionKind(yutha_receipt::ActionKindQuery {
+                    action_kind: "envelope.send".into(),
+                }),
+                None,
+            )
+            .await
+            .unwrap();
+        assert_eq!(send_page.receipts.len(), 1);
+        assert_eq!(fanout_count_from(&send_page.receipts[0]), 1);
     }
 
     #[tokio::test]

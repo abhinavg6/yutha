@@ -25,9 +25,17 @@ import sys
 import warnings
 from dataclasses import dataclass
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 import grpc
 import pytest
+
+if TYPE_CHECKING:
+    # Type-only imports — kept out of the runtime path so this
+    # conftest stays loadable when pytest's collection sweep runs
+    # over the broader repo (the package may not be installed in
+    # every interpreter pytest spawns).
+    import yutha
 
 # Make example scripts under sdks/python/examples/ importable from
 # tests/ so the S1 LangGraph demo can be re-used as an integration
@@ -91,19 +99,16 @@ class ActivatedConstitutionFixture:
     Tests can either ignore the contents (they just want the gate
     open) or assert on the receipt / hash for audit-trail checks.
 
-    Fields are typed as ``object`` rather than the concrete
-    ``yutha.Constitution`` / ``yutha.ActivatedConstitution`` to keep
-    this conftest from importing the SDK at module-load time. The
-    fixture body imports inside the function and constructs the
-    real types; tests opt into specificity via duck-typing on the
-    returned attrs.
+    Fields are typed through the ``TYPE_CHECKING`` import above so
+    mypy can resolve attribute access on them without forcing a
+    runtime import of the SDK at module-load time.
     """
 
-    constitution: object
-    activated: object
+    constitution: "yutha.Constitution"
+    activated: "yutha.ActivatedConstitution"
 
 
-def _derive_swarm_id_from_seed(seed: bytes) -> object:
+def _derive_swarm_id_from_seed(seed: bytes) -> "yutha.SwarmId":
     """Same derivation as ``test_integration._derive_identity_from_seed``
     and the Rust ``BootstrapIdentity::from_seed_hex``. Returns
     :class:`yutha.SwarmId`."""
@@ -112,7 +117,9 @@ def _derive_swarm_id_from_seed(seed: bytes) -> object:
     return yutha.SwarmId(value=hashlib.sha256(seed + b"\x02").digest()[:16])
 
 
-def _derive_operator_keypair_from_seed(seed: bytes) -> tuple[object, object]:
+def _derive_operator_keypair_from_seed(
+    seed: bytes,
+) -> tuple["yutha.SigningKey", "yutha.PublicKey"]:
     """Same derivation as
     ``tests/test_operator_revoke._derive_operator_keypair``. Returns
     (SigningKey, PublicKey)."""

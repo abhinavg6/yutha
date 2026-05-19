@@ -18,11 +18,17 @@ yutha-passport.workspace = true
 yutha-capability.workspace = true
 yutha-transport.workspace = true
 yutha-registry.workspace = true
+# S4 (F13) exercises the constitution + enforcement layers end-to-end.
+yutha-cedar-plus.workspace = true
 
 async-trait.workspace = true
 futures.workspace = true
 tokio.workspace = true
 thiserror.workspace = true
+# S4: needs serde_json (eval-request context attrs + enforcement evidence)
+# and time (synthetic wall-clock advance for poll_scheduled).
+serde_json.workspace = true
+time.workspace = true
 
 [dev-dependencies]
 tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }

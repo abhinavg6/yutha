@@ -33,12 +33,15 @@ use std::sync::Arc;
 use async_trait::async_trait;
 use tokio::sync::mpsc;
 use tracing::warn;
-use yutha_cedar_plus::Score;
-use yutha_core::Hash;
+use yutha_cedar_plus::{EnforcementEffect, Score};
+use yutha_core::{Hash, SpecVersion, SwarmId, Timestamp};
+use yutha_crypto::canonical::Canonical;
 use yutha_receipt::{
-    AppendOptions, AppendOutcome, Page, PassportResolver, Query, Receipt, ReceiptStore,
-    Result as ReceiptResult,
+    AppendOptions, AppendOutcome, Evidence, Page, PassportResolver, Query, Receipt, ReceiptStore,
+    Result as ReceiptResult, SignatureRole, SignedBy,
 };
+
+use crate::grpc::ControlPlaneState;
 
 /// Owned snapshot of a receipt's match-relevant fields. Sent across
 /// the publisher channel; consumed by the enforcement-engine
@@ -174,4 +177,102 @@ fn build_view(receipt: &Receipt) -> EnforcementReceiptView {
         occurred_at_wall_clock: receipt.occurred_at.wall_clock.clone(),
         reputation_delta,
     }
+}
+
+/// Build + sign + append the `enforcement.{detect,coach,quarantine,
+/// evict,reverse,evict_timeout}` receipt corresponding to an
+/// `EnforcementEffect` the engine just staged (F12).
+///
+/// ## Closed-loop semantics
+///
+/// The append flows through `PublishingReceiptStore`, which fans the
+/// receipt onto the enforcement channel. The forwarder task picks it
+/// up and calls `EnforcementEngine::on_receipt`. The engine's
+/// receipt-stream pattern matcher special-cases `enforcement.*` kinds
+/// (enforcement.rs §on_receipt): they apply reputation deltas and
+/// flip quarantine state, then return without scheduling further
+/// effects. The loop terminates after one round-trip per effect.
+///
+/// ## Evidence shape
+///
+/// Mirrors `/spec/receipt/canonical-actions.md` §enforcement.*.
+/// `target_agent_id`, `enforcement_rule_id`, `reputation_delta`, and
+/// `constitution_hash` are present on every variant; the rest of the
+/// fields come from `EnforcementEffect.additional_evidence`, which
+/// the engine populates with kind-specific keys (e.g.
+/// `matched_receipt_ids[]` on detect, `detect_receipt_id` on coach,
+/// `expires_at_wall_clock` on quarantine).
+pub async fn emit_enforcement_receipt(
+    state: &ControlPlaneState,
+    effect: &EnforcementEffect,
+    swarm_id: SwarmId,
+    constitution_hash: &Hash,
+    constitution_version: &str,
+) -> std::result::Result<Hash, String> {
+    let spec_version = SpecVersion::parse("1.0.0")
+        .map_err(|e| format!("enforcement receipt spec_version: {e}"))?;
+
+    // Universal evidence — present on every enforcement.* variant per
+    // canonical-actions.md.
+    let mut evidence: Vec<Evidence> = vec![
+        Evidence::new(
+            "target_agent_id",
+            "type.yutha.dev/v1/AgentId",
+            effect.target_agent_id.as_bytes().to_vec(),
+        ),
+        Evidence::new(
+            "enforcement_rule_id",
+            "type.yutha.dev/v1/String",
+            effect.enforcement_rule_id.as_bytes().to_vec(),
+        ),
+        Evidence::new(
+            "reputation_delta",
+            "type.yutha.dev/v1/String",
+            effect.reputation_delta.0.as_bytes().to_vec(),
+        ),
+        Evidence::new(
+            "constitution_hash",
+            "type.yutha.dev/v1/Hash",
+            constitution_hash.digest.clone(),
+        ),
+    ];
+
+    // Effect-specific evidence — the engine surfaces these in a
+    // BTreeMap so the keys are stable across runs (deterministic
+    // canonical bytes). Each value is a serde_json::Value; we render
+    // through canonical JSON to keep the audit-trail byte-stable too.
+    for (key, value) in &effect.additional_evidence {
+        let bytes = serde_json::to_vec(value)
+            .map_err(|e| format!("encode additional_evidence[{key}]: {e}"))?;
+        evidence.push(Evidence::new(key.as_str(), "type.yutha.dev/v1/Json", bytes));
+    }
+
+    let mut builder = Receipt::builder()
+        .spec_version(spec_version)
+        .swarm_id(swarm_id)
+        .actor(state.control_plane_identity.agent_id)
+        .action_kind(&effect.action_kind)
+        .constitution_version(constitution_version)
+        .occurred_at(Timestamp::now());
+    for e in evidence {
+        builder = builder.evidence(e);
+    }
+    let mut receipt = builder
+        .build()
+        .map_err(|e| format!("build {} receipt: {e}", effect.action_kind))?;
+
+    let bytes = receipt
+        .canonical_bytes()
+        .map_err(|e| format!("canonical {}: {e}", effect.action_kind))?;
+    let sig = state.control_plane_identity.sign(&bytes);
+    receipt
+        .signatures
+        .push(SignedBy::new(SignatureRole::Actor, sig, Timestamp::now()));
+
+    let outcome = state
+        .receipt_store
+        .append(receipt, AppendOptions::default(), state.resolver.as_ref())
+        .await
+        .map_err(|e| format!("append {}: {e}", effect.action_kind))?;
+    Ok(outcome.receipt_id)
 }

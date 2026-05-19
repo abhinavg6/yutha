@@ -398,4 +398,4 @@ def test_constitution_is_frozen() -> None:
 
     c = _build_constitution()
     with pytest.raises(pydantic.ValidationError):
-        c.constitution_version = "2.0.0"  # type: ignore[misc]
+        c.constitution_version = "2.0.0"

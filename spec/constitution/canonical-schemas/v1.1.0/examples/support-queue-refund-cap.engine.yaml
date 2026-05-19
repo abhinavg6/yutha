@@ -1,0 +1,22 @@
+schema_version: 1.1.0
+predicates: []
+scoring_rules: []
+procedures: []
+enforcement_rules:
+- name: forbidden-payload-chain
+  detect:
+    trigger:
+      receipt_kind: constitution.evaluate.deny
+      forbid_rule_id: no-forbidden-payloads
+    count_threshold: 3
+    time_window: 60s
+    group_by: principal
+  coach:
+    cooldown: 1s
+    guidance_template: Three forbidden sends in a minute → escalate
+  quarantine:
+    escalate_after: 1s
+  evict:
+    escalate_after: 1s
+    require_countersign: false
+  severity: high
