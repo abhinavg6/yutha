@@ -126,7 +126,8 @@ struct EngineQuarantineSource {
 
 impl std::fmt::Debug for EngineQuarantineSource {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("EngineQuarantineSource").finish_non_exhaustive()
+        f.debug_struct("EngineQuarantineSource")
+            .finish_non_exhaustive()
     }
 }
 
@@ -628,21 +629,19 @@ fn view_from(receipt: &Receipt, target: AgentId) -> ReceiptView<'_> {
     if principal_id_owned.is_none() {
         principal_id_owned = Some(target.to_string());
     }
-    let principal_id_static: Option<&'static str> = principal_id_owned
-        .map(|s| &*Box::leak(s.into_boxed_str()));
-    let deny_reason_static: Option<&'static str> = deny_reason_owned
-        .map(|s| &*Box::leak(s.into_boxed_str()));
-    let forbid_rule_id_static: Option<&'static str> = forbid_rule_id_owned
-        .map(|s| &*Box::leak(s.into_boxed_str()));
+    let principal_id_static: Option<&'static str> =
+        principal_id_owned.map(|s| &*Box::leak(s.into_boxed_str()));
+    let deny_reason_static: Option<&'static str> =
+        deny_reason_owned.map(|s| &*Box::leak(s.into_boxed_str()));
+    let forbid_rule_id_static: Option<&'static str> =
+        forbid_rule_id_owned.map(|s| &*Box::leak(s.into_boxed_str()));
     ReceiptView {
         action_kind: Box::leak(receipt.action_kind.clone().into_boxed_str()),
         principal_id: principal_id_static,
         deny_reason: deny_reason_static,
         forbid_rule_id: forbid_rule_id_static,
         occurred_at_unix_ns: receipt.occurred_at.monotonic_ns,
-        occurred_at_wall_clock: Box::leak(
-            receipt.occurred_at.wall_clock.clone().into_boxed_str(),
-        ),
+        occurred_at_wall_clock: Box::leak(receipt.occurred_at.wall_clock.clone().into_boxed_str()),
         reputation_delta: reputation_delta_owned,
     }
 }
