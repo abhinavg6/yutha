@@ -2,8 +2,8 @@
 
 A walkthrough for developers and AI engineers who want to put CrewAI
 agents on top of Yutha's coordination substrate. Companion to the
-[LangGraph walkthrough](python-langgraph-walkthrough.md) — same
-substrate, different framework idioms.
+[LangChain & LangGraph guide](langgraph.md) — same substrate,
+different framework idioms.
 
 By the end you'll have:
 
@@ -30,8 +30,8 @@ signature verification, stream multiplexing, receipt emission —
 happens below the SDK surface.
 
 If you haven't built an agent on top of Yutha before, the
-[LangGraph walkthrough](python-langgraph-walkthrough.md) is a
-gentler starting point (its handler is a synchronous state graph
+[LangChain & LangGraph guide](langgraph.md) is a gentler starting
+point (its handler is a synchronous state graph
 with no LLM dependency). This walkthrough assumes you're already
 comfortable with CrewAI's ``Agent`` / ``Task`` / ``Crew`` model.
 
@@ -60,7 +60,7 @@ uv pip install -e '.[dev,crewai]'
 The `crewai` extra pulls CrewAI 0.70+ in (LangChain core + a few
 transitive dependencies). The base `yutha` install doesn't carry
 any of that — see the rationale in
-[`pyproject.toml`](../sdks/python/pyproject.toml).
+[`pyproject.toml`](https://github.com/abhinavg6/yutha/blob/main/sdks/python/pyproject.toml).
 
 **3. The same `YUTHA_BOOTSTRAP_SEED` exported in your dev shell**
 so derived swarm_ids match.
@@ -339,7 +339,7 @@ async with YuthaCrewAgent.connect(...) as agent:
 ```
 
 The same query works against any of the canonical action_kinds —
-see [`/spec/receipt/canonical-actions.md`](../spec/receipt/canonical-actions.md)
+see [`/spec/receipt/canonical-actions.md`](https://github.com/abhinavg6/yutha/blob/main/spec/receipt/canonical-actions.md)
 for the full list. Useful kinds for a CrewAI integration:
 
 - ``envelope.send`` / ``envelope.deliver`` — every signed send.
@@ -352,7 +352,7 @@ for the full list. Useful kinds for a CrewAI integration:
 
 ## Step 5 — The worked example
 
-[`examples/s1_support_queue_crewai.py`](../sdks/python/examples/s1_support_queue_crewai.py)
+[`examples/s1_support_queue_crewai.py`](https://github.com/abhinavg6/yutha/blob/main/sdks/python/examples/s1_support_queue_crewai.py)
 ties everything together: three CrewAI agents (router,
 refund_clerk, supervisor) registering into a fresh swarm, a
 capability-gated dispatch tool, three inbound tickets, an
@@ -360,7 +360,7 @@ escalation pattern, a cap revocation, and an end-of-run audit
 delta query.
 
 It's a focused companion to
-[`examples/s1_support_queue.py`](../sdks/python/examples/s1_support_queue.py)
+[`examples/s1_support_queue.py`](https://github.com/abhinavg6/yutha/blob/main/sdks/python/examples/s1_support_queue.py)
 (the LangGraph port of the same Rust conformance scenario). The
 LangGraph version uses deterministic state-graph nodes; the CrewAI
 version exercises the LLM-driven path while keeping the routing
@@ -386,7 +386,7 @@ python sdks/python/examples/s1_support_queue_crewai.py
 ## Where to go from here
 
 - **Layer a constitution.** Use the
-  [operator walkthrough](operator-walkthrough.md) to author and
+  [operator quickstart](../operator/quickstart.md) to author and
   activate a Cedar+ constitution; every send through a CrewAI
   agent will then be evaluated against it, with denies surfacing
   as ``yutha.ConstitutionDenied``.

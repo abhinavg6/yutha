@@ -1,6 +1,6 @@
 # RFC Process — Operator-Facing Guide
 
-This is the practical, step-by-step guide for filing an RFC. The full policy lives in [RFC 0001](../../spec/rfcs/0001-rfc-process.md); this document is the orientation for someone about to write their first one.
+This is the practical, step-by-step guide for filing an RFC. The full policy lives in [RFC 0001](https://github.com/abhinavg6/yutha/blob/main/spec/rfcs/0001-rfc-process.md); this document is the orientation for someone about to write their first one.
 
 ## When do I need an RFC?
 
@@ -22,7 +22,7 @@ When in doubt, ask in the project forum. If two people on the project look at th
 
 ### 1. Pick a number
 
-Look in [`/spec/rfcs/`](../../spec/rfcs/). Use the next available integer. Numbers are not reserved; first PR opened wins. If you race someone, take the next number.
+Look in [`/spec/rfcs/`](https://github.com/abhinavg6/yutha/tree/main/spec/rfcs/). Use the next available integer. Numbers are not reserved; first PR opened wins. If you race someone, take the next number.
 
 ### 2. Pick a name
 
@@ -108,6 +108,6 @@ The launch-spec RFCs (0002–0006) are full examples of what an RFC looks like a
 
 If you've never written an RFC before:
 
-- Read [RFC 0001](../../spec/rfcs/0001-rfc-process.md) for the policy framing.
+- Read [RFC 0001](https://github.com/abhinavg6/yutha/blob/main/spec/rfcs/0001-rfc-process.md) for the policy framing.
 - Read one of the launch RFCs (0002–0006) for the shape.
 - Ask in the project forum before you write a long document, especially for major or sensitive changes. A 10-minute orientation conversation often saves a 10-day RFC rewrite.

@@ -30,9 +30,9 @@ config emission, bearer-token minting, receipt emission — happens
 below the CLI surface.
 
 If you haven't built an agent on top of Yutha before, read the
-[Python + LangGraph walkthrough](python-langgraph-walkthrough.md)
-first. That one's developer-facing; this one's operator-facing, and
-the two compose.
+[LangChain & LangGraph guide](../developer/langgraph.md) first. That
+one's developer-facing; this one's operator-facing, and the two
+compose.
 
 ---
 
@@ -397,7 +397,7 @@ The evidence fields under each kind tell you which rule fired,
 which receipts the pattern matched, the reputation delta applied,
 and the wall-clock the stage transitioned at. The
 canonical-actions table in
-[`/spec/receipt/canonical-actions.md`](../spec/receipt/canonical-actions.md)
+[`/spec/receipt/canonical-actions.md`](https://github.com/abhinavg6/yutha/blob/main/spec/receipt/canonical-actions.md)
 is the source of truth for what evidence each `action_kind`
 carries.
 
@@ -478,7 +478,7 @@ YAML, compile, activate, grep, revoke. Three follow-on tracks:
   registration entry in `yutha-cedar-plus`'s `loader.rs`. The
   README under that directory walks the pattern.
 - **The four-stage loop in depth.** [RFC
-  0013](../spec/rfcs/0013-four-stage-enforcement-loop.md) is the
+  0013](https://github.com/abhinavg6/yutha/blob/main/spec/rfcs/0013-four-stage-enforcement-loop.md) is the
   source of truth for stage cadence, reputation deltas, and the
   reversal contract. Read it before tuning `escalate_after` values
   in production.

@@ -1,0 +1,62 @@
+name: Docs
+
+# Builds the MkDocs Material site under /docs and publishes it to GitHub
+# Pages on every push to main. PRs build the site (so broken-link errors
+# fail the PR) but do not deploy.
+#
+# Custom domain (yutha.ai) comes from the CNAME file at docs/CNAME; the
+# `actions/deploy-pages` action preserves it in the deployed artifact.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+# Only one concurrent deploy at a time; cancel in-flight runs from older
+# pushes so the latest commit always wins.
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+# Permissions required by actions/deploy-pages.
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+jobs:
+  build:
+    name: build site
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: requirements-docs.txt
+      - name: Install MkDocs Material + extensions
+        run: pip install -r requirements-docs.txt
+      - name: Build site (strict)
+        # `strict: true` is set in mkdocs.yml, so any broken link or
+        # missing page fails the build instead of silently shipping.
+        run: mkdocs build
+      - name: Upload pages artifact
+        if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: site
+
+  deploy:
+    name: deploy to GitHub Pages
+    if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4

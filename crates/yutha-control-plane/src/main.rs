@@ -226,7 +226,7 @@ struct Cli {
     // all four to enable the AnchorDriver background task, or none to
     // leave anchoring disabled. Partial configuration is rejected at
     // startup with a clear error. See
-    // `/docs/sui-anchoring-walkthrough.md` for end-to-end operator setup.
+    // `/docs/operator/sui-anchoring.md` for end-to-end operator setup.
     //
     // When enabled, the driver polls the receipt store for unsealed
     // receipts past the on-chain watermark, batches them per the
@@ -432,7 +432,7 @@ async fn main() -> anyhow::Result<()> {
     // (if enabled) needs this to construct the SuiSealer; it MUST
     // equal the `swarm_id` stored on the on-chain `SwarmAnchor` (the
     // operator's responsibility, documented in
-    // /docs/sui-anchoring-walkthrough.md). SwarmId is Copy so this is
+    // /docs/operator/sui-anchoring.md). SwarmId is Copy so this is
     // a no-op clone.
     let bootstrap_swarm_id_for_anchor: Option<SwarmId> =
         bootstrap_identity.as_ref().map(|bi| bi.swarm_id);

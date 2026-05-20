@@ -10,7 +10,7 @@ control plane.
 > LangGraph adapter is a separate stage (Stage 4).
 
 > 👉 **New here?** Start with the
-> [LangGraph walkthrough](../../docs/python-langgraph-walkthrough.md) —
+> [LangChain & LangGraph guide](../../docs/developer/langgraph.md) —
 > a 15-minute hands-on that takes you from "fresh agent" to "five-agent
 > LangGraph workflow with capability gating and a full audit trail." It
 > uses everything below, so you don't need to read this README first.

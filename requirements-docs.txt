@@ -1,0 +1,18 @@
+# Python deps for the MkDocs Material documentation site.
+# Pinned so the GitHub Pages deploy is reproducible. Bump deliberately.
+#
+# Local preview:
+#   python3 -m venv .venv-docs
+#   source .venv-docs/bin/activate
+#   pip install -r requirements-docs.txt
+#   mkdocs serve
+#
+# CI uses the same file via .github/workflows/docs.yml.
+
+mkdocs==1.6.1
+mkdocs-material==9.5.49
+# pymdown-extensions 10.12 triggers a pygments crash
+# (HtmlFormatter __init__ getting filename=None) when combined with
+# pygments 2.20+. 10.21+ contains the upstream fix.
+pymdown-extensions>=10.21
+pygments>=2.20

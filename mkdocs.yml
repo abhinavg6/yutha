@@ -1,0 +1,143 @@
+# MkDocs Material site configuration.
+#
+# Source markdown lives under /docs/. The site builds with `mkdocs build`
+# and is published to GitHub Pages on every push to main via
+# .github/workflows/docs.yml. Custom domain (yutha.ai) is set via the
+# CNAME file under docs/.
+#
+# To preview locally:
+#   pip install -r requirements-docs.txt
+#   mkdocs serve
+
+site_name: Yutha
+site_description: A framework-agnostic control plane for agent swarms — identity, capability, accountability, and norms.
+site_url: https://yutha.ai/
+site_author: Abhinav Garg
+
+repo_name: abhinavg6/yutha
+repo_url: https://github.com/abhinavg6/yutha
+edit_uri: edit/main/docs/
+
+# `/docs` already holds historical walkthroughs; we keep that as the
+# source dir and let mkdocs use it directly.
+docs_dir: docs
+
+# `--strict` in CI promotes warnings (broken links, missing pages) to
+# errors so we don't quietly ship a busted site.
+strict: true
+
+theme:
+  name: material
+  language: en
+  palette:
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      primary: indigo
+      accent: indigo
+      toggle:
+        icon: material/weather-night
+        name: Switch to dark mode
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      primary: indigo
+      accent: indigo
+      toggle:
+        icon: material/weather-sunny
+        name: Switch to light mode
+  font:
+    text: Inter
+    code: JetBrains Mono
+  features:
+    - navigation.instant       # SPA-style page loads (no full reload between pages)
+    - navigation.tracking      # URL updates as user scrolls through anchors
+    - navigation.tabs          # Top-level sections as tabs
+    - navigation.sections      # Expand groups in the sidebar
+    - navigation.indexes       # Section index pages (so /operator/ resolves to operator/index.md)
+    - navigation.top           # "Back to top" button
+    - search.suggest
+    - search.highlight
+    - search.share
+    - content.code.copy        # Copy-button on every code block
+    - content.code.annotate    # Inline code annotations
+    - content.action.edit      # "Edit this page" link to GitHub
+    - toc.follow
+
+extra:
+  social:
+    - icon: fontawesome/brands/github
+      link: https://github.com/abhinavg6/yutha
+
+markdown_extensions:
+  # Admonitions and callouts.
+  - admonition
+  - pymdownx.details
+  - pymdownx.superfences:
+      custom_fences:
+        - name: mermaid
+          class: mermaid
+          format: !!python/name:pymdownx.superfences.fence_code_format
+  # Code highlighting + copy.
+  - pymdownx.highlight:
+      anchor_linenums: true
+      line_spans: __span
+      pygments_lang_class: true
+  - pymdownx.inlinehilite
+  - pymdownx.snippets
+  # Tabbed content (e.g. Python / Rust side-by-side examples).
+  - pymdownx.tabbed:
+      alternate_style: true
+  # Task lists, smarter punctuation, etc.
+  - pymdownx.tasklist:
+      custom_checkbox: true
+  - attr_list
+  - md_in_html
+  - tables
+  - footnotes
+  - toc:
+      permalink: true
+
+plugins:
+  - search
+
+# Navigation. Index pages render as the landing for their section.
+# Order here drives sidebar order.
+nav:
+  - Home: index.md
+  - Concepts:
+      - concepts/index.md
+      - Primitives: concepts/primitives.md
+      - Topology: concepts/topology.md
+      - Constitution & enforcement: concepts/constitution.md
+      - Verifiability: concepts/verifiability.md
+  - Operator Guide:
+      - operator/index.md
+      - Quickstart: operator/quickstart.md
+      - Authoring constitutions: operator/authoring-constitutions.md
+      - Operator credentials: operator/operator-credentials.md
+      - Sui anchoring: operator/sui-anchoring.md
+      - Monitoring & receipts: operator/monitoring.md
+      - Deployment: operator/deployment.md
+  - Developer Guide:
+      - developer/index.md
+      - Quickstart: developer/quickstart.md
+      - Python SDK: developer/python-sdk.md
+      - LangChain & LangGraph: developer/langgraph.md
+      - CrewAI: developer/crewai.md
+      - Writing a new adapter: developer/writing-adapters.md
+  - Examples:
+      - examples/index.md
+      - Customer support with refund cap: examples/customer-support.md
+      - Knowledge-base privacy gate: examples/privacy-gate.md
+      - Reversible long-running actions: examples/reversible-actions.md
+      - Verifiable AI pipeline: examples/verifiable-pipeline.md
+  - Reference:
+      - reference/index.md
+      - Specs: reference/specs.md
+      - RFCs: reference/rfcs.md
+      - Canonical actions: reference/canonical-actions.md
+  - Community:
+      - community/index.md
+      - Contributing: community/CONTRIBUTING.md
+      - Code of conduct: community/CODE_OF_CONDUCT.md
+      - Security policy: community/SECURITY.md
+      - RFC process: community/RFC_PROCESS.md

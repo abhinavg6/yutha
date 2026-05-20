@@ -212,7 +212,7 @@ to emit downstream envelopes, producing fan-out, escalation, or
 reply patterns.
 
 The five-agent demo bundled with the SDK
-([`s1_support_queue.py`](../sdks/python/examples/s1_support_queue.py))
+([`s1_support_queue.py`](https://github.com/abhinavg6/yutha/blob/main/sdks/python/examples/s1_support_queue.py))
 looks like this:
 
 <p align="center">
@@ -421,7 +421,7 @@ audit log records not just what happened but every authorization
 decision that gated it.
 
 For more on capability semantics — attenuation, caveat evaluation,
-delegation chains — see [`/spec/capability/`](../spec/capability/).
+delegation chains — see [`/spec/capability/`](https://github.com/abhinavg6/yutha/tree/main/spec/capability/).
 
 ---
 
@@ -541,8 +541,8 @@ For a complete five-agent workflow that exercises everything above
 — LangGraph classifier, conditional escalation, capability gating
 with a negative path, audit-shape assertions — see:
 
-- **Source**: [`sdks/python/examples/s1_support_queue.py`](../sdks/python/examples/s1_support_queue.py)
-- **Integration test**: [`sdks/python/tests/test_s1_support_queue_demo.py`](../sdks/python/tests/test_s1_support_queue_demo.py)
+- **Source**: [`sdks/python/examples/s1_support_queue.py`](https://github.com/abhinavg6/yutha/blob/main/sdks/python/examples/s1_support_queue.py)
+- **Integration test**: [`sdks/python/tests/test_s1_support_queue_demo.py`](https://github.com/abhinavg6/yutha/blob/main/sdks/python/tests/test_s1_support_queue_demo.py)
 
 The demo is fully runnable; it produces exactly 20 audit-log receipts
 on a clean run and asserts on the shape. It's the reference for
@@ -597,14 +597,14 @@ the `token_lifetime_seconds=` and `refresh_lead_seconds=` kwargs on
 
 ## Where to go next
 
-- [`/spec/`](../spec/) — the substrate spec. Read passport,
+- [`/spec/`](https://github.com/abhinavg6/yutha/tree/main/spec/) — the substrate spec. Read passport,
   envelope, receipt, capability, and topology if you want to know
   what's actually on the wire.
-- [`sdks/python/src/yutha/langgraph/`](../sdks/python/src/yutha/langgraph/)
+- [`sdks/python/src/yutha/langgraph/`](https://github.com/abhinavg6/yutha/tree/main/sdks/python/src/yutha/langgraph/)
   — the adapter source. Read it if you want to understand how
   `YuthaAgent` and `@capability_required` are implemented (~200
   lines, very approachable).
-- [`crates/yutha-conformance/`](../crates/yutha-conformance/) —
+- [`crates/yutha-conformance/`](https://github.com/abhinavg6/yutha/tree/main/crates/yutha-conformance/) —
   the Rust reference scenarios. The Python S1 demo mirrors
   `s1_queue_mode.rs`; future scenarios will get Python ports too.
 - File an issue or RFC at the project repo if you hit a wart that

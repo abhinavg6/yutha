@@ -30,9 +30,9 @@ into the running server. Until then, the cadence-loop driver is
 exercised through the integration test in this walkthrough.
 
 If you haven't operated a Yutha swarm before, read the
-[constitution operator walkthrough](operator-walkthrough.md) first —
-it covers the bootstrap-seed model, the operator credential, and the
-gRPC server flags this doc assumes you're already comfortable with.
+[operator quickstart](quickstart.md) first — it covers the
+bootstrap-seed model, the operator credential, and the gRPC server
+flags this doc assumes you're already comfortable with.
 
 ---
 

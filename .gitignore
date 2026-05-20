@@ -94,3 +94,7 @@ server.log
 # produces enormous diffs and ties the repo to one Sui framework
 # version. Keep `sources/`, `tests/`, and `Move.toml`; skip `build/`.
 contracts/sui/**/build/
+
+# MkDocs build output. `mkdocs build` regenerates this on every run;
+# the deployed site lives on GitHub Pages, not in the repo.
+/site/
