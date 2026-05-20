@@ -10,6 +10,13 @@ env:
   CARGO_TERM_COLOR: always
   RUSTFLAGS: "-D warnings"
   RUST_BACKTRACE: 1
+  # Pinned sui-rust-sdk commit checked out as a sibling to this repo on
+  # CI runners. The workspace Cargo.toml has path deps at
+  # `../sui-rust-sdk/crates/*` (see the comment block in Cargo.toml for
+  # why we're on a local checkout rather than crates.io 0.3.0). Locally,
+  # contributors clone next to Yutha; in CI, the "Clone sui-rust-sdk"
+  # step below does the same. Bump this rev when the local pin moves.
+  SUI_RUST_SDK_REV: 5b41bc701525f1b94f1fe63008d4841bc6fb1065
 
 jobs:
   fmt:
@@ -17,6 +24,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - name: Clone sui-rust-sdk (sibling path dep)
+        run: |
+          git clone https://github.com/MystenLabs/sui-rust-sdk ../sui-rust-sdk
+          git -C ../sui-rust-sdk checkout "$SUI_RUST_SDK_REV"
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt
@@ -27,6 +38,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - name: Clone sui-rust-sdk (sibling path dep)
+        run: |
+          git clone https://github.com/MystenLabs/sui-rust-sdk ../sui-rust-sdk
+          git -C ../sui-rust-sdk checkout "$SUI_RUST_SDK_REV"
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: clippy
@@ -44,6 +59,10 @@ jobs:
           - "1.75" # MSRV — bumps require ADR amendment per ADR 0001.
     steps:
       - uses: actions/checkout@v4
+      - name: Clone sui-rust-sdk (sibling path dep)
+        run: |
+          git clone https://github.com/MystenLabs/sui-rust-sdk ../sui-rust-sdk
+          git -C ../sui-rust-sdk checkout "$SUI_RUST_SDK_REV"
       - uses: dtolnay/rust-toolchain@master
         with:
           toolchain: ${{ matrix.toolchain }}
@@ -69,6 +88,10 @@ jobs:
           --health-retries 5
     steps:
       - uses: actions/checkout@v4
+      - name: Clone sui-rust-sdk (sibling path dep)
+        run: |
+          git clone https://github.com/MystenLabs/sui-rust-sdk ../sui-rust-sdk
+          git -C ../sui-rust-sdk checkout "$SUI_RUST_SDK_REV"
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
       - name: Install protoc
@@ -109,6 +132,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - name: Clone sui-rust-sdk (sibling path dep)
+        run: |
+          git clone https://github.com/MystenLabs/sui-rust-sdk ../sui-rust-sdk
+          git -C ../sui-rust-sdk checkout "$SUI_RUST_SDK_REV"
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
       - name: Install protoc
@@ -130,6 +157,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - name: Clone sui-rust-sdk (sibling path dep)
+        run: |
+          git clone https://github.com/MystenLabs/sui-rust-sdk ../sui-rust-sdk
+          git -C ../sui-rust-sdk checkout "$SUI_RUST_SDK_REV"
       - uses: dtolnay/rust-toolchain@stable
       # We install cargo-deny directly instead of using
       # EmbarkStudios/cargo-deny-action@v1, which pins an old binary that
