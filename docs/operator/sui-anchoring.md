@@ -1,8 +1,8 @@
 # Anchoring Yutha receipts on Sui
 
 A 30-minute walkthrough for the operator who wants to prove out
-RFC 0014's verifiability Layer 1 against a real Sui chain. By the
-end you'll have:
+RFC 0014's verifiability Layer 1 against a real [Sui](https://www.sui.io/)
+chain. By the end you'll have:
 
 - A localnet validator running with the `receipt_anchor` Move package
   published under your operator address.

@@ -16,3 +16,7 @@ mkdocs-material==9.5.49
 # pygments 2.20+. 10.21+ contains the upstream fix.
 pymdown-extensions>=10.21
 pygments>=2.20
+# Used by scripts/build-llms-full.py to parse mkdocs.yml. Transitive
+# via mkdocs already; listed explicitly so a future mkdocs version
+# that drops the dep doesn't break the llms-full generator.
+pyyaml>=6.0

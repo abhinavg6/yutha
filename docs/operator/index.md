@@ -6,7 +6,7 @@ You're an **operator** if you're the person standing up, configuring, and runnin
 - Choosing the swarm's [topology](../concepts/topology.md) — closed, open, or hybrid.
 - Authoring and activating the [constitution](../concepts/constitution.md) that governs the swarm.
 - Managing operator credentials, including revocation.
-- Anchoring the receipt log on Sui for third-party verifiability (optional).
+- Anchoring the receipt log on [Sui](https://www.sui.io/) for third-party verifiability (optional).
 - Monitoring receipts and responding to enforcement events.
 
 If you're building agents that *join* a swarm someone else operates, you're a developer — see the [developer guide](../developer/index.md) instead.

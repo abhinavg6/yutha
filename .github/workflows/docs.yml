@@ -39,6 +39,12 @@ jobs:
           cache-dependency-path: requirements-docs.txt
       - name: Install MkDocs Material + extensions
         run: pip install -r requirements-docs.txt
+      - name: Regenerate llms-full.txt
+        # Concatenates every doc page (in nav order) into a single
+        # text file served at https://yutha.ai/llms-full.txt, per the
+        # llmstxt.org sibling convention. Lets an LLM ingest the full
+        # doc tree without crawling individual pages.
+        run: python3 scripts/build-llms-full.py
       - name: Build site (strict)
         # `strict: true` is set in mkdocs.yml, so any broken link or
         # missing page fails the build instead of silently shipping.

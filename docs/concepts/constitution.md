@@ -3,7 +3,7 @@
 !!! info "Page in progress"
     Full content is being written. The authoritative references are [`/spec/constitution/`](../reference/specs.md) and RFCs 0010–0013.
 
-A **constitution** is a declarative document, written in Cedar+, that governs which actions are permitted in a swarm. Cedar+ extends AWS's Cedar policy language with:
+A **constitution** is a declarative document, written in Cedar+, that governs which actions are permitted in a swarm. Cedar+ extends AWS's [Cedar](https://github.com/cedar-policy) policy language with:
 
 - **Scoring rules** — soft preferences that influence enforcement progression without producing hard denies.
 - **Procedures** — declarative state machines for multi-step approvals (e.g., "refund > $100 requires supervisor sign-off").

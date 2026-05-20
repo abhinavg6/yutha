@@ -30,9 +30,8 @@ config emission, bearer-token minting, receipt emission — happens
 below the CLI surface.
 
 If you haven't built an agent on top of Yutha before, read the
-[LangChain & LangGraph guide](../developer/langgraph.md) first. That
-one's developer-facing; this one's operator-facing, and the two
-compose.
+[LangGraph guide](../developer/langgraph.md) first. That one's
+developer-facing; this one's operator-facing, and the two compose.
 
 ---
 

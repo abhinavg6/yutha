@@ -4,7 +4,7 @@
 
 Multi-agent systems work in demos and break in production. The reason is almost always the same: there's no shared substrate for *who an agent is*, *what it's allowed to do*, *what it actually did*, and *which norms govern the swarm it lives in*. Each framework reinvents a fragment of that and stops.
 
-Yutha is the substrate. It runs in front of agents you've already built — in LangChain, LangGraph, CrewAI, or anything else — and gives them passports, signed receipts, attenuated capabilities, declarative constitutions with four-stage enforcement, and an optional cryptographic verification layer when you need to prove what happened to a third party.
+Yutha is the substrate. It runs in front of agents you've already built — in [LangGraph](https://github.com/langchain-ai/langgraph), [CrewAI](https://www.crewai.com/), or anything else you'd like to write an adapter for — and gives them passports, signed receipts, attenuated capabilities, declarative constitutions ([Cedar](https://github.com/cedar-policy)+) with four-stage enforcement, and an optional cryptographic verification layer ([Sui](https://www.sui.io/) anchoring) when you need to prove what happened to a third party.
 
 ## Full documentation
 
@@ -18,7 +18,7 @@ The doc site is the canonical reference. Start at the landing page; pick the ope
 /spec        — wire & artifact specs (RFC-governed)
 /crates      — Rust workspace: control plane, registry, capability, transport, receipts, cedar+ engine
 /backends    — Pluggable backends: Postgres, S3, Sui anchoring, Walrus, Seal, Nautilus
-/sdks        — Framework adapters (Python: LangChain/LangGraph, CrewAI)
+/sdks        — Framework adapters (Python: LangGraph, CrewAI)
 /contracts   — Move package for Sui receipt anchoring
 /docs        — Source for the doc site at yutha.ai
 ```

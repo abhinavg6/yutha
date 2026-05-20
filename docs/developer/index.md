@@ -2,7 +2,7 @@
 
 You're a **developer** if you're building agents that participate in a Yutha-governed swarm. That includes:
 
-- Wrapping an existing LangChain, LangGraph, or CrewAI agent so it can join.
+- Wrapping an existing LangGraph or CrewAI agent so it can join.
 - Reading and writing envelopes through the SDK.
 - Handling capabilities for tools that take consequential actions.
 - Writing a new framework adapter against the spec.
@@ -13,6 +13,6 @@ If you're standing up and running the swarm itself, you're an operator — see t
 
 - **[Quickstart](quickstart.md)** — the 15-minute joiner path. Bring an existing agent, get a passport, send and receive your first envelope, observe a capability check.
 - **[Python SDK](python-sdk.md)** — the canonical client surface. Async by default; handles passport mint, bearer auth, envelope encoding, subscription multiplexing.
-- **[LangChain & LangGraph](langgraph.md)** — adapter walkthrough. Wrap a LangGraph node as a Yutha agent.
+- **[LangGraph](langgraph.md)** — adapter walkthrough. Wrap a LangGraph node as a Yutha agent.
 - **[CrewAI](crewai.md)** — adapter walkthrough. Each `Agent` in a Crew becomes a Yutha agent with its own identity.
 - **[Writing a new adapter](writing-adapters.md)** — how to add support for a framework Yutha doesn't yet ship for.

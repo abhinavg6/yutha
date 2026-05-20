@@ -1,0 +1,72 @@
+# Yutha
+
+> Yutha is open-source infrastructure for groups of AI agents — identity, capability, accountability, and norms for swarms of any size, across community, enterprise, and cross-organization domains. Framework-agnostic; works in front of agents built in LangGraph, CrewAI, or anything else you write an adapter for.
+
+Yutha sits underneath whichever agent framework an agent is built with and gives swarms a shared substrate: Ed25519-keyed passports, typed envelopes, append-only signed receipts, attenuable capabilities, declarative constitutions in Cedar+, and an optional cryptographic verification layer via on-chain anchoring on Sui.
+
+Two personas:
+- **Operators** stand up a control plane, choose a topology, author and activate constitutions, manage operator credentials, monitor receipts, optionally anchor the receipt log for third-party verifiability.
+- **Developers** wrap an existing LangGraph or CrewAI agent with the Yutha SDK so it can join a swarm — getting a passport, capability-gated sends, and a signed audit trail per consequential action.
+
+The repository at https://github.com/abhinavg6/yutha contains the Rust reference implementation (control plane, registry, capability store, transport, receipt log, Cedar+ engine), Python SDK + adapters (LangGraph, CrewAI), conformance suite, Move package for Sui anchoring, and the full RFC-governed spec set.
+
+## Start here
+
+- [Landing page](https://yutha.ai/): one-page concept overview, what Yutha is, what it's not, where the project is.
+- [Operator quickstart](https://yutha.ai/operator/quickstart/): 30-minute initiator path — stand up a control plane, activate a constitution, send your first envelope, observe receipts.
+- [Developer guide → LangGraph](https://yutha.ai/developer/langgraph/): 15-minute joiner path — wrap an existing LangGraph node as a Yutha agent.
+- [Developer guide → CrewAI](https://yutha.ai/developer/crewai/): joiner path for the CrewAI framework idiom.
+
+## Concepts
+
+- [Concepts overview](https://yutha.ai/concepts/): the conceptual layer of Yutha; read once and the rest of the docs make sense without re-explaining foundations.
+- [Primitives](https://yutha.ai/concepts/primitives/): passports, envelopes, receipts, capabilities — the four building blocks.
+- [Topology](https://yutha.ai/concepts/topology/): closed, open, and hybrid swarm shapes; when to choose which.
+- [Constitution & enforcement](https://yutha.ai/concepts/constitution/): Cedar+ policy language, evaluation semantics, four-stage enforcement loop (flag, restrict, quarantine, evict).
+- [Verifiability](https://yutha.ai/concepts/verifiability/): optional on-chain anchoring of receipt batches via Sui; third-party verification without trusting the operator.
+
+## Operator guide
+
+- [Operator guide overview](https://yutha.ai/operator/): when this section applies — running, configuring, monitoring a swarm.
+- [Quickstart](https://yutha.ai/operator/quickstart/): the 30-minute initiator path end-to-end, with exact CLI flags.
+- [Authoring constitutions](https://yutha.ai/operator/authoring-constitutions/): plain-English DSL, scoring rules, procedures, resource budgets, memory norms.
+- [Operator credentials](https://yutha.ai/operator/operator-credentials/): generating, rotating, and revoking the operator key; active-stream tear-down; capability cascade.
+- [Sui anchoring](https://yutha.ai/operator/sui-anchoring/): opt-in verifiability layer — publishing the Move package, creating a SwarmAnchor, wiring the AnchorDriver into the control plane.
+- [Monitoring & receipts](https://yutha.ai/operator/monitoring/): querying the receipt log, what to alert on, OpenTelemetry export.
+- [Deployment](https://yutha.ai/operator/deployment/): Postgres backend, scaling, single-tenant defaults, self-hosted vs. verifiable-backend.
+
+## Developer guide
+
+- [Developer guide overview](https://yutha.ai/developer/): when this section applies — building agents that join a Yutha-governed swarm.
+- [Quickstart](https://yutha.ai/developer/quickstart/): 15-minute joiner path, framework-neutral.
+- [Python SDK](https://yutha.ai/developer/python-sdk/): the canonical client surface — admission, envelope, receipts, capability, constitution APIs.
+- [LangGraph adapter](https://yutha.ai/developer/langgraph/): full walkthrough wrapping a LangGraph node as a Yutha agent; the richest hands-on quickstart today.
+- [CrewAI adapter](https://yutha.ai/developer/crewai/): equivalent for CrewAI Agents and Crews.
+- [Writing a new adapter](https://yutha.ai/developer/writing-adapters/): how to add support for a framework Yutha doesn't yet ship for.
+
+## Examples
+
+- [Examples overview](https://yutha.ai/examples/): worked end-to-end use cases.
+- [Customer support with refund cap](https://yutha.ai/examples/customer-support/): classifier + L1 + L2 escalation, supervisor-required for refunds above a threshold.
+- [Code review crew with security boundaries](https://yutha.ai/examples/code-review/): reviewer + auto-fix agents with capability gates around security-tagged paths.
+- [AP & invoice processing with payment caps](https://yutha.ai/examples/ap-invoice/): payment cap + CFO approval procedure + duplicate-detection reverse path.
+- [Cross-organization federation](https://yutha.ai/examples/cross-org-federation/): two swarms, one shared constitution, capability tokens crossing the org boundary.
+
+## Reference
+
+- [Specs](https://yutha.ai/reference/specs/): pointers into /spec/ on GitHub for the wire and artifact specifications.
+- [RFCs](https://yutha.ai/reference/rfcs/): pointer to the RFC archive at /spec/rfcs/, with notes on the more notable ones.
+- [Canonical actions](https://yutha.ai/reference/canonical-actions/): the registry of action_kind values that may appear in receipts.
+
+## Community
+
+- [Community overview](https://yutha.ai/community/): how to participate.
+- [Contributing](https://yutha.ai/community/CONTRIBUTING/): lightweight contribution guide for the solo-maintainer phase.
+- [Code of conduct](https://yutha.ai/community/CODE_OF_CONDUCT/): the Contributor Covenant.
+- [Security policy](https://yutha.ai/community/SECURITY/): how to report vulnerabilities; realistic solo-maintainer response timelines.
+- [RFC process](https://yutha.ai/community/RFC_PROCESS/): practical guide for filing an RFC.
+
+## Optional
+
+- [Full text dump for LLMs](https://yutha.ai/llms-full.txt): every page above concatenated into a single file for one-shot ingestion.
+- [GitHub repository](https://github.com/abhinavg6/yutha): source, RFC archive, conformance suite.

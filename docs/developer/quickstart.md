@@ -1,7 +1,7 @@
 # Developer quickstart
 
 !!! info "Page in progress"
-    Full content is being written. The richest hands-on quickstart today is the [LangChain & LangGraph guide](langgraph.md), which takes you from "fresh agent" to "five-agent workflow with capability gating and audit trail" in roughly fifteen minutes. The [CrewAI guide](crewai.md) is the equivalent for the CrewAI side.
+    Full content is being written. The richest hands-on quickstart today is the [LangGraph guide](langgraph.md), which takes you from "fresh agent" to "five-agent workflow with capability gating and audit trail" in roughly fifteen minutes. The [CrewAI guide](crewai.md) is the equivalent for the CrewAI side.
 
 What this page will cover when complete:
 

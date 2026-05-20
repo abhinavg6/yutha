@@ -2,8 +2,8 @@
 
 A walkthrough for developers and AI engineers who want to put CrewAI
 agents on top of Yutha's coordination substrate. Companion to the
-[LangChain & LangGraph guide](langgraph.md) — same substrate,
-different framework idioms.
+[LangGraph guide](langgraph.md) — same substrate, different framework
+idioms.
 
 By the end you'll have:
 
@@ -30,8 +30,7 @@ signature verification, stream multiplexing, receipt emission —
 happens below the SDK surface.
 
 If you haven't built an agent on top of Yutha before, the
-[LangChain & LangGraph guide](langgraph.md) is a gentler starting
-point (its handler is a synchronous state graph
+[LangGraph guide](langgraph.md) is a gentler starting point (its handler is a synchronous state graph
 with no LLM dependency). This walkthrough assumes you're already
 comfortable with CrewAI's ``Agent`` / ``Task`` / ``Crew`` model.
 
