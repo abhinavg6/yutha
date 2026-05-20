@@ -132,6 +132,11 @@ message SignedBy {
 // for efficient verification at scale. UNSEALED is fully valid; SEALED adds
 // the ability to prove inclusion via a Merkle path without revealing the rest
 // of the batch (selective-disclosure substrate for verifiable tier).
+//
+// Fields 5-6 (added per RFC 0014) are populated when the seal was committed
+// to an external verifiability backend (currently: Sui via the
+// receipt_anchor Move module). Receipts sealed by LocalSealer leave these
+// unset. Old consumers ignore the fields — additive, no wire break.
 message SealStatus {
   enum State {
     SEAL_STATE_UNKNOWN = 0;
@@ -142,6 +147,20 @@ message SealStatus {
   yutha.common.v1.Hash batch_root = 2;     // When sealed, the Merkle root of the batch.
   repeated yutha.common.v1.Hash merkle_path = 3; // Path from this receipt to batch_root.
   yutha.common.v1.Timestamp sealed_at = 4;
+
+  // Sui transaction digest of the commit_batch transaction that anchored
+  // this receipt's batch on-chain. 32 raw bytes. Present iff
+  // the sealer was a SuiSealer (RFC 0014); unset for LocalSealer and
+  // for unsealed receipts. See /spec/verifiability/sui-anchoring.md.
+  bytes on_chain_tx_digest = 5;
+
+  // Sui shared-object id of the SwarmAnchor object holding the rolling
+  // commitment history for this swarm. 32 raw bytes. Present together
+  // with on_chain_tx_digest. Lets a consumer with just a receipt
+  // reconstruct the inclusion proof without external state lookup —
+  // fetch the AnchorCommitted event on this object's stream filtered
+  // by batch_root, verify the on-chain commitment matches.
+  bytes swarm_anchor_object_id = 6;
 }
 
 // ---------------------------------------------------------------------------

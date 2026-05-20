@@ -100,11 +100,17 @@ impl From<SealState> for i32 {
 
 impl From<&SealStatus> for proto::SealStatus {
     fn from(s: &SealStatus) -> Self {
+        // `on_chain_tx_digest` + `swarm_anchor_object_id` map to the raw
+        // bytes form expected by the proto (RFC 0014). `None` → empty
+        // Vec, which prost serializes as a zero-length field and the
+        // canonical-bytes form omits entirely.
         proto::SealStatus {
             state: s.state.into(),
             batch_root: s.batch_root.as_ref().map(Into::into),
             merkle_path: s.merkle_path.iter().map(Into::into).collect(),
             sealed_at: s.sealed_at.as_ref().map(Into::into),
+            on_chain_tx_digest: s.on_chain_tx_digest.clone().unwrap_or_default(),
+            swarm_anchor_object_id: s.swarm_anchor_object_id.clone().unwrap_or_default(),
         }
     }
 }
@@ -289,11 +295,26 @@ impl TryFrom<&proto::SealStatus> for SealStatus {
             .map(Hash::try_from)
             .collect::<Result<Vec<_>, _>>()?;
         let sealed_at = p.sealed_at.as_ref().map(Timestamp::try_from).transpose()?;
+        // Empty Vec → None (the proto-default representation for unset
+        // bytes fields). RFC 0014: present together iff SuiSealer set
+        // them; LocalSealer leaves both empty.
+        let on_chain_tx_digest = if p.on_chain_tx_digest.is_empty() {
+            None
+        } else {
+            Some(p.on_chain_tx_digest.clone())
+        };
+        let swarm_anchor_object_id = if p.swarm_anchor_object_id.is_empty() {
+            None
+        } else {
+            Some(p.swarm_anchor_object_id.clone())
+        };
         Ok(SealStatus {
             state,
             batch_root,
             merkle_path,
             sealed_at,
+            on_chain_tx_digest,
+            swarm_anchor_object_id,
         })
     }
 }

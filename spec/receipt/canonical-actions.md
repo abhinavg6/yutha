@@ -89,6 +89,12 @@ Conformant implementations **MUST** use these strings when they produce receipts
 | `federation.delegate` | Federation handshake | Federating control plane | Bounded delegation issued. |
 | `federation.detach` | Federation handshake | Federating control plane | Clean federation detachment. |
 
+## Domain: Verifiability (Phase 3)
+
+| `action_kind` | Producer | Actor | Notes |
+|---------------|----------|-------|-------|
+| `anchor.commit` | Sealer | Control plane | One per successfully-confirmed Sui anchor transaction (RFC 0014). Evidence: `batch_root` (32-byte hex), `batch_index` (u64; the value of `SwarmAnchor.batch_count` BEFORE this commit), `count` (u64), `ns_range_start`, `ns_range_end`, `on_chain_tx_digest` (32-byte Sui tx digest), `swarm_anchor_object_id` (32-byte Sui shared-object id), `action_kind_histogram` (canonical histogram bytes per `/spec/verifiability/sui-anchoring.md` §4.1, hex-encoded), `anchored_at_wall_clock` (RFC 3339). Signed by the control plane only — no Actor signature, since the anchor is a substrate operation, not an agent action. The `anchor.commit` receipt is itself anchorable in a later batch (the audit trail of "when we anchored" is part of the audit trail). |
+
 ---
 
 ## How this registry evolves

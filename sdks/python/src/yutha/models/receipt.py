@@ -137,7 +137,14 @@ class SealState(IntEnum):
 
 
 class SealStatus(BaseModel):
-    """Whether this receipt is sealed into a Merkle batch."""
+    """Whether this receipt is sealed into a Merkle batch.
+
+    Fields ``on_chain_tx_digest`` + ``swarm_anchor_object_id`` are populated
+    when the seal was committed to an external verifiability backend
+    (currently: Sui via the ``receipt_anchor`` Move module — RFC 0014).
+    Receipts sealed by the ``LocalSealer`` (in-process, no external
+    commitment) leave both fields ``None``.
+    """
 
     model_config = ConfigDict(frozen=True)
 
@@ -145,17 +152,29 @@ class SealStatus(BaseModel):
     batch_root: Hash | None = None
     merkle_path: list[Hash] = Field(default_factory=list)
     sealed_at: Timestamp | None = None
+    # 32-byte Sui tx digest of the commit_batch transaction. None for
+    # LocalSealer / unsealed receipts. Raw bytes (NOT hex).
+    on_chain_tx_digest: bytes | None = None
+    # 32-byte Sui shared-object id of the SwarmAnchor object. Populated
+    # together with on_chain_tx_digest. Raw bytes (NOT hex).
+    swarm_anchor_object_id: bytes | None = None
 
     @classmethod
     def from_proto(cls, p: proto.SealStatus) -> SealStatus:
         # Wire 0 = UNKNOWN → treat as UNSEALED (back-compat with old
         # receipts that didn't set the field). Matches Rust reverse impl.
         wire_state = p.state if p.state != 0 else proto.SealStatus.SEAL_STATE_UNSEALED
+        # Empty bytes → None (proto's default-empty representation for
+        # unset bytes fields). RFC 0014: present together iff SuiSealer.
+        on_chain_tx_digest = p.on_chain_tx_digest if p.on_chain_tx_digest else None
+        swarm_anchor_object_id = p.swarm_anchor_object_id if p.swarm_anchor_object_id else None
         return cls(
             state=SealState(wire_state),
             batch_root=Hash.from_proto(p.batch_root) if p.HasField("batch_root") else None,
             merkle_path=[Hash.from_proto(h) for h in p.merkle_path],
             sealed_at=Timestamp.from_proto(p.sealed_at) if p.HasField("sealed_at") else None,
+            on_chain_tx_digest=on_chain_tx_digest,
+            swarm_anchor_object_id=swarm_anchor_object_id,
         )
 
     def to_proto(self) -> proto.SealStatus:
@@ -168,6 +187,10 @@ class SealStatus(BaseModel):
             out.batch_root.CopyFrom(self.batch_root.to_proto())
         if self.sealed_at is not None:
             out.sealed_at.CopyFrom(self.sealed_at.to_proto())
+        if self.on_chain_tx_digest is not None:
+            out.on_chain_tx_digest = self.on_chain_tx_digest
+        if self.swarm_anchor_object_id is not None:
+            out.swarm_anchor_object_id = self.swarm_anchor_object_id
         return out
 
 

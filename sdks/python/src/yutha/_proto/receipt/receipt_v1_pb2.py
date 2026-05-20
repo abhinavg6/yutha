@@ -25,15 +25,15 @@ _sym_db = _symbol_database.Default()
 from yutha._proto import common_pb2 as common__pb2
 
 
-DESCRIPTOR = _descriptor_pool.Default().AddSerializedFile(b'\n\x18receipt/receipt-v1.proto\x12\x10yutha.receipt.v1\x1a\x0c\x63ommon.proto\"\x8a\x04\n\x07Receipt\x12.\n\x0cspec_version\x18\x01 \x01(\x0b\x32\x18.yutha.common.v1.Version\x12*\n\x08swarm_id\x18\x02 \x01(\x0b\x32\x18.yutha.common.v1.SwarmId\x12\'\n\x05\x61\x63tor\x18\x03 \x01(\x0b\x32\x18.yutha.common.v1.AgentId\x12\x13\n\x0b\x61\x63tion_kind\x18\x04 \x01(\t\x12*\n\x06\x63\x61usal\x18\x05 \x01(\x0b\x32\x1a.yutha.common.v1.CausalRef\x12,\n\x08\x65vidence\x18\x06 \x03(\x0b\x32\x1a.yutha.receipt.v1.Evidence\x12\x1c\n\x14\x63onstitution_version\x18\x07 \x01(\t\x12-\n\x04\x63ost\x18\x08 \x01(\x0b\x32\x1f.yutha.common.v1.CostAnnotation\x12/\n\x0boccurred_at\x18\t \x01(\x0b\x32\x1a.yutha.common.v1.Timestamp\x12*\n\x04seal\x18\n \x01(\x0b\x32\x1c.yutha.receipt.v1.SealStatus\x12\x30\n\nextensions\x18\xc8\x01 \x01(\x0b\x32\x1b.yutha.common.v1.Extensions\x12/\n\nsignatures\x18\xfa\x01 \x03(\x0b\x32\x1a.yutha.receipt.v1.SignedBy\"K\n\x08\x45vidence\x12\x0b\n\x03key\x18\x01 \x01(\t\x12\x10\n\x08type_url\x18\x02 \x01(\t\x12\r\n\x05value\x18\x03 \x01(\x0c\x12\x11\n\tsensitive\x18\x04 \x01(\x08\"\x97\x01\n\x08SignedBy\x12-\n\x04role\x18\x01 \x01(\x0e\x32\x1f.yutha.receipt.v1.SignatureRole\x12-\n\tsignature\x18\x02 \x01(\x0b\x32\x1a.yutha.common.v1.Signature\x12-\n\tsigned_at\x18\x03 \x01(\x0b\x32\x1a.yutha.common.v1.Timestamp\"\x96\x02\n\nSealStatus\x12\x31\n\x05state\x18\x01 \x01(\x0e\x32\".yutha.receipt.v1.SealStatus.State\x12)\n\nbatch_root\x18\x02 \x01(\x0b\x32\x15.yutha.common.v1.Hash\x12*\n\x0bmerkle_path\x18\x03 \x03(\x0b\x32\x15.yutha.common.v1.Hash\x12-\n\tsealed_at\x18\x04 \x01(\x0b\x32\x1a.yutha.common.v1.Timestamp\"O\n\x05State\x12\x16\n\x12SEAL_STATE_UNKNOWN\x10\x00\x12\x17\n\x13SEAL_STATE_UNSEALED\x10\x01\x12\x15\n\x11SEAL_STATE_SEALED\x10\x02\"R\n\rAppendRequest\x12*\n\x07receipt\x18\x01 \x01(\x0b\x32\x19.yutha.receipt.v1.Receipt\x12\x15\n\rwait_for_seal\x18\x02 \x01(\x08\"g\n\x0e\x41ppendResponse\x12)\n\nreceipt_id\x18\x01 \x01(\x0b\x32\x15.yutha.common.v1.Hash\x12*\n\x04seal\x18\x02 \x01(\x0b\x32\x1c.yutha.receipt.v1.SealStatus\"\xc9\x02\n\x0cQueryRequest\x12.\n\rby_receipt_id\x18\x01 \x01(\x0b\x32\x15.yutha.common.v1.HashH\x00\x12<\n\x0e\x62y_predecessor\x18\x02 \x01(\x0b\x32\".yutha.receipt.v1.PredecessorQueryH\x00\x12\x30\n\x08\x62y_agent\x18\x03 \x01(\x0b\x32\x1c.yutha.receipt.v1.AgentQueryH\x00\x12;\n\x0e\x62y_action_kind\x18\x04 \x01(\x0b\x32!.yutha.receipt.v1.ActionKindQueryH\x00\x12\x33\n\x07\x62y_time\x18\x05 \x01(\x0b\x32 .yutha.receipt.v1.TimeRangeQueryH\x00\x12\r\n\x05limit\x18\n \x01(\r\x12\x12\n\npage_token\x18\x0b \x01(\x0c\x42\x04\n\x02\x62y\">\n\x10PredecessorQuery\x12*\n\x0bpredecessor\x18\x01 \x01(\x0b\x32\x15.yutha.common.v1.Hash\"8\n\nAgentQuery\x12*\n\x08\x61gent_id\x18\x01 \x01(\x0b\x32\x18.yutha.common.v1.AgentId\"&\n\x0f\x41\x63tionKindQuery\x12\x13\n\x0b\x61\x63tion_kind\x18\x01 \x01(\t\"b\n\x0eTimeRangeQuery\x12(\n\x04\x66rom\x18\x01 \x01(\x0b\x32\x1a.yutha.common.v1.Timestamp\x12&\n\x02to\x18\x02 \x01(\x0b\x32\x1a.yutha.common.v1.Timestamp\"U\n\rQueryResponse\x12+\n\x08receipts\x18\x01 \x03(\x0b\x32\x19.yutha.receipt.v1.Receipt\x12\x17\n\x0fnext_page_token\x18\x02 \x01(\x0c\"p\n\rExportRequest\x12/\n\x05range\x18\x01 \x01(\x0b\x32 .yutha.receipt.v1.TimeRangeQuery\x12\x14\n\x0c\x61\x63tion_kinds\x18\x02 \x03(\t\x12\x18\n\x10include_unsealed\x18\x03 \x01(\x08\"\xd4\x01\n\x0e\x45xportManifest\x12*\n\x0breceipt_ids\x18\x01 \x03(\x0b\x32\x15.yutha.common.v1.Hash\x12,\n\rmanifest_root\x18\x02 \x01(\x0b\x32\x15.yutha.common.v1.Hash\x12\x36\n\x12manifest_signature\x18\x03 \x01(\x0b\x32\x1a.yutha.common.v1.Signature\x12\x30\n\x0cgenerated_at\x18\x04 \x01(\x0b\x32\x1a.yutha.common.v1.Timestamp*\xc5\x01\n\rSignatureRole\x12\x1a\n\x16SIGNATURE_ROLE_UNKNOWN\x10\x00\x12\x18\n\x14SIGNATURE_ROLE_ACTOR\x10\x01\x12 \n\x1cSIGNATURE_ROLE_CONTROL_PLANE\x10\x02\x12\x1d\n\x19SIGNATURE_ROLE_SUPERVISOR\x10\x03\x12\x1e\n\x1aSIGNATURE_ROLE_ATTESTATION\x10\x04\x12\x1d\n\x19SIGNATURE_ROLE_BATCH_ROOT\x10\x05\x62\x06proto3')
+DESCRIPTOR = _descriptor_pool.Default().AddSerializedFile(b'\n\x18receipt/receipt-v1.proto\x12\x10yutha.receipt.v1\x1a\x0c\x63ommon.proto\"\x8a\x04\n\x07Receipt\x12.\n\x0cspec_version\x18\x01 \x01(\x0b\x32\x18.yutha.common.v1.Version\x12*\n\x08swarm_id\x18\x02 \x01(\x0b\x32\x18.yutha.common.v1.SwarmId\x12\'\n\x05\x61\x63tor\x18\x03 \x01(\x0b\x32\x18.yutha.common.v1.AgentId\x12\x13\n\x0b\x61\x63tion_kind\x18\x04 \x01(\t\x12*\n\x06\x63\x61usal\x18\x05 \x01(\x0b\x32\x1a.yutha.common.v1.CausalRef\x12,\n\x08\x65vidence\x18\x06 \x03(\x0b\x32\x1a.yutha.receipt.v1.Evidence\x12\x1c\n\x14\x63onstitution_version\x18\x07 \x01(\t\x12-\n\x04\x63ost\x18\x08 \x01(\x0b\x32\x1f.yutha.common.v1.CostAnnotation\x12/\n\x0boccurred_at\x18\t \x01(\x0b\x32\x1a.yutha.common.v1.Timestamp\x12*\n\x04seal\x18\n \x01(\x0b\x32\x1c.yutha.receipt.v1.SealStatus\x12\x30\n\nextensions\x18\xc8\x01 \x01(\x0b\x32\x1b.yutha.common.v1.Extensions\x12/\n\nsignatures\x18\xfa\x01 \x03(\x0b\x32\x1a.yutha.receipt.v1.SignedBy\"K\n\x08\x45vidence\x12\x0b\n\x03key\x18\x01 \x01(\t\x12\x10\n\x08type_url\x18\x02 \x01(\t\x12\r\n\x05value\x18\x03 \x01(\x0c\x12\x11\n\tsensitive\x18\x04 \x01(\x08\"\x97\x01\n\x08SignedBy\x12-\n\x04role\x18\x01 \x01(\x0e\x32\x1f.yutha.receipt.v1.SignatureRole\x12-\n\tsignature\x18\x02 \x01(\x0b\x32\x1a.yutha.common.v1.Signature\x12-\n\tsigned_at\x18\x03 \x01(\x0b\x32\x1a.yutha.common.v1.Timestamp\"\xd2\x02\n\nSealStatus\x12\x31\n\x05state\x18\x01 \x01(\x0e\x32\".yutha.receipt.v1.SealStatus.State\x12)\n\nbatch_root\x18\x02 \x01(\x0b\x32\x15.yutha.common.v1.Hash\x12*\n\x0bmerkle_path\x18\x03 \x03(\x0b\x32\x15.yutha.common.v1.Hash\x12-\n\tsealed_at\x18\x04 \x01(\x0b\x32\x1a.yutha.common.v1.Timestamp\x12\x1a\n\x12on_chain_tx_digest\x18\x05 \x01(\x0c\x12\x1e\n\x16swarm_anchor_object_id\x18\x06 \x01(\x0c\"O\n\x05State\x12\x16\n\x12SEAL_STATE_UNKNOWN\x10\x00\x12\x17\n\x13SEAL_STATE_UNSEALED\x10\x01\x12\x15\n\x11SEAL_STATE_SEALED\x10\x02\"R\n\rAppendRequest\x12*\n\x07receipt\x18\x01 \x01(\x0b\x32\x19.yutha.receipt.v1.Receipt\x12\x15\n\rwait_for_seal\x18\x02 \x01(\x08\"g\n\x0e\x41ppendResponse\x12)\n\nreceipt_id\x18\x01 \x01(\x0b\x32\x15.yutha.common.v1.Hash\x12*\n\x04seal\x18\x02 \x01(\x0b\x32\x1c.yutha.receipt.v1.SealStatus\"\xc9\x02\n\x0cQueryRequest\x12.\n\rby_receipt_id\x18\x01 \x01(\x0b\x32\x15.yutha.common.v1.HashH\x00\x12<\n\x0e\x62y_predecessor\x18\x02 \x01(\x0b\x32\".yutha.receipt.v1.PredecessorQueryH\x00\x12\x30\n\x08\x62y_agent\x18\x03 \x01(\x0b\x32\x1c.yutha.receipt.v1.AgentQueryH\x00\x12;\n\x0e\x62y_action_kind\x18\x04 \x01(\x0b\x32!.yutha.receipt.v1.ActionKindQueryH\x00\x12\x33\n\x07\x62y_time\x18\x05 \x01(\x0b\x32 .yutha.receipt.v1.TimeRangeQueryH\x00\x12\r\n\x05limit\x18\n \x01(\r\x12\x12\n\npage_token\x18\x0b \x01(\x0c\x42\x04\n\x02\x62y\">\n\x10PredecessorQuery\x12*\n\x0bpredecessor\x18\x01 \x01(\x0b\x32\x15.yutha.common.v1.Hash\"8\n\nAgentQuery\x12*\n\x08\x61gent_id\x18\x01 \x01(\x0b\x32\x18.yutha.common.v1.AgentId\"&\n\x0f\x41\x63tionKindQuery\x12\x13\n\x0b\x61\x63tion_kind\x18\x01 \x01(\t\"b\n\x0eTimeRangeQuery\x12(\n\x04\x66rom\x18\x01 \x01(\x0b\x32\x1a.yutha.common.v1.Timestamp\x12&\n\x02to\x18\x02 \x01(\x0b\x32\x1a.yutha.common.v1.Timestamp\"U\n\rQueryResponse\x12+\n\x08receipts\x18\x01 \x03(\x0b\x32\x19.yutha.receipt.v1.Receipt\x12\x17\n\x0fnext_page_token\x18\x02 \x01(\x0c\"p\n\rExportRequest\x12/\n\x05range\x18\x01 \x01(\x0b\x32 .yutha.receipt.v1.TimeRangeQuery\x12\x14\n\x0c\x61\x63tion_kinds\x18\x02 \x03(\t\x12\x18\n\x10include_unsealed\x18\x03 \x01(\x08\"\xd4\x01\n\x0e\x45xportManifest\x12*\n\x0breceipt_ids\x18\x01 \x03(\x0b\x32\x15.yutha.common.v1.Hash\x12,\n\rmanifest_root\x18\x02 \x01(\x0b\x32\x15.yutha.common.v1.Hash\x12\x36\n\x12manifest_signature\x18\x03 \x01(\x0b\x32\x1a.yutha.common.v1.Signature\x12\x30\n\x0cgenerated_at\x18\x04 \x01(\x0b\x32\x1a.yutha.common.v1.Timestamp*\xc5\x01\n\rSignatureRole\x12\x1a\n\x16SIGNATURE_ROLE_UNKNOWN\x10\x00\x12\x18\n\x14SIGNATURE_ROLE_ACTOR\x10\x01\x12 \n\x1cSIGNATURE_ROLE_CONTROL_PLANE\x10\x02\x12\x1d\n\x19SIGNATURE_ROLE_SUPERVISOR\x10\x03\x12\x1e\n\x1aSIGNATURE_ROLE_ATTESTATION\x10\x04\x12\x1d\n\x19SIGNATURE_ROLE_BATCH_ROOT\x10\x05\x62\x06proto3')
 
 _globals = globals()
 _builder.BuildMessageAndEnumDescriptors(DESCRIPTOR, _globals)
 _builder.BuildTopDescriptorsAndMessages(DESCRIPTOR, 'receipt.receipt_v1_pb2', _globals)
 if not _descriptor._USE_C_DESCRIPTORS:
   DESCRIPTOR._loaded_options = None
-  _globals['_SIGNATUREROLE']._serialized_start=2297
-  _globals['_SIGNATUREROLE']._serialized_end=2494
+  _globals['_SIGNATUREROLE']._serialized_start=2357
+  _globals['_SIGNATUREROLE']._serialized_end=2554
   _globals['_RECEIPT']._serialized_start=61
   _globals['_RECEIPT']._serialized_end=583
   _globals['_EVIDENCE']._serialized_start=585
@@ -41,27 +41,27 @@ if not _descriptor._USE_C_DESCRIPTORS:
   _globals['_SIGNEDBY']._serialized_start=663
   _globals['_SIGNEDBY']._serialized_end=814
   _globals['_SEALSTATUS']._serialized_start=817
-  _globals['_SEALSTATUS']._serialized_end=1095
-  _globals['_SEALSTATUS_STATE']._serialized_start=1016
-  _globals['_SEALSTATUS_STATE']._serialized_end=1095
-  _globals['_APPENDREQUEST']._serialized_start=1097
-  _globals['_APPENDREQUEST']._serialized_end=1179
-  _globals['_APPENDRESPONSE']._serialized_start=1181
-  _globals['_APPENDRESPONSE']._serialized_end=1284
-  _globals['_QUERYREQUEST']._serialized_start=1287
-  _globals['_QUERYREQUEST']._serialized_end=1616
-  _globals['_PREDECESSORQUERY']._serialized_start=1618
-  _globals['_PREDECESSORQUERY']._serialized_end=1680
-  _globals['_AGENTQUERY']._serialized_start=1682
-  _globals['_AGENTQUERY']._serialized_end=1738
-  _globals['_ACTIONKINDQUERY']._serialized_start=1740
-  _globals['_ACTIONKINDQUERY']._serialized_end=1778
-  _globals['_TIMERANGEQUERY']._serialized_start=1780
-  _globals['_TIMERANGEQUERY']._serialized_end=1878
-  _globals['_QUERYRESPONSE']._serialized_start=1880
-  _globals['_QUERYRESPONSE']._serialized_end=1965
-  _globals['_EXPORTREQUEST']._serialized_start=1967
-  _globals['_EXPORTREQUEST']._serialized_end=2079
-  _globals['_EXPORTMANIFEST']._serialized_start=2082
-  _globals['_EXPORTMANIFEST']._serialized_end=2294
+  _globals['_SEALSTATUS']._serialized_end=1155
+  _globals['_SEALSTATUS_STATE']._serialized_start=1076
+  _globals['_SEALSTATUS_STATE']._serialized_end=1155
+  _globals['_APPENDREQUEST']._serialized_start=1157
+  _globals['_APPENDREQUEST']._serialized_end=1239
+  _globals['_APPENDRESPONSE']._serialized_start=1241
+  _globals['_APPENDRESPONSE']._serialized_end=1344
+  _globals['_QUERYREQUEST']._serialized_start=1347
+  _globals['_QUERYREQUEST']._serialized_end=1676
+  _globals['_PREDECESSORQUERY']._serialized_start=1678
+  _globals['_PREDECESSORQUERY']._serialized_end=1740
+  _globals['_AGENTQUERY']._serialized_start=1742
+  _globals['_AGENTQUERY']._serialized_end=1798
+  _globals['_ACTIONKINDQUERY']._serialized_start=1800
+  _globals['_ACTIONKINDQUERY']._serialized_end=1838
+  _globals['_TIMERANGEQUERY']._serialized_start=1840
+  _globals['_TIMERANGEQUERY']._serialized_end=1938
+  _globals['_QUERYRESPONSE']._serialized_start=1940
+  _globals['_QUERYRESPONSE']._serialized_end=2025
+  _globals['_EXPORTREQUEST']._serialized_start=2027
+  _globals['_EXPORTREQUEST']._serialized_end=2139
+  _globals['_EXPORTMANIFEST']._serialized_start=2142
+  _globals['_EXPORTMANIFEST']._serialized_end=2354
 # @@protoc_insertion_point(module_scope)

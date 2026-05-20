@@ -243,9 +243,13 @@ class YuthaAgent:
         :attr:`_dispatch_error` so it's not silently swallowed.
         """
         try:
-            # subscribe() is a synchronous call that eagerly initiates
-            # the Subscribe RPC; we can signal ready immediately after.
-            sub_iter = self._client.envelope.subscribe()
+            # subscribe() is an async coroutine that returns AFTER the
+            # server has received the Subscribe RPC (initial metadata
+            # received → server-side handler entered → inbox
+            # registered). Signal ready immediately after the await
+            # resolves; any send the caller does next will hit a
+            # registered subscription.
+            sub_iter = await self._client.envelope.subscribe()
             self._subscription_ready.set()
             async for envelope, deliver_receipt in sub_iter:
                 try:

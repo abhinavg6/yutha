@@ -93,6 +93,11 @@ impl ErrorIntoStatus for ReceiptError {
             ReceiptError::InvalidQuery(_) => Status::invalid_argument(self.to_string()),
             ReceiptError::Backend(_) => Status::internal(self.to_string()),
             ReceiptError::Crypto(_) => Status::internal(self.to_string()),
+            // BatchInvalid surfaces from the H2 Sealer path when the
+            // canonical preimage doesn't match the receipts (sum != count,
+            // histogram-key sort/length violation, etc.). It's a
+            // validation failure on the batch as supplied — invalid_argument.
+            ReceiptError::BatchInvalid(_) => Status::invalid_argument(self.to_string()),
             ReceiptError::Core(c) => c.to_status(),
         }
     }

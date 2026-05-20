@@ -45,7 +45,8 @@ use yutha_core::{
 use yutha_crypto::canonical::{content_address, Canonical};
 use yutha_receipt::{
     AppendKind, AppendOptions, AppendOutcome, Evidence, Page, PassportResolver, Query, Receipt,
-    ReceiptError, ReceiptStore, Result, SealStatus, SignatureRole, SignedBy,
+    ReceiptError, ReceiptStore, Result, SealStatus, SealStore, SealedBatch, SignatureRole,
+    SignedBy,
 };
 
 /// Postgres-backed receipt store.
@@ -357,6 +358,170 @@ impl ReceiptStore for PostgresStore {
             .map_err(|e| ReceiptError::Backend(format!("count decode: {e}")))?;
         Ok(c.max(0) as u64)
     }
+}
+
+// -----------------------------------------------------------------------------
+// SealStore impl (RFC 0014, /spec/verifiability/sui-anchoring.md §7)
+// -----------------------------------------------------------------------------
+
+#[async_trait]
+impl SealStore for PostgresStore {
+    async fn record_sealed_batch(&self, batch: &SealedBatch) -> Result<()> {
+        if batch.leaves.is_empty() {
+            return Err(ReceiptError::BatchInvalid(
+                "sealed batch must contain at least one leaf".into(),
+            ));
+        }
+
+        let root_digest = require_sha256(&batch.batch_root)?;
+        let sealed_at_ns = u64_to_i64(batch.sealed_at.monotonic_ns);
+        let sealed_at_wall = batch.sealed_at.wall_clock.clone();
+        let on_chain_anchor: Option<Vec<u8>> = if batch.commitment_id.is_empty() {
+            None
+        } else {
+            Some(batch.commitment_id.clone())
+        };
+
+        // All N row inserts go into a single transaction (atomicity is
+        // the load-bearing property here per the spec doc §7.2). An
+        // INSERT ... ON CONFLICT path handles the idempotent-reseal
+        // case; conflicts where the existing row has a different
+        // batch_root surface as BatchInvalid.
+        let mut tx = self
+            .pool
+            .begin()
+            .await
+            .map_err(|e| ReceiptError::Backend(format!("seal: begin tx: {e}")))?;
+
+        for leaf in &batch.leaves {
+            let receipt_digest = require_sha256(&leaf.leaf)?;
+            let path_digests: Vec<Vec<u8>> = leaf
+                .path
+                .iter()
+                .map(require_sha256)
+                .collect::<Result<Vec<_>>>()?;
+
+            // Step 1: detect a pre-existing seal with a conflicting root.
+            // If the row exists with a different batch_root, abort — the
+            // sealer-cadence loop should never produce this, so an error
+            // indicates either a sealer bug or Postgres tampering. Either
+            // way, refuse silently overwriting.
+            let existing: Option<Vec<u8>> = sqlx::query_scalar(
+                "SELECT batch_root FROM receipt_seal WHERE receipt_id = $1 FOR UPDATE",
+            )
+            .bind(&receipt_digest)
+            .fetch_optional(&mut *tx)
+            .await
+            .map_err(|e| ReceiptError::Backend(format!("seal: lookup existing: {e}")))?;
+
+            if let Some(existing_root) = existing {
+                if existing_root != root_digest {
+                    return Err(ReceiptError::BatchInvalid(format!(
+                        "receipt {} already sealed in a different batch",
+                        hex_short(&receipt_digest)
+                    )));
+                }
+                // Same batch_root → idempotent re-seal, skip insert.
+                continue;
+            }
+
+            // Step 2: insert the new row.
+            sqlx::query(
+                "INSERT INTO receipt_seal \
+                    (receipt_id, batch_root, merkle_path, sealed_at_ns, \
+                     sealed_at_wall, on_chain_anchor_tx_digest) \
+                 VALUES ($1, $2, $3, $4, $5, $6)",
+            )
+            .bind(&receipt_digest)
+            .bind(&root_digest)
+            .bind(&path_digests)
+            .bind(sealed_at_ns)
+            .bind(&sealed_at_wall)
+            .bind(on_chain_anchor.as_deref())
+            .execute(&mut *tx)
+            .await
+            .map_err(|e| ReceiptError::Backend(format!("seal: insert: {e}")))?;
+        }
+
+        tx.commit()
+            .await
+            .map_err(|e| ReceiptError::Backend(format!("seal: commit: {e}")))?;
+
+        Ok(())
+    }
+
+    async fn seal_status(&self, receipt_id: &Hash) -> Result<SealStatus> {
+        let digest = require_sha256(receipt_id)?;
+        let row = sqlx::query(
+            "SELECT batch_root, merkle_path, sealed_at_ns, sealed_at_wall, \
+                    on_chain_anchor_tx_digest \
+             FROM receipt_seal WHERE receipt_id = $1",
+        )
+        .bind(&digest)
+        .fetch_optional(&self.pool)
+        .await
+        .map_err(|e| ReceiptError::Backend(format!("seal_status: {e}")))?;
+
+        let Some(row) = row else {
+            // No seal row → unsealed (the spec's "neither in this map
+            // nor anywhere else" case).
+            return Ok(SealStatus::unsealed());
+        };
+
+        let root_digest: Vec<u8> = row
+            .try_get("batch_root")
+            .map_err(|e| ReceiptError::Backend(format!("seal_status decode root: {e}")))?;
+        let batch_root = Hash::new(HashAlgorithm::Sha256, root_digest)
+            .map_err(|e| ReceiptError::Backend(format!("seal_status: root not 32 bytes: {e}")))?;
+
+        let path_digests: Vec<Vec<u8>> = row
+            .try_get("merkle_path")
+            .map_err(|e| ReceiptError::Backend(format!("seal_status decode path: {e}")))?;
+        let merkle_path: Vec<Hash> = path_digests
+            .into_iter()
+            .map(|d| Hash::new(HashAlgorithm::Sha256, d))
+            .collect::<std::result::Result<Vec<_>, _>>()
+            .map_err(|e| {
+                ReceiptError::Backend(format!("seal_status: path entry not 32 bytes: {e}"))
+            })?;
+
+        let sealed_at_ns_i64: i64 = row
+            .try_get("sealed_at_ns")
+            .map_err(|e| ReceiptError::Backend(format!("seal_status decode ns: {e}")))?;
+        let sealed_at_wall: String = row
+            .try_get("sealed_at_wall")
+            .map_err(|e| ReceiptError::Backend(format!("seal_status decode wall: {e}")))?;
+        let sealed_at = Timestamp::new(sealed_at_wall, i64_to_u64(sealed_at_ns_i64))
+            .map_err(ReceiptError::Core)?;
+
+        let on_chain: Option<Vec<u8>> = row
+            .try_get("on_chain_anchor_tx_digest")
+            .map_err(|e| ReceiptError::Backend(format!("seal_status decode anchor: {e}")))?;
+
+        Ok(match on_chain {
+            Some(tx_digest) => SealStatus::sealed_with_anchor(
+                batch_root,
+                merkle_path,
+                sealed_at,
+                tx_digest,
+                Vec::new(), // swarm_anchor_object_id lives in runtime config, not Postgres
+            ),
+            None => SealStatus::sealed(batch_root, merkle_path, sealed_at),
+        })
+    }
+}
+
+/// Short hex for error messages.
+fn hex_short(bytes: &[u8]) -> String {
+    let take = bytes.len().min(8);
+    let mut s = String::with_capacity(take * 2 + 3);
+    for b in &bytes[..take] {
+        s.push_str(&format!("{b:02x}"));
+    }
+    if bytes.len() > take {
+        s.push_str("...");
+    }
+    s
 }
 
 // -----------------------------------------------------------------------------

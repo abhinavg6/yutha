@@ -72,3 +72,19 @@ pgdata/
 *.tar.gz
 *.zip
 *.bak
+
+# Sui sealer keys (suiprivkey1... bech32). Some `sui keytool` flows write
+# these to cwd as `<address>.key`; they're private material and must not
+# enter git. Same goes for the per-operator ~/.yutha/sealer.key staged by
+# the H5 localnet walkthrough.
+*.key
+
+# Sui `sui client test-publish` ephemeral state (chain-id pinned to the
+# last localnet regenesis). Regenerated on each --force-regenesis; not
+# source of truth.
+Pub.*.toml
+
+# Server logs from local control-plane runs (tee-d during integration
+# test debugging). Never useful in tree.
+server.log
+*.log

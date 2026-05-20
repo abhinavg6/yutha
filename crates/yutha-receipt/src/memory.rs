@@ -13,8 +13,9 @@ use crate::passport::PassportResolver;
 use crate::query::{AppendOptions, Page, Query};
 use crate::receipt::Receipt;
 use crate::seal::SealStatus;
+use crate::sealer::SealedBatch;
 use crate::signing::SignatureRole;
-use crate::store::{AppendKind, AppendOutcome, ReceiptStore};
+use crate::store::{AppendKind, AppendOutcome, ReceiptStore, SealStore};
 use crate::verify::verify_receipt_signatures;
 use async_trait::async_trait;
 use std::collections::HashMap;
@@ -27,6 +28,12 @@ use yutha_crypto::canonical::content_address;
 ///
 /// Thread-safe via `tokio::sync::RwLock`. Cloneable handles share state
 /// (`Arc` inside).
+///
+/// Implements both [`ReceiptStore`] (the cheap append/query path) and
+/// [`SealStore`] (the verifiability tier path — RFC 0014). The two
+/// traits share the same inner state behind one RwLock, so a sealed
+/// batch's records are visible to any concurrent [`SealStore::seal_status`]
+/// reader the moment the write commits.
 #[derive(Debug, Clone, Default)]
 pub struct MemoryStore {
     inner: Arc<RwLock<MemoryStoreInner>>,
@@ -37,6 +44,9 @@ struct MemoryStoreInner {
     by_id: HashMap<Hash, Receipt>,
     /// predecessor_hash → list of receipts that depend on it
     by_predecessor: HashMap<Hash, Vec<Hash>>,
+    /// receipt_id → SealStatus. Populated by [`SealStore::record_sealed_batch`].
+    /// Receipts not in this map are [`SealStatus::unsealed`].
+    seals: HashMap<Hash, SealStatus>,
 }
 
 impl MemoryStore {
@@ -164,6 +174,100 @@ impl ReceiptStore for MemoryStore {
         let guard = self.inner.read().await;
         Ok(guard.by_id.len() as u64)
     }
+}
+
+#[async_trait]
+impl SealStore for MemoryStore {
+    async fn record_sealed_batch(&self, batch: &SealedBatch) -> Result<()> {
+        if batch.leaves.is_empty() {
+            return Err(ReceiptError::BatchInvalid(
+                "sealed batch must contain at least one leaf".into(),
+            ));
+        }
+
+        // Two-pass: validate idempotency / conflict semantics first, then
+        // commit the write. Holding the lock across both passes guarantees
+        // no concurrent record_sealed_batch slips a conflicting row in
+        // between the check and the commit.
+        let mut guard = self.inner.write().await;
+
+        for leaf in &batch.leaves {
+            if let Some(existing) = guard.seals.get(&leaf.leaf) {
+                // Already sealed. Same batch_root → no-op idempotent.
+                // Different batch_root → error: a receipt can only be
+                // in one batch.
+                match (&existing.batch_root, Some(&batch.batch_root)) {
+                    (Some(prev), Some(new)) if prev == new => {
+                        // Idempotent re-seal of the same receipt into the
+                        // same batch — fine.
+                        continue;
+                    }
+                    _ => {
+                        return Err(ReceiptError::BatchInvalid(format!(
+                            "receipt {} already sealed in a different batch",
+                            hex_short(&leaf.leaf.digest)
+                        )));
+                    }
+                }
+            }
+        }
+
+        // Build a SealStatus per leaf. on_chain_tx_digest is set iff the
+        // batch's commitment_id is non-empty (SuiSealer); empty
+        // (LocalSealer) leaves it None.
+        let on_chain = if batch.commitment_id.is_empty() {
+            None
+        } else {
+            Some(batch.commitment_id.clone())
+        };
+
+        for leaf in &batch.leaves {
+            let status = if let Some(tx_digest) = on_chain.clone() {
+                // SuiSealer-style: include the anchor. The
+                // swarm_anchor_object_id is NOT part of the in-memory
+                // store's view — it's a runtime concern that lives in
+                // the sealer's configuration, not per-receipt state.
+                // Tests that need it construct SealStatus manually.
+                SealStatus::sealed_with_anchor(
+                    batch.batch_root.clone(),
+                    leaf.path.clone(),
+                    batch.sealed_at.clone(),
+                    tx_digest,
+                    Vec::new(),
+                )
+            } else {
+                SealStatus::sealed(
+                    batch.batch_root.clone(),
+                    leaf.path.clone(),
+                    batch.sealed_at.clone(),
+                )
+            };
+            guard.seals.insert(leaf.leaf.clone(), status);
+        }
+        Ok(())
+    }
+
+    async fn seal_status(&self, receipt_id: &Hash) -> Result<SealStatus> {
+        let guard = self.inner.read().await;
+        Ok(guard
+            .seals
+            .get(receipt_id)
+            .cloned()
+            .unwrap_or_else(SealStatus::unsealed))
+    }
+}
+
+/// Short hex for error messages.
+fn hex_short(bytes: &[u8]) -> String {
+    let take = bytes.len().min(8);
+    let mut s = String::with_capacity(take * 2 + 3);
+    for b in &bytes[..take] {
+        s.push_str(&format!("{b:02x}"));
+    }
+    if bytes.len() > take {
+        s.push_str("...");
+    }
+    s
 }
 
 #[cfg(test)]
@@ -440,5 +544,146 @@ mod tests {
             matches!(result, Err(crate::ReceiptError::ActorNotResolvable(a)) if a == actor),
             "expected ActorNotResolvable, got {result:?}"
         );
+    }
+
+    // -----------------------------------------------------------------
+    // SealStore tests
+    // -----------------------------------------------------------------
+
+    use crate::sealer::{LocalSealer, Sealer};
+
+    /// Build a small batch of receipts via fixtures + LocalSealer.
+    /// Returns (store, receipt_ids, sealed_batch).
+    async fn append_and_seal(
+        receipt_count: usize,
+    ) -> (MemoryStore, Vec<Hash>, crate::sealer::SealedBatch) {
+        let store = MemoryStore::new();
+        let mut receipts = Vec::new();
+        let mut ids = Vec::new();
+        for i in 0..receipt_count {
+            let actor = AgentId::new();
+            let f = signed_receipt(actor, "envelope.send", vec![]);
+            let resolver = resolver_for(actor, &f);
+            let receipt = f.receipt.clone();
+            let out = store
+                .append(f.receipt, AppendOptions::default(), &resolver)
+                .await
+                .unwrap();
+            ids.push(out.receipt_id);
+            receipts.push(receipt);
+            let _ = i; // for clarity
+        }
+        let batch = LocalSealer::new().seal_batch(&receipts).await.unwrap();
+        (store, ids, batch)
+    }
+
+    #[tokio::test]
+    async fn seal_status_unsealed_by_default() {
+        let store = MemoryStore::new();
+        let actor = AgentId::new();
+        let f = signed_receipt(actor, "envelope.send", vec![]);
+        let resolver = resolver_for(actor, &f);
+        let out = store
+            .append(f.receipt, AppendOptions::default(), &resolver)
+            .await
+            .unwrap();
+
+        let status = store.seal_status(&out.receipt_id).await.unwrap();
+        assert_eq!(status.state, crate::seal::SealState::Unsealed);
+        assert!(status.batch_root.is_none());
+        assert!(status.on_chain_tx_digest.is_none());
+    }
+
+    #[tokio::test]
+    async fn seal_status_unknown_receipt_returns_unsealed() {
+        let store = MemoryStore::new();
+        let fake_id = yutha_crypto::sha256(b"not a real receipt");
+        let status = store.seal_status(&fake_id).await.unwrap();
+        assert_eq!(status.state, crate::seal::SealState::Unsealed);
+    }
+
+    #[tokio::test]
+    async fn record_sealed_batch_populates_status() {
+        let (store, ids, batch) = append_and_seal(3).await;
+        store.record_sealed_batch(&batch).await.unwrap();
+
+        for id in &ids {
+            let status = store.seal_status(id).await.unwrap();
+            assert_eq!(status.state, crate::seal::SealState::Sealed);
+            assert_eq!(status.batch_root.as_ref(), Some(&batch.batch_root));
+            // LocalSealer batches don't carry an on-chain anchor.
+            assert!(status.on_chain_tx_digest.is_none());
+            // Path lets a verifier reconstruct the root.
+            assert!(crate::verify_path(
+                id,
+                &status.merkle_path,
+                &batch.batch_root
+            ));
+        }
+    }
+
+    #[tokio::test]
+    async fn record_sealed_batch_is_idempotent_with_same_root() {
+        let (store, ids, batch) = append_and_seal(2).await;
+        store.record_sealed_batch(&batch).await.unwrap();
+        // Re-sealing the same batch is a no-op.
+        store.record_sealed_batch(&batch).await.unwrap();
+
+        for id in &ids {
+            let status = store.seal_status(id).await.unwrap();
+            assert_eq!(status.batch_root.as_ref(), Some(&batch.batch_root));
+        }
+    }
+
+    #[tokio::test]
+    async fn record_sealed_batch_rejects_conflicting_root() {
+        let (store, _ids, batch1) = append_and_seal(2).await;
+        store.record_sealed_batch(&batch1).await.unwrap();
+
+        // Fabricate a fake batch over the same receipts but with a
+        // different batch_root. (Construct manually rather than re-sealing
+        // — the same receipts produce the same root.)
+        let mut batch2 = batch1.clone();
+        batch2.batch_root =
+            yutha_core::Hash::new(yutha_core::HashAlgorithm::Sha256, vec![0xFFu8; 32]).unwrap();
+
+        let err = store.record_sealed_batch(&batch2).await.unwrap_err();
+        assert!(
+            matches!(err, crate::ReceiptError::BatchInvalid(ref msg) if msg.contains("different batch")),
+            "expected BatchInvalid(different batch), got {err:?}"
+        );
+    }
+
+    #[tokio::test]
+    async fn record_sealed_batch_rejects_empty() {
+        let store = MemoryStore::new();
+        let now = Timestamp::now();
+        let empty = crate::sealer::SealedBatch {
+            batch_root: yutha_core::Hash::new(yutha_core::HashAlgorithm::Sha256, vec![0u8; 32])
+                .unwrap(),
+            leaves: vec![],
+            sealed_at: now,
+            action_kind_histogram: std::collections::BTreeMap::new(),
+            ns_range: (0, 0),
+            commitment_id: vec![],
+        };
+        let err = store.record_sealed_batch(&empty).await.unwrap_err();
+        assert!(matches!(err, crate::ReceiptError::BatchInvalid(_)));
+    }
+
+    #[tokio::test]
+    async fn record_sealed_batch_with_anchor_persists_tx_digest() {
+        let (store, ids, mut batch) = append_and_seal(2).await;
+        // Simulate a SuiSealer commitment: stamp a 32-byte tx digest.
+        batch.commitment_id = vec![0xAB; 32];
+        store.record_sealed_batch(&batch).await.unwrap();
+
+        for id in &ids {
+            let status = store.seal_status(id).await.unwrap();
+            assert_eq!(
+                status.on_chain_tx_digest.as_deref(),
+                Some(&[0xABu8; 32][..])
+            );
+        }
     }
 }

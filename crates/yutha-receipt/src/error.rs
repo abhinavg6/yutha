@@ -72,6 +72,13 @@ pub enum ReceiptError {
     #[error("backend error: {0}")]
     Backend(String),
 
+    /// A batch of receipts handed to the [`crate::sealer::Sealer`] or
+    /// the Merkle builder was malformed — empty, contained duplicate
+    /// receipt_ids, etc. Returned at construction time before any
+    /// network or filesystem state is mutated.
+    #[error("invalid batch: {0}")]
+    BatchInvalid(String),
+
     /// Wrapper for `yutha-crypto` errors.
     #[error(transparent)]
     Crypto(#[from] CryptoError),

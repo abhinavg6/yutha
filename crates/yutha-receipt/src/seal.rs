@@ -31,6 +31,18 @@ pub struct SealStatus {
     pub merkle_path: Vec<Hash>,
     /// When the seal happened.
     pub sealed_at: Option<Timestamp>,
+    /// Sui transaction digest of the `commit_batch` transaction that
+    /// anchored this receipt's batch on-chain. 32 raw bytes. Present only
+    /// when sealed by a [`Sealer`] that targets a verifiability backend
+    /// (currently the `SuiSealer` from `yutha-anchor-sui`). Sealing via
+    /// `LocalSealer` leaves this `None` per RFC 0014.
+    pub on_chain_tx_digest: Option<Vec<u8>>,
+    /// Sui shared-object id of the `SwarmAnchor` object holding the rolling
+    /// commitment history for this swarm. 32 raw bytes. Populated together
+    /// with [`Self::on_chain_tx_digest`]. With both present plus
+    /// [`Self::merkle_path`], a verifier can do an end-to-end inclusion
+    /// check without external metadata.
+    pub swarm_anchor_object_id: Option<Vec<u8>>,
 }
 
 impl SealStatus {
@@ -41,16 +53,40 @@ impl SealStatus {
             batch_root: None,
             merkle_path: vec![],
             sealed_at: None,
+            on_chain_tx_digest: None,
+            swarm_anchor_object_id: None,
         }
     }
 
-    /// Construct a sealed status with the supplied root and path.
+    /// Construct a sealed status with the supplied root and path. Used by
+    /// the [`LocalSealer`] (no on-chain anchor) and by tests.
     pub fn sealed(batch_root: Hash, merkle_path: Vec<Hash>, sealed_at: Timestamp) -> Self {
         Self {
             state: SealState::Sealed,
             batch_root: Some(batch_root),
             merkle_path,
             sealed_at: Some(sealed_at),
+            on_chain_tx_digest: None,
+            swarm_anchor_object_id: None,
+        }
+    }
+
+    /// Construct a sealed status with the supplied root, path, AND the
+    /// Sui on-chain anchor coordinates. Used by `SuiSealer`.
+    pub fn sealed_with_anchor(
+        batch_root: Hash,
+        merkle_path: Vec<Hash>,
+        sealed_at: Timestamp,
+        on_chain_tx_digest: Vec<u8>,
+        swarm_anchor_object_id: Vec<u8>,
+    ) -> Self {
+        Self {
+            state: SealState::Sealed,
+            batch_root: Some(batch_root),
+            merkle_path,
+            sealed_at: Some(sealed_at),
+            on_chain_tx_digest: Some(on_chain_tx_digest),
+            swarm_anchor_object_id: Some(swarm_anchor_object_id),
         }
     }
 }

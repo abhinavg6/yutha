@@ -74,7 +74,7 @@ class SignedBy(_message.Message):
     def __init__(self, role: _Optional[_Union[SignatureRole, str]] = ..., signature: _Optional[_Union[_common_pb2.Signature, _Mapping]] = ..., signed_at: _Optional[_Union[_common_pb2.Timestamp, _Mapping]] = ...) -> None: ...
 
 class SealStatus(_message.Message):
-    __slots__ = ("state", "batch_root", "merkle_path", "sealed_at")
+    __slots__ = ("state", "batch_root", "merkle_path", "sealed_at", "on_chain_tx_digest", "swarm_anchor_object_id")
     class State(int, metaclass=_enum_type_wrapper.EnumTypeWrapper):
         __slots__ = ()
         SEAL_STATE_UNKNOWN: _ClassVar[SealStatus.State]
@@ -87,11 +87,15 @@ class SealStatus(_message.Message):
     BATCH_ROOT_FIELD_NUMBER: _ClassVar[int]
     MERKLE_PATH_FIELD_NUMBER: _ClassVar[int]
     SEALED_AT_FIELD_NUMBER: _ClassVar[int]
+    ON_CHAIN_TX_DIGEST_FIELD_NUMBER: _ClassVar[int]
+    SWARM_ANCHOR_OBJECT_ID_FIELD_NUMBER: _ClassVar[int]
     state: SealStatus.State
     batch_root: _common_pb2.Hash
     merkle_path: _containers.RepeatedCompositeFieldContainer[_common_pb2.Hash]
     sealed_at: _common_pb2.Timestamp
-    def __init__(self, state: _Optional[_Union[SealStatus.State, str]] = ..., batch_root: _Optional[_Union[_common_pb2.Hash, _Mapping]] = ..., merkle_path: _Optional[_Iterable[_Union[_common_pb2.Hash, _Mapping]]] = ..., sealed_at: _Optional[_Union[_common_pb2.Timestamp, _Mapping]] = ...) -> None: ...
+    on_chain_tx_digest: bytes
+    swarm_anchor_object_id: bytes
+    def __init__(self, state: _Optional[_Union[SealStatus.State, str]] = ..., batch_root: _Optional[_Union[_common_pb2.Hash, _Mapping]] = ..., merkle_path: _Optional[_Iterable[_Union[_common_pb2.Hash, _Mapping]]] = ..., sealed_at: _Optional[_Union[_common_pb2.Timestamp, _Mapping]] = ..., on_chain_tx_digest: _Optional[bytes] = ..., swarm_anchor_object_id: _Optional[bytes] = ...) -> None: ...
 
 class AppendRequest(_message.Message):
     __slots__ = ("receipt", "wait_for_seal")

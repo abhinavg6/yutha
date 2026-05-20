@@ -13,7 +13,7 @@ Typical usage::
         signing_key=my_signing_key,
     ) as client:
         outcome = await client.admission.register(my_passport)
-        async for env, deliver_receipt in client.envelope.subscribe():
+        async for env, deliver_receipt in await client.envelope.subscribe():
             ...
 
 The four sub-objects (``client.admission``, ``client.capability``,
@@ -398,7 +398,9 @@ class EnvelopeAPI:
             raise
         return Hash.from_proto(resp.send_receipt)
 
-    def subscribe(self, agent_id: AgentId | None = None) -> AsyncIterator[tuple[Envelope, Hash]]:
+    async def subscribe(
+        self, agent_id: AgentId | None = None
+    ) -> AsyncIterator[tuple[Envelope, Hash]]:
         """Open a long-lived subscription. Yields ``(envelope,
         deliver_receipt_id)`` pairs as envelopes arrive.
 
@@ -406,25 +408,32 @@ class EnvelopeAPI:
         passing a different id triggers a server-side
         ``PERMISSION_DENIED`` (no cross-agent eavesdropping).
 
-        Note this is a regular function (not an ``async def`` with
-        yields). The :class:`grpc.aio.UnaryStreamCall` is constructed
-        eagerly when ``subscribe()`` is called, which causes grpc-aio
-        to dispatch the initial Subscribe request immediately. Callers
-        that need a hard guarantee that the inbox is registered
-        server-side before doing anything else (e.g. they're about to
-        send to their own agent id) can ``await
-        response_stream.read()`` on the returned iterator's underlying
-        call — but in practice, awaiting any subsequent unary RPC on
-        the same channel (or even a brief ``asyncio.sleep``) gives the
-        request plenty of time to land.
+        This coroutine returns AFTER the server has received and
+        acknowledged the Subscribe RPC (initial metadata). That
+        guarantees the inbox is registered server-side before the
+        caller's first send / unary RPC, eliminating the
+        "send-before-subscribe" race that affects fast loopback
+        callers (e.g. a swarm member that sends to its own agent id
+        right after starting).
+
+        The trade-off is that ``subscribe`` is now an ``async def``
+        rather than a sync function — callers iterate via
+        ``async for x in await client.envelope.subscribe()`` rather
+        than ``async for x in client.envelope.subscribe()``.
         """
         request = cp_pb2.SubscribeRequest()
         if agent_id is not None:
             request.agent_id.CopyFrom(agent_id.to_proto())
-        # Eager call. The returned object is a UnaryStreamCall, which
-        # is itself an async iterator. grpc-aio puts the initial
-        # request on the wire here, before we return to the caller.
+        # Eager call: queues the Subscribe RPC on the channel. The
+        # returned object is a UnaryStreamCall.
         response_stream = self._stub.Subscribe(request)
+        # Wait until the server has received the request and started
+        # processing it (initial metadata received). For a streaming
+        # RPC, "initial metadata" fires when the server-side handler
+        # is invoked, which is the same point at which the handler
+        # registers the inbox with the transport. After this point
+        # the server will route deliveries to us.
+        await response_stream.wait_for_connection()
         return _wrap_subscribe_stream(response_stream)
 
 

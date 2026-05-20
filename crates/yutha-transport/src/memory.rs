@@ -14,8 +14,9 @@ use crate::transport::{EnvelopeStream, Transport};
 use async_trait::async_trait;
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
-use tokio::sync::{mpsc, Mutex, RwLock};
+use tokio::sync::{mpsc, Mutex, Notify, RwLock};
 use tokio_stream::wrappers::ReceiverStream;
+use tracing::debug;
 use yutha_core::{AgentId, Hash, SpecVersion, Timestamp};
 use yutha_crypto::canonical::{content_address, Canonical};
 use yutha_passport::ControlPlaneIdentity;
@@ -55,6 +56,14 @@ struct Inner {
     /// fans out to every subscribed agent in the swarm regardless
     /// of tags.
     tags: RwLock<HashMap<AgentId, HashSet<String>>>,
+    /// Per-agent "supersede" notify. Calling `subscribe(agent)` fires
+    /// `notify_waiters()` to evict any prior subscribe-forwarders for
+    /// the same agent. Without this, gRPC-stream teardown can lag
+    /// 5+ seconds behind the client's intent, leaving zombie
+    /// forwarders that race the new subscriber for the next inbox
+    /// item under back-to-back test patterns. We enforce a
+    /// one-active-forwarder-per-inbox invariant explicitly.
+    subscribe_supersede: RwLock<HashMap<AgentId, Arc<Notify>>>,
 }
 
 impl std::fmt::Debug for Inner {
@@ -87,6 +96,7 @@ impl MemoryTransport {
                 senders: RwLock::new(HashMap::new()),
                 roles: RwLock::new(HashMap::new()),
                 tags: RwLock::new(HashMap::new()),
+                subscribe_supersede: RwLock::new(HashMap::new()),
             }),
             replay: ReplayProtection::new(),
             receipts,
@@ -433,6 +443,32 @@ impl Transport for MemoryTransport {
             .expect("inbox was just registered or already present");
         drop(inboxes);
 
+        // Evict any prior subscribe-forwarders for this agent. The
+        // gRPC-aio stream teardown lag on the client side (5+ seconds
+        // observed under load) leaves zombie forwarders that compete
+        // with this new subscriber for the inbox lock. We enforce a
+        // one-active-forwarder-per-inbox invariant explicitly:
+        // (1) get-or-create the per-agent supersede Notify;
+        // (2) fire `notify_waiters()` BEFORE spawning the new forwarder
+        //     — this wakes any existing waiters (old forwarders parked
+        //     in their select!) so they exit;
+        // (3) the new forwarder, spawned below, registers its own
+        //     `.notified()` future AFTER step 2, so it is NOT woken
+        //     by the same fire — it'll be woken only when a FUTURE
+        //     subscribe arrives.
+        let supersede = {
+            let mut map = self.inner.subscribe_supersede.write().await;
+            map.entry(recipient)
+                .or_insert_with(|| Arc::new(Notify::new()))
+                .clone()
+        };
+        supersede.notify_waiters();
+        debug!(
+            target: "yutha::transport::trace",
+            recipient = %recipient,
+            "MemoryTransport::subscribe: superseded any prior subscribers"
+        );
+
         // Bridge: a forwarder task pulls from the inbox, emits a deliver
         // receipt, and pushes the (envelope, receipt_id) pair into a
         // channel whose receiver we return as the stream.
@@ -450,16 +486,47 @@ impl Transport for MemoryTransport {
         // live subscriber can see it. We race the recv against
         // `tx.closed()` so a closed downstream tears the forwarder
         // down before it consumes another envelope.
+        let recipient_for_log = recipient;
+        let supersede_for_task = supersede.clone();
         tokio::spawn(async move {
+            let mut items: u64 = 0;
             loop {
                 let envelope = {
                     let mut guard = inbox.lock().await;
                     tokio::select! {
                         biased;
-                        _ = tx.closed() => break,
+                        _ = tx.closed() => {
+                            debug!(
+                                target: "yutha::transport::trace",
+                                recipient = %recipient_for_log,
+                                items_forwarded = items,
+                                "MemoryTransport: inner forwarder exit via tx.closed"
+                            );
+                            break;
+                        }
+                        _ = supersede_for_task.notified() => {
+                            // A newer subscribe call evicted us. Exit
+                            // without consuming the next inbox item so
+                            // the new forwarder gets it.
+                            debug!(
+                                target: "yutha::transport::trace",
+                                recipient = %recipient_for_log,
+                                items_forwarded = items,
+                                "MemoryTransport: inner forwarder exit via supersede"
+                            );
+                            break;
+                        }
                         recv = guard.recv() => match recv {
                             Some(e) => e,
-                            None => break, // inbox closed
+                            None => {
+                                debug!(
+                                    target: "yutha::transport::trace",
+                                    recipient = %recipient_for_log,
+                                    items_forwarded = items,
+                                    "MemoryTransport: inner forwarder exit via inbox closed"
+                                );
+                                break;
+                            }
                         },
                     }
                 };
@@ -480,8 +547,15 @@ impl Transport for MemoryTransport {
                 if tx.send(item).await.is_err() {
                     // Subscriber dropped the stream between recv and
                     // send. Same root cause; same exit.
+                    debug!(
+                        target: "yutha::transport::trace",
+                        recipient = %recipient_for_log,
+                        items_forwarded = items,
+                        "MemoryTransport: inner forwarder exit via tx.send error (envelope dropped after consume)"
+                    );
                     break;
                 }
+                items += 1;
             }
         });
 

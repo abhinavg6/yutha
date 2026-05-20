@@ -217,7 +217,7 @@ async def test_full_lifecycle(
         received: list[tuple[yutha.Envelope, yutha.Hash]] = []
 
         async def collect_one() -> None:
-            async for env, deliver_receipt in client.envelope.subscribe():
+            async for env, deliver_receipt in await client.envelope.subscribe():
                 received.append((env, deliver_receipt))
                 return
 

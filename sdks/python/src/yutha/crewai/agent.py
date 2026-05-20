@@ -328,7 +328,12 @@ class YuthaCrewAgent:
         from crewai import Crew, Process
 
         try:
-            sub_iter = self._client.envelope.subscribe()
+            # subscribe() is async — it returns after the server has
+            # acknowledged the Subscribe RPC (initial metadata
+            # received). That guarantees the inbox is registered
+            # server-side before we signal ready, eliminating the
+            # send-before-subscribe race on fast loopback channels.
+            sub_iter = await self._client.envelope.subscribe()
             self._subscription_ready.set()
             async for envelope, deliver_receipt in sub_iter:
                 try:

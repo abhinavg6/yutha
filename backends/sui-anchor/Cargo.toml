@@ -1,0 +1,68 @@
+[package]
+name = "yutha-backend-sui-anchor"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+authors.workspace = true
+description = "Sui-anchor backend for the Yutha Sealer trait. Commits batched receipt Merkle roots to a per-swarm SwarmAnchor shared object via the receipt_anchor Move package (RFC 0014)."
+readme = "README.md"
+
+[dependencies]
+yutha-core.workspace = true
+yutha-crypto.workspace = true
+yutha-receipt.workspace = true
+
+# The modular Sui Rust SDK (https://github.com/MystenLabs/sui-rust-sdk).
+# Four crates total; we pull all of them since the sealer needs:
+#   - sui-sdk-types for Address / Digest / Transaction
+#   - sui-crypto for Ed25519 signing + canonical-keystore parsing
+#   - sui-rpc for fullnode communication (gRPC)
+#   - sui-transaction-builder for PTB construction
+#
+# `serde` + `hash` are required on sui-sdk-types for
+# `Transaction::digest()` (BCS-then-Blake2b256) and
+# `Ed25519PublicKey::derive_address()`. sui-rpc already enables these
+# transitively, but declaring them here makes the dependency explicit.
+sui-sdk-types = { workspace = true, features = ["serde", "hash"] }
+# `ed25519` gates the Ed25519PrivateKey type; `bech32` gates the
+# `from_suiprivkey()` parser for Sui's canonical keystore format.
+# Both required by yutha-anchor-sui; secp256k1 is intentionally out
+# of scope for v1.
+sui-crypto = { workspace = true, features = ["ed25519", "bech32"] }
+sui-rpc.workspace = true
+# `intents` (on by default) is what gives us the async
+# `TransactionBuilder::build(&mut Client)` path that resolves gas via RPC.
+sui-transaction-builder.workspace = true
+
+# BCS — Sui's canonical binary serialization. Used for encoding the
+# Move-call arguments in the commit_batch PTB (vector<u8>, u64, VecMap<...>).
+bcs.workspace = true
+
+# tonic 0.14 — required to name `tonic::Status` and `tonic::Code` in our
+# RPC error classifier. sui-rpc 0.3.x is built on tonic 0.14 and surfaces
+# tonic::Status from its client methods; if we use the workspace `tonic`
+# (which is pinned at 0.11 for the rest of yutha's gRPC stack), the types
+# don't unify with what sui-rpc returns. Pin 0.14 here just for this
+# crate — the two tonic versions coexist in the dep graph because
+# yutha-proto and the sui-anchor backend never share Status values.
+# Defaults disabled because we don't ship a server or TLS roots from this
+# crate; we only consume the Status type.
+tonic = { version = "0.14", default-features = false }
+
+# Async + standard infrastructure.
+async-trait.workspace = true
+tokio = { workspace = true, features = ["sync", "time", "rt"] }
+thiserror.workspace = true
+tracing.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+hex.workspace = true
+anyhow.workspace = true
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["macros", "rt-multi-thread", "time"] }
+yutha-receipt = { workspace = true, features = ["serde"] }
+serde_json.workspace = true

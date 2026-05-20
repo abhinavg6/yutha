@@ -40,6 +40,7 @@ use std::sync::Arc;
 use futures::StreamExt;
 use tokio_stream::Stream;
 use tonic::{Request, Response, Status};
+use tracing::debug;
 use yutha_capability::ActionDescriptor;
 use yutha_cedar_plus::{
     ConstitutionEvaluator, Decision, EntityRecord, EntitySnapshot, EntityUid, EvaluationOutcome,
@@ -475,6 +476,15 @@ impl EnvelopeService for EnvelopeHandler {
             .as_ref()
             .ok_or_else(|| missing_field("envelope"))?;
         let envelope = Envelope::try_from(envelope_proto).map_err(|e| e.to_status())?;
+        debug!(
+            target: "yutha::envelope::trace",
+            from_agent = %envelope.from_agent,
+            recipient = ?envelope.recipient,
+            envelope_id = ?envelope.envelope_id,
+            epoch = envelope.epoch,
+            cap_id_present = req.capability_id.is_some(),
+            "Send: envelope received"
+        );
 
         // Anti-spoofing: the bearer claims an identity, the envelope
         // claims a sender — they MUST be the same agent. Cross-agent
@@ -606,6 +616,12 @@ impl EnvelopeService for EnvelopeHandler {
             .send(envelope)
             .await
             .map_err(|e| e.to_status())?;
+        debug!(
+            target: "yutha::envelope::trace",
+            from_agent = %auth.agent_id,
+            send_receipt = %send_receipt,
+            "Send: transport.send returned"
+        );
 
         Ok(Response::new(SendEnvelopeResponse {
             send_receipt: Some((&send_receipt).into()),
@@ -643,6 +659,12 @@ impl EnvelopeService for EnvelopeHandler {
             None => auth.agent_id,
         };
 
+        debug!(
+            target: "yutha::envelope::trace",
+            target_agent = %target,
+            "Subscribe: handler entered"
+        );
+
         // Open the transport-level stream. MemoryTransport's impl
         // idempotently registers the inbox if needed, so the first
         // subscription from a fresh agent works without prior setup.
@@ -678,8 +700,10 @@ impl EnvelopeService for EnvelopeHandler {
         // don't pull in an async-stream dep just for this combinator.
         let revocation_signal = self.state.revocation_signal_for(target).await;
         let (tx, rx) = tokio::sync::mpsc::channel::<Result<SubscribedEnvelope, Status>>(8);
+        let target_for_log = target;
         tokio::spawn(async move {
             tokio::pin!(mapped);
+            let mut items_forwarded: u64 = 0;
             loop {
                 tokio::select! {
                     biased;
@@ -690,8 +714,22 @@ impl EnvelopeService for EnvelopeHandler {
                     // `MemoryTransport::subscribe` (4b): without this,
                     // back-to-back subscribe-then-drop test runs leave
                     // wrappers that eat the next subscriber's envelopes.
-                    _ = tx.closed() => break,
+                    _ = tx.closed() => {
+                        debug!(
+                            target: "yutha::envelope::trace",
+                            target_agent = %target_for_log,
+                            items_forwarded,
+                            "Subscribe: outer forwarder exit via tx.closed"
+                        );
+                        break;
+                    }
                     _ = revocation_signal.notified() => {
+                        debug!(
+                            target: "yutha::envelope::trace",
+                            target_agent = %target_for_log,
+                            items_forwarded,
+                            "Subscribe: outer forwarder exit via revocation"
+                        );
                         let _ = tx
                             .send(Err(Status::unauthenticated("agent revoked")))
                             .await;
@@ -699,15 +737,33 @@ impl EnvelopeService for EnvelopeHandler {
                     }
                     next = mapped.next() => match next {
                         Some(item) => {
+                            let item_ok = item.is_ok();
                             if tx.send(item).await.is_err() {
                                 // Same root cause; same exit. This branch
                                 // handles the race where the receiver
                                 // drops between the `tx.closed()` poll
                                 // and the next `tx.send`.
+                                debug!(
+                                    target: "yutha::envelope::trace",
+                                    target_agent = %target_for_log,
+                                    items_forwarded,
+                                    "Subscribe: outer forwarder exit via tx.send error (consumed item dropped)"
+                                );
                                 break;
                             }
+                            if item_ok {
+                                items_forwarded += 1;
+                            }
                         }
-                        None => break,
+                        None => {
+                            debug!(
+                                target: "yutha::envelope::trace",
+                                target_agent = %target_for_log,
+                                items_forwarded,
+                                "Subscribe: outer forwarder exit via inner stream end"
+                            );
+                            break;
+                        }
                     }
                 }
             }

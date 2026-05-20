@@ -4,11 +4,18 @@
 //! [`/spec/receipt/receipt-v1.proto`](../../../spec/receipt/receipt-v1.proto).
 //! Async; backends that are synchronous internally (e.g., the in-memory
 //! reference) wrap their work in `async`.
+//!
+//! [`SealStore`] is the sibling trait for the verifiability tier (RFC
+//! 0014). Backends opt into sealing by implementing it separately;
+//! receipt storage and seal storage are decoupled so the cheap path
+//! doesn't pay for the verifiable one.
 
 use crate::error::Result;
 use crate::passport::PassportResolver;
 use crate::query::{AppendOptions, Page, Query};
 use crate::receipt::Receipt;
+use crate::seal::SealStatus;
+use crate::sealer::SealedBatch;
 use async_trait::async_trait;
 use yutha_core::Hash;
 
@@ -84,4 +91,55 @@ pub enum AppendKind {
     /// Receipt with identical canonical bytes was already present;
     /// returning that one (idempotent).
     AlreadyPresent,
+}
+
+/// A store of Merkle-batch seal records (RFC 0014, Verifiability Layer 1).
+///
+/// Sibling trait to [`ReceiptStore`]. Backends opt into sealing by
+/// implementing `SealStore` separately — the cheap path (receipt
+/// append/query) doesn't pay for the verifiable one. The two traits
+/// are commonly implemented on the same struct ([`crate::MemoryStore`],
+/// `yutha_backend_postgres_receipt::PostgresStore`).
+///
+/// Conformance: covered by `/spec/verifiability/sui-anchoring.md` §7
+/// (Postgres integration) and §10 (conformance hooks). The trait is
+/// backend-agnostic: a Postgres impl writes the `receipt_seal` table;
+/// an in-memory impl writes a `HashMap<Hash, SealStatus>`; a future
+/// Walrus / Sui-direct impl writes wherever its tier requires.
+///
+/// ## Atomicity
+///
+/// Implementations MUST persist all rows of a batch atomically — every
+/// receipt in `batch.leaves` either gets a seal record, or none do.
+/// A partial-batch state would let a verifier reconstruct a different
+/// (wrong) Merkle root.
+///
+/// ## Idempotency
+///
+/// Implementations MUST treat a repeat call with the same `batch_root`
+/// over the same set of receipts as a no-op (return `Ok(())` without
+/// changing state). A call with a *different* `batch_root` for any
+/// receipt already sealed in a different batch MUST return an error;
+/// re-sealing into a conflicting batch would silently invalidate
+/// previously-issued inclusion proofs.
+#[async_trait]
+pub trait SealStore: Send + Sync {
+    /// Record a sealed batch atomically.
+    ///
+    /// On success, every receipt in `batch.leaves` has a seal record
+    /// retrievable via [`SealStore::seal_status`] (or, for backends
+    /// that surface it, joined to the receipt at read time).
+    ///
+    /// `batch.commitment_id` is recorded as the on-chain anchor
+    /// reference for backends that have one (`SuiSealer`'s 32-byte
+    /// tx digest); backends that don't (`LocalSealer`'s empty
+    /// `commitment_id`) leave the corresponding column NULL.
+    async fn record_sealed_batch(&self, batch: &SealedBatch) -> Result<()>;
+
+    /// Look up the seal status for a receipt by its content-address.
+    ///
+    /// Returns [`SealStatus::unsealed`] if the receipt has no
+    /// recorded seal (whether because it has never been sealed, or
+    /// because the receipt itself is unknown to this store).
+    async fn seal_status(&self, receipt_id: &Hash) -> Result<SealStatus>;
 }

@@ -1,0 +1,21 @@
+[package]
+name = "ReceiptAnchor"
+version = "0.1.0"
+edition = "2024.beta"
+authors = ["The Yutha Authors"]
+license = "Apache-2.0"
+
+# Sui 1.x auto-adds the Sui framework + MoveStdlib + adjacent system
+# packages based on the `sui` CLI binary's compiled-in framework
+# version. This matches what operators want: targeting mainnet?
+# install the mainnet `sui` binary, build will use mainnet framework.
+# Same for testnet / devnet. Adding an explicit `Sui = { git = ... }`
+# would disable the auto-add and force a specific git rev — useful
+# only when reproducible builds against a pinned commit matter more
+# than framework-version-following-the-CLI.
+
+# Per RFC 0014: operators publish their own copy of this package.
+# `receipt_anchor` is the named-address placeholder; `sui client publish`
+# assigns the real package id at publish time.
+[addresses]
+receipt_anchor = "0x0"

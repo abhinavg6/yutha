@@ -10,11 +10,14 @@
 pub mod error;
 pub mod evidence;
 pub mod memory;
+pub mod merkle;
 pub mod passport;
+pub mod preimage;
 pub mod proto_conv;
 pub mod query;
 pub mod receipt;
 pub mod seal;
+pub mod sealer;
 pub mod signing;
 pub mod store;
 pub mod verify;
@@ -22,12 +25,17 @@ pub mod verify;
 pub use error::{ReceiptError, Result};
 pub use evidence::Evidence;
 pub use memory::MemoryStore;
+pub use merkle::{build_merkle, sorted_pair_hash, verify_path, LeafProof, MerkleBatch};
 pub use passport::{PassportResolver, StaticPassportResolver};
+pub use preimage::{canonical_preimage, MAX_ACTION_KIND_LEN};
 pub use query::{
     ActionKindQuery, AgentQuery, AppendOptions, Page, PredecessorQuery, Query, TimeRangeQuery,
 };
 pub use receipt::{Receipt, ReceiptBuilder};
 pub use seal::{SealState, SealStatus};
+pub use sealer::{
+    compute_histogram, compute_ns_range, LocalSealer, SealError, SealedBatch, Sealer,
+};
 pub use signing::{SignatureRole, SignedBy};
-pub use store::{AppendKind, AppendOutcome, ReceiptStore};
+pub use store::{AppendKind, AppendOutcome, ReceiptStore, SealStore};
 pub use verify::{verify_receipt_signatures, VerificationOutcome};
