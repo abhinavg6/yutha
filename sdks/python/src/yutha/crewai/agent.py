@@ -75,9 +75,7 @@ if TYPE_CHECKING:
 # envelope and its delivery-receipt id. Returns a CrewAI Task, or
 # ``None`` to skip this envelope (useful for filtering, e.g. only
 # acting on certain performatives).
-TaskFactory = Callable[
-    ["YuthaCrewAgent", Envelope, Hash], "CrewTaskT | None"
-]
+TaskFactory = Callable[["YuthaCrewAgent", Envelope, Hash], "CrewTaskT | None"]
 
 # Callback invoked after the per-envelope crew finishes. Receives the
 # owning agent + the inbound envelope + the CrewAI output. Use this to
@@ -358,8 +356,7 @@ class YuthaCrewAgent:
                         await self._on_output(self, envelope, output)
                 except Exception as e:  # handlers can raise anything — keep loop alive
                     print(
-                        f"YuthaCrewAgent({self.agent_id}): handler raised "
-                        f"{type(e).__name__}: {e}",
+                        f"YuthaCrewAgent({self.agent_id}): handler raised {type(e).__name__}: {e}",
                         flush=True,
                     )
         except asyncio.CancelledError:

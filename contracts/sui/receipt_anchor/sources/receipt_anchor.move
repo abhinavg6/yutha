@@ -497,4 +497,48 @@ module receipt_anchor::receipt_anchor {
     public fun abort_code_sealer_key_mismatch(): u64 { ESealerKeyMismatch }
     #[test_only]
     public fun abort_code_histogram_not_sorted(): u64 { EHistogramNotSorted }
+
+    /// Test-only entry point that exposes the (private) canonical-preimage
+    /// encoder so cross-language conformance vectors can assert
+    /// byte-equality against the Rust encoder.
+    ///
+    /// Inputs are passed as the same parallel-vectors shape
+    /// `commit_batch_from_arrays` takes — the wrapper rebuilds the
+    /// `VecMap` internally and delegates to
+    /// [`build_canonical_preimage`]. Caller is responsible for passing
+    /// keys in lex-ascending order (matches the Rust side; the
+    /// `commit_batch` validation rejects non-sorted input at runtime,
+    /// but this test helper trusts its caller).
+    ///
+    /// Sister test: `crates/yutha-receipt/tests/preimage_vectors.rs`.
+    /// Vector fixtures: `/spec/vectors/sui-anchoring/preimage/`.
+    #[test_only]
+    public fun canonical_preimage_for_testing(
+        swarm_id: vector<u8>,
+        batch_root: vector<u8>,
+        count: u64,
+        ns_range_start: u64,
+        ns_range_end: u64,
+        histogram_keys: vector<vector<u8>>,
+        histogram_values: vector<u64>,
+    ): vector<u8> {
+        let n = vector::length(&histogram_keys);
+        assert!(n == vector::length(&histogram_values), EHistogramLengthMismatch);
+        let mut histogram = vec_map::empty<vector<u8>, u64>();
+        let mut i: u64 = 0;
+        while (i < n) {
+            let k = *vector::borrow(&histogram_keys, i);
+            let v = *vector::borrow(&histogram_values, i);
+            vec_map::insert(&mut histogram, k, v);
+            i = i + 1;
+        };
+        build_canonical_preimage(
+            &swarm_id,
+            &batch_root,
+            count,
+            ns_range_start,
+            ns_range_end,
+            &histogram,
+        )
+    }
 }

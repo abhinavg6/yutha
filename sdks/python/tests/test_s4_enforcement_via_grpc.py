@@ -143,10 +143,7 @@ async def forbid_active(
             if e.code() == grpc.StatusCode.UNAVAILABLE:
                 pytest.skip(f"control plane not reachable at {address}")
             if e.code() == grpc.StatusCode.FAILED_PRECONDITION:
-                pytest.skip(
-                    f"server at {address} returned FAILED_PRECONDITION: "
-                    f"{e.details()}"
-                )
+                pytest.skip(f"server at {address} returned FAILED_PRECONDITION: {e.details()}")
             raise
     finally:
         await client.close()
@@ -174,9 +171,7 @@ async def _wait_for_receipt_count(
     last: list[yutha.Receipt] = []
     while asyncio.get_event_loop().time() < deadline:
         receipts, _ = await client.receipt.query_by_action_kind(action_kind)
-        filtered = (
-            [r for r in receipts if predicate(r)] if predicate else receipts
-        )
+        filtered = [r for r in receipts if predicate(r)] if predicate else receipts
         if len(filtered) >= minimum:
             return filtered
         last = filtered
@@ -265,9 +260,7 @@ async def test_s4_full_enforcement_chain_via_grpc(
             subject=alice_id,
             scope=yutha.Scope.for_action("envelope.send"),
             valid_from=yutha.Timestamp.now(),
-            valid_until=yutha.Timestamp(
-                wall_clock="2099-01-01T00:00:00Z", monotonic_ns=2**62
-            ),
+            valid_until=yutha.Timestamp(wall_clock="2099-01-01T00:00:00Z", monotonic_ns=2**62),
         )
         cap_id, _ = await alice_client.capability.issue(cap)
 

@@ -300,9 +300,7 @@ class OperatorBearerSession:
         now = Timestamp.now()
         expires_monotonic_ns = now.monotonic_ns + self._lifetime_ns
         expires_at = Timestamp(
-            wall_clock=_advance_wall_clock(
-                now.wall_clock, self._lifetime_ns / 1_000_000_000
-            ),
+            wall_clock=_advance_wall_clock(now.wall_clock, self._lifetime_ns / 1_000_000_000),
             monotonic_ns=expires_monotonic_ns,
         )
 

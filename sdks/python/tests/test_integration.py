@@ -329,9 +329,7 @@ async def test_send_to_role_recipient_passes_constitution_eval(
             subject=agent_id,
             scope=yutha.Scope.for_action("envelope.send"),
             valid_from=yutha.Timestamp.now(),
-            valid_until=yutha.Timestamp(
-                wall_clock="2099-01-01T00:00:00Z", monotonic_ns=2**62
-            ),
+            valid_until=yutha.Timestamp(wall_clock="2099-01-01T00:00:00Z", monotonic_ns=2**62),
         )
         cap_id, _ = await client.capability.issue(cap)
 

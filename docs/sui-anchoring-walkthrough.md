@@ -361,20 +361,147 @@ arrived in.
 
 ---
 
-## What's next
+---
 
-The H5 walkthrough above gets the Sui anchoring path running
-end-to-end against a real chain, but the **`AnchorDriver` isn't yet
-wired into the control-plane binary** — the cadence loop (poll the
-receipt store for unsealed receipts, build batches when the count or
-time threshold trips, submit `commit_batch` PTBs, advance the
-watermark) only runs inside the integration test today. H6 will add
-the control-plane CLI flags (`--anchor-sui-rpc-url`,
-`--anchor-package-id`, `--anchor-swarm-anchor-id`,
-`--anchor-sealer-key-file`, plus the cadence knobs) and the
-`tokio::spawn(driver.run())` plumbing so an operator can stand up a
-control plane with anchoring active from server start.
+## Running anchoring under the control plane
 
-Until then, this walkthrough validates the substrate: if it passes
-on your hardware against your chain, the production wiring is
-plumbing, not logic.
+The integration-test path above proves the substrate. To run
+anchoring continuously under a live control plane, swap the
+`cargo test` invocation in step 7 for a `cargo run -p
+yutha-control-plane` with the four `--anchor-*` flags set. The
+control plane spawns a background `AnchorDriver` task at startup
+that polls the receipt store, batches unsealed receipts per the
+cadence knobs, and submits `commit_batch_from_arrays` PTBs against
+the `SwarmAnchor` you created above.
+
+### One critical thing the H5 walkthrough glosses over
+
+The H5 integration test used `swarm_id = [0x42; 16]` as a fixture
+when calling `create_swarm_anchor`. **For the control-plane path
+this won't work** — the control plane derives the swarm_id from the
+bootstrap seed (`sha256(seed || 0x02)[:16]`), and the
+canonical-preimage encoder uses that derived value. If the on-chain
+`SwarmAnchor.swarm_id` doesn't match, every `commit_batch` aborts
+with `ESealerKeyMismatch` (code 9) because the preimage diverges.
+
+Re-create the `SwarmAnchor` with the bootstrap-seed-derived
+swarm_id before starting the server:
+
+```bash
+# Assumes $YUTHA_BOOTSTRAP_SEED is set per the operator walkthrough.
+SWARM_ID_HEX=0x$(python3 -c "
+import hashlib
+seed = bytes.fromhex('$YUTHA_BOOTSTRAP_SEED')
+print(hashlib.sha256(seed + b'\x02').digest()[:16].hex())
+")
+echo "swarm_id (derived): $SWARM_ID_HEX"
+
+CREATE_OUT=$(sui client call \
+  --package "$PACKAGE_ID" \
+  --module receipt_anchor \
+  --function create_swarm_anchor \
+  --args "$SWARM_ID_HEX" "$SEALER_PUBKEY_HEX" 0x6 \
+  --gas-budget 100000000 --json)
+
+SWARM_ANCHOR_ID=$(echo "$CREATE_OUT" | jq -r \
+  '.objectChanges[] | select(.type=="created" and (.objectType | test("SwarmAnchor"))) | .objectId')
+echo "swarm_anchor_id (new): $SWARM_ANCHOR_ID"
+```
+
+The old `0x42x16` anchor from the integration test stays orphaned
+on localnet — harmless, just unused.
+
+### Start the control plane with anchoring
+
+Now start the server with the four endpoint flags + the cadence
+knobs. Lower the thresholds for a chatty localnet (the defaults
+of 100 receipts / 10 s are tuned for production):
+
+```bash
+cargo run -p yutha-control-plane -- \
+  --admission-mode open \
+  --workload support-queue \
+  --operator-public-key "$YUTHA_OPERATOR_PUBLIC_KEY" \
+  --anchor-sui-rpc-url http://127.0.0.1:9000 \
+  --anchor-package-id "$PACKAGE_ID" \
+  --anchor-swarm-anchor-id "$SWARM_ANCHOR_ID" \
+  --anchor-sealer-key-file "$HOME/.yutha/sealer.key" \
+  --anchor-batch-count-threshold 2 \
+  --anchor-batch-time-threshold-secs 5
+```
+
+Expected startup log lines:
+
+```
+INFO yutha: Sui anchoring ENABLED (RFC 0014 Layer 1): ...
+INFO yutha: Sui anchor: read initial on-chain state batch_count=0 last_ns_range_end=0
+INFO yutha::backend_sui_anchor::driver: AnchorDriver starting watermark=0 count_threshold=2 time_threshold=5s
+INFO yutha: Sui anchor: driver spawned (cadence loop running)
+```
+
+The four flags are **all-or-nothing**: setting any of them
+without the others is rejected at startup with a clear error.
+Omitting all four leaves anchoring off (the server logs `Sui
+anchoring disabled (no --anchor-* flags set)` and the cadence
+loop is never spawned).
+
+### Cadence knobs
+
+| Flag | Default | Tune when |
+|------|---------|-----------|
+| `--anchor-batch-count-threshold` | 100 | Lower for fresher anchors on chatty swarms; raise to amortize gas. |
+| `--anchor-batch-time-threshold-secs` | 10 | Bounds the "indefinitely unsealed" window for quiet swarms — lower it to anchor sooner during idle periods. |
+| `--anchor-max-batch-size` | 1000 | Hard ceiling on a single batch's size; protects against backlog blowouts after RPC downtime. |
+
+Cadence is "seal when EITHER count OR time threshold trips,"
+capped at max-batch-size. All three accept their default by
+omission; the env var equivalents are
+`YUTHA_ANCHOR_BATCH_COUNT_THRESHOLD`,
+`YUTHA_ANCHOR_BATCH_TIME_THRESHOLD_SECS`,
+`YUTHA_ANCHOR_MAX_BATCH_SIZE`.
+
+### Verifying anchoring is running
+
+Drive some envelope traffic at the server (the Python integration
+suite is the easiest way — see `sdks/python/tests/test_integration.py`).
+Within `--anchor-batch-time-threshold-secs` of the next received
+receipt, you should see:
+
+```
+INFO yutha::backend_sui_anchor::driver: sealed batch count=2 watermark=<ns>
+```
+
+And the on-chain anchor's `batch_count` should advance:
+
+```bash
+sui client object "$SWARM_ANCHOR_ID" --json \
+  | jq '.data.content.fields | {batch_count, last_ns_range_end}'
+```
+
+`batch_count` increments by one per successful commit. The
+matching `AnchorCommitted` events are queryable via the standard
+Sui RPC paths — any operator-grade Sui indexer (Suiscan,
+Suivision, self-hosted) consumes them per RFC 0014 §3 without
+any Yutha-specific schema.
+
+### What's deferred
+
+- **Operator-key rotation.** Right now there's one sealer key per
+  `SwarmAnchor`; rotating it requires creating a new anchor +
+  re-pointing the control plane. RFC 0014 §6.4 sketches the
+  rotation protocol; not yet implemented.
+- **Multi-anchor / multi-chain.** One control plane → one
+  `SwarmAnchor` today. A control plane that wants to anchor the
+  same receipts on testnet + mainnet (audit-trail redundancy)
+  would need parallel driver instances; the current CLI doesn't
+  surface that.
+- **Backfill of pre-anchoring receipts.** When you enable
+  anchoring on a server that's already been running, the driver
+  starts at the on-chain `last_ns_range_end` (= 0 for a fresh
+  anchor) and sweeps forward. If you want to anchor receipts
+  that pre-date the on-chain anchor, you'd need a backfill tool
+  that submits commits with manually-chosen ns-range values.
+  Out of scope for v1.
+
+Until those land, this walkthrough is the complete operator
+surface for Layer 1 verifiability.

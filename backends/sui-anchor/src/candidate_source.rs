@@ -87,17 +87,17 @@ impl CandidateSource for ReceiptStoreCandidateSource {
         // Build the time-range query. Wall-clock strings are RFC 3339
         // sentinels — the backends ignore them in this query path
         // (filter is on monotonic_ns only).
-        let from = Timestamp::new("1970-01-01T00:00:00Z".to_string(), from_ns).map_err(|e| {
-            DriverError::CandidateSource(format!("construct from-timestamp: {e}"))
-        })?;
-        let to = Timestamp::new("9999-12-31T23:59:59Z".to_string(), u64::MAX).map_err(|e| {
-            DriverError::CandidateSource(format!("construct to-timestamp: {e}"))
-        })?;
+        let from = Timestamp::new("1970-01-01T00:00:00Z".to_string(), from_ns)
+            .map_err(|e| DriverError::CandidateSource(format!("construct from-timestamp: {e}")))?;
+        let to = Timestamp::new("9999-12-31T23:59:59Z".to_string(), u64::MAX)
+            .map_err(|e| DriverError::CandidateSource(format!("construct to-timestamp: {e}")))?;
         let query = Query::ByTimeRange(TimeRangeQuery { from, to });
 
-        let page = self.store.query(query, None).await.map_err(|e| {
-            DriverError::CandidateSource(map_receipt_error(e))
-        })?;
+        let page = self
+            .store
+            .query(query, None)
+            .await
+            .map_err(|e| DriverError::CandidateSource(map_receipt_error(e)))?;
 
         // SORT BEFORE TRUNCATE — load-bearing for correctness.
         //
@@ -148,7 +148,10 @@ mod tests {
     /// signed by a fresh actor key. Returns the receipt + its actor +
     /// the signing key's public counterpart so the test can build a
     /// matching resolver.
-    fn signed_at_monotonic(monotonic_ns: u64, seed: u8) -> (yutha_receipt::Receipt, AgentId, PublicKey) {
+    fn signed_at_monotonic(
+        monotonic_ns: u64,
+        seed: u8,
+    ) -> (yutha_receipt::Receipt, AgentId, PublicKey) {
         let key = generate_keypair();
         let actor = {
             let mut b = [0u8; 16];
@@ -175,7 +178,10 @@ mod tests {
 
     /// Append `receipts` to `store`, using a resolver that knows every
     /// actor key used by the fixtures.
-    async fn seed(store: &MemoryStore, fixtures: Vec<(yutha_receipt::Receipt, AgentId, PublicKey)>) {
+    async fn seed(
+        store: &MemoryStore,
+        fixtures: Vec<(yutha_receipt::Receipt, AgentId, PublicKey)>,
+    ) {
         let mut resolver = StaticPassportResolver::new();
         for (_, actor, pk) in &fixtures {
             resolver = resolver.with_actor(*actor, pk.clone());
@@ -207,7 +213,9 @@ mod tests {
     #[tokio::test]
     async fn fetch_candidates_truncates_to_max_batch_size() {
         let store = Arc::new(MemoryStore::new());
-        let fixtures: Vec<_> = (0..5).map(|i| signed_at_monotonic(100 + i, i as u8 + 1)).collect();
+        let fixtures: Vec<_> = (0..5)
+            .map(|i| signed_at_monotonic(100 + i, i as u8 + 1))
+            .collect();
         seed(&store, fixtures).await;
 
         let src = ReceiptStoreCandidateSource::new(store.clone() as Arc<dyn ReceiptStore>);

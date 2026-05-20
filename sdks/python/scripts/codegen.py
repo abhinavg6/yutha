@@ -78,8 +78,7 @@ def main() -> int:
         from grpc_tools import protoc  # noqa: F401  # validated for presence
     except ImportError:
         sys.stderr.write(
-            "grpc_tools is not installed. Install dev extras:\n"
-            "    pip install -e '.[dev]'\n"
+            "grpc_tools is not installed. Install dev extras:\n    pip install -e '.[dev]'\n"
         )
         return 2
 

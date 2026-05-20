@@ -754,8 +754,7 @@ class YuthaClient:
         identity (use :attr:`operator_id` instead)."""
         if isinstance(self._session, OperatorBearerSession):
             raise AttributeError(
-                "operator-authenticated clients have no agent_id; "
-                "use `operator_id` instead"
+                "operator-authenticated clients have no agent_id; use `operator_id` instead"
             )
         return self._session.agent_id
 
@@ -765,8 +764,7 @@ class YuthaClient:
         for agent-authenticated clients."""
         if isinstance(self._session, BearerSession):
             raise AttributeError(
-                "agent-authenticated clients have no operator_id; "
-                "use `agent_id` instead"
+                "agent-authenticated clients have no operator_id; use `agent_id` instead"
             )
         return self._session.operator_id
 

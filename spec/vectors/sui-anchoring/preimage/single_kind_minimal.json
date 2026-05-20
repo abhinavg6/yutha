@@ -1,0 +1,15 @@
+{
+  "name": "single_kind_minimal",
+  "description": "Smallest valid batch: one receipt of one action_kind, both ns_range bounds equal. Swarm_id and batch_root use constant-byte patterns (0x42 and 0xaa respectively) for visual byte-counting when debugging hex diffs.",
+  "inputs": {
+    "swarm_id_hex": "42424242424242424242424242424242",
+    "batch_root_hex": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "count": 1,
+    "ns_range_start": 100,
+    "ns_range_end": 100,
+    "histogram": [
+      ["envelope.send", 1]
+    ]
+  },
+  "expected_preimage_hex": "42424242424242424242424242424242aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa000000000000000100000000000000640000000000000064000000010d656e76656c6f70652e73656e640000000000000001"
+}

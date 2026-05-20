@@ -103,11 +103,11 @@ TICKETS: list[str] = [
 # receipt surfaces as a clean diff.
 EXPECTED_AUDIT_DELTA: dict[str, int] = {
     "agent.register": 3,
-    "envelope.send": 4,         # 3 router dispatches + 1 escalation
+    "envelope.send": 4,  # 3 router dispatches + 1 escalation
     "envelope.deliver": 4,
-    "capability.issue": 1,      # router's send-cap
-    "capability.check.pass": 3, # 3 successful dispatches
-    "capability.check.deny": 1, # post-revoke attempt
+    "capability.issue": 1,  # router's send-cap
+    "capability.check.pass": 3,  # 3 successful dispatches
+    "capability.check.deny": 1,  # post-revoke attempt
     "capability.revoke": 1,
 }
 
@@ -128,14 +128,12 @@ def derive_bootstrap_identity(
     return signing_key, agent_id, swarm_id
 
 
-def load_bootstrap_identity_from_env() -> (
-    tuple[yutha.SigningKey, yutha.AgentId, yutha.SwarmId, bytes]
-):
+def load_bootstrap_identity_from_env() -> tuple[
+    yutha.SigningKey, yutha.AgentId, yutha.SwarmId, bytes
+]:
     seed_hex = os.environ.get("YUTHA_BOOTSTRAP_SEED")
     if not seed_hex:
-        raise RuntimeError(
-            "YUTHA_BOOTSTRAP_SEED is not set. See module docstring for setup."
-        )
+        raise RuntimeError("YUTHA_BOOTSTRAP_SEED is not set. See module docstring for setup.")
     seed = bytes.fromhex(seed_hex.strip())
     if len(seed) != 32:
         raise RuntimeError(
@@ -215,14 +213,14 @@ def make_dispatch_tool(
             # We're on a worker thread; the dispatch loop owns the
             # YuthaClient channel and runs on a different event loop.
             # Bridge via run_coroutine_threadsafe.
-            loop = router_wrapper._dispatch_task.get_loop() if router_wrapper._dispatch_task else None
+            loop = (
+                router_wrapper._dispatch_task.get_loop() if router_wrapper._dispatch_task else None
+            )
             if loop is None:
                 # Fallback: synchronous emit through a fresh loop. Less
                 # efficient but works when the dispatch loop hasn't
                 # started yet (e.g. demo's manual dispatch path).
-                return _emit_envelope_sync(
-                    router_wrapper, dest, ticket_text, category
-                )
+                return _emit_envelope_sync(router_wrapper, dest, ticket_text, category)
             fut = asyncio.run_coroutine_threadsafe(
                 router_wrapper.send(
                     recipient=yutha.Recipient.for_agent(dest),
@@ -333,9 +331,7 @@ async def snapshot_audit_trail(client: yutha.YuthaClient) -> dict[str, int]:
         page_token = b""
         seen = 0
         while True:
-            page = await client.receipt.query_by_action_kind(
-                kind, limit=100, page_token=page_token
-            )
+            page = await client.receipt.query_by_action_kind(kind, limit=100, page_token=page_token)
             seen += len(page.receipts)
             if not page.next_page_token:
                 break
@@ -385,9 +381,7 @@ async def run_s1_crewai() -> dict[str, int]:
         )
         return {}
 
-    bootstrap_signing_key, bootstrap_agent_id, swarm_id, _seed = (
-        load_bootstrap_identity_from_env()
-    )
+    bootstrap_signing_key, bootstrap_agent_id, swarm_id, _seed = load_bootstrap_identity_from_env()
 
     # Per-agent fresh identity.
     identities: dict[str, tuple[yutha.SigningKey, yutha.AgentId]] = {}
@@ -515,9 +509,7 @@ async def run_s1_crewai() -> dict[str, int]:
             # server's PERMISSION_DENIED).
             await router_wrapper.client.capability.revoke(cap_id)
             try:
-                dispatch_tool._run(
-                    ticket_text="post-revoke attempt", category="refund_clerk"
-                )
+                dispatch_tool._run(ticket_text="post-revoke attempt", category="refund_clerk")
             except CapabilityDenied as exc:
                 print(f"  cap-denied (expected): {exc}")
             else:

@@ -120,9 +120,9 @@ def derive_operator_identity(seed: bytes) -> tuple[yutha.SigningKey, yutha.Publi
     return op_signing, op_signing.public_key()
 
 
-def load_bootstrap_identity_from_env() -> (
-    tuple[yutha.SigningKey, yutha.AgentId, yutha.SwarmId, bytes]
-):
+def load_bootstrap_identity_from_env() -> tuple[
+    yutha.SigningKey, yutha.AgentId, yutha.SwarmId, bytes
+]:
     """Read ``YUTHA_BOOTSTRAP_SEED`` and derive the full bootstrap
     identity from it. Returns the raw seed bytes too so callers can
     do further seed-derived derivations (operator key, etc.) without
@@ -377,8 +377,7 @@ async def run_s1(server_addr: str = SERVER_ADDR) -> dict[str, int]:
     # invocation. Mismatched key → FAILED_PRECONDITION on phase 7.5.
     _op_signing_key_preview, _op_public_key_preview = derive_operator_identity(seed)
     print(
-        f"# operator pubkey (pass as --operator-public-key): "
-        f"{_op_public_key_preview.value.hex()}"
+        f"# operator pubkey (pass as --operator-public-key): {_op_public_key_preview.value.hex()}"
     )
 
     # --- Phase 0: pre-flow audit snapshot ---
@@ -577,10 +576,7 @@ async def run_s1(server_addr: str = SERVER_ADDR) -> dict[str, int]:
                     billing_id,
                     "s1 demo: operator-driven eviction",
                 )
-                print(
-                    f"  operator revoke receipt="
-                    f"{op_outcome.eviction_receipt.digest.hex()[:16]}…"
-                )
+                print(f"  operator revoke receipt={op_outcome.eviction_receipt.digest.hex()[:16]}…")
 
             # --- Phase 8: snapshot delta and report --------------------
             print("\n# Phase 8 — audit-trail delta")

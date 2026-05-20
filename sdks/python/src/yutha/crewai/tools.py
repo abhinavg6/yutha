@@ -169,6 +169,7 @@ def capability_required(
             )
 
         if original_run is not None:
+
             def patched_run(*args: Any, **kwargs: Any) -> Any:
                 token = ACTIVE_CAPABILITY_ID.set(cap_id)
                 try:
@@ -182,6 +183,7 @@ def capability_required(
             tool._run = patched_run
 
         if original_arun is not None:
+
             async def patched_arun(*args: Any, **kwargs: Any) -> Any:
                 token = ACTIVE_CAPABILITY_ID.set(cap_id)
                 try:

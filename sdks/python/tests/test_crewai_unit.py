@@ -93,9 +93,7 @@ def _build_capability(
         subject=subject,
         scope=yutha.Scope(permitted_actions=permitted_actions),
         valid_from=yutha.Timestamp.now(),
-        valid_until=yutha.Timestamp(
-            wall_clock="2099-01-01T00:00:00Z", monotonic_ns=2**62
-        ),
+        valid_until=yutha.Timestamp(wall_clock="2099-01-01T00:00:00Z", monotonic_ns=2**62),
     )
 
 
@@ -127,9 +125,7 @@ class _RecordingTool(BaseTool):  # type: ignore[misc]  # BaseTool is Any under s
 def test_capability_required_rejects_both_action_kind_and_descriptor() -> None:
     """Mutually-exclusive params: passing both raises ValueError."""
     _, agent_id, swarm_id = _fake_identity()
-    cap = _build_capability(
-        swarm_id, agent_id, agent_id, permitted_actions=["envelope.send"]
-    )
+    cap = _build_capability(swarm_id, agent_id, agent_id, permitted_actions=["envelope.send"])
     descriptor = yutha.ActionDescriptor(action_kind="envelope.send")
 
     with pytest.raises(ValueError, match=r"exactly one of `action_kind` or `descriptor`"):
@@ -139,9 +135,7 @@ def test_capability_required_rejects_both_action_kind_and_descriptor() -> None:
 def test_capability_required_rejects_neither_action_kind_nor_descriptor() -> None:
     """Mutually-exclusive params: passing neither raises ValueError."""
     _, agent_id, swarm_id = _fake_identity()
-    cap = _build_capability(
-        swarm_id, agent_id, agent_id, permitted_actions=["envelope.send"]
-    )
+    cap = _build_capability(swarm_id, agent_id, agent_id, permitted_actions=["envelope.send"])
 
     with pytest.raises(ValueError, match=r"exactly one of `action_kind` or `descriptor`"):
         capability_required(cap)
@@ -151,9 +145,7 @@ def test_capability_required_rejects_scope_mismatch() -> None:
     """Cap scope must include the declared action_kind; mismatch
     raises CapabilityDenied at decoration time, before any tool runs."""
     _, agent_id, swarm_id = _fake_identity()
-    cap = _build_capability(
-        swarm_id, agent_id, agent_id, permitted_actions=["envelope.send"]
-    )
+    cap = _build_capability(swarm_id, agent_id, agent_id, permitted_actions=["envelope.send"])
 
     with pytest.raises(CapabilityDenied, match=r"does not include.*Yutha::SupportQueue"):
         capability_required(cap, action_kind="Yutha::SupportQueue::Action::IssueRefund")
@@ -181,9 +173,7 @@ def test_capability_required_sets_contextvar_during_run() -> None:
     """The wrapper sets ACTIVE_CAPABILITY_ID to the cap's content-
     address for the duration of ``_run``, and resets it afterwards."""
     _, agent_id, swarm_id = _fake_identity()
-    cap = _build_capability(
-        swarm_id, agent_id, agent_id, permitted_actions=["envelope.send"]
-    )
+    cap = _build_capability(swarm_id, agent_id, agent_id, permitted_actions=["envelope.send"])
 
     # Outside any wrapper, the contextvar is None.
     assert ACTIVE_CAPABILITY_ID.get() is None
@@ -213,9 +203,7 @@ def test_capability_required_resets_contextvar_on_exception() -> None:
             raise RuntimeError("kaboom")
 
     _, agent_id, swarm_id = _fake_identity()
-    cap = _build_capability(
-        swarm_id, agent_id, agent_id, permitted_actions=["envelope.send"]
-    )
+    cap = _build_capability(swarm_id, agent_id, agent_id, permitted_actions=["envelope.send"])
 
     tool = _ExplodingTool()
     capability_required(cap, action_kind="envelope.send")(tool)
@@ -230,9 +218,7 @@ def test_capability_required_rejects_tool_without_run_methods() -> None:
     """A bare object that's not actually a BaseTool gets a clear
     TypeError rather than silently doing nothing."""
     _, agent_id, swarm_id = _fake_identity()
-    cap = _build_capability(
-        swarm_id, agent_id, agent_id, permitted_actions=["envelope.send"]
-    )
+    cap = _build_capability(swarm_id, agent_id, agent_id, permitted_actions=["envelope.send"])
 
     class _NotATool:
         """No `_run` or `_arun`."""
@@ -256,9 +242,7 @@ def test_crew_agent_constructor_rejects_passport_signing_key_mismatch() -> None:
     other_signing_key = yutha.SigningKey.generate()
     passport = _build_passport(signing_key, agent_id, swarm_id)
 
-    crew_agent = Agent(
-        role="Test", goal="Test", backstory="Test", allow_delegation=False
-    )
+    crew_agent = Agent(role="Test", goal="Test", backstory="Test", allow_delegation=False)
 
     # Bypass the dispatch loop / actual gRPC connection — we just
     # want to hit the constructor's validation path.
@@ -310,9 +294,7 @@ def test_default_task_factory_uses_payload_as_description() -> None:
         epoch=1,
         sent_at=yutha.Timestamp.now(),
     ).sign(signing_key)
-    fake_deliver_receipt = yutha.Hash(
-        algorithm=yutha.HashAlgorithm.SHA256, digest=b"\x00" * 32
-    )
+    fake_deliver_receipt = yutha.Hash(algorithm=yutha.HashAlgorithm.SHA256, digest=b"\x00" * 32)
 
     task = _default_task_factory(crew_wrapper, envelope, fake_deliver_receipt)
 
@@ -336,9 +318,7 @@ def test_wrapper_still_sets_contextvar_under_to_thread() -> None:
     crew to a worker."""
 
     _, agent_id, swarm_id = _fake_identity()
-    cap = _build_capability(
-        swarm_id, agent_id, agent_id, permitted_actions=["envelope.send"]
-    )
+    cap = _build_capability(swarm_id, agent_id, agent_id, permitted_actions=["envelope.send"])
 
     tool = _RecordingTool()
     type(tool).observed_cap_id = None

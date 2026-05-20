@@ -130,9 +130,7 @@ def _derive_operator_keypair_from_seed(
     return signing, signing.public_key()
 
 
-async def _activate_permissive_constitution(
-    addr: str, seed: bytes
-) -> ActivatedConstitutionFixture:
+async def _activate_permissive_constitution(addr: str, seed: bytes) -> ActivatedConstitutionFixture:
     """Connect as operator, build + activate a permissive constitution.
 
     Surfaces the two failure modes that tend to confuse contributors

@@ -291,6 +291,117 @@ def test_receipt_canonical_bytes_omit_signatures() -> None:
 
 
 # -----------------------------------------------------------------------------
+# SealStatus (RFC 0014 verifiability Layer 1)
+# -----------------------------------------------------------------------------
+
+
+def test_receipt_default_seal_is_unsealed() -> None:
+    """A receipt constructed without an explicit seal should default to
+    SealState.UNSEALED. This is the most common Python-side shape
+    (clients reading receipts that haven't been anchored yet)."""
+    r = yutha.Receipt(
+        spec_version="1.0.0",
+        swarm_id=yutha.SwarmId.new(),
+        actor=yutha.AgentId.new(),
+        action_kind="envelope.send",
+        constitution_version="1.0.0",
+        occurred_at=yutha.Timestamp.now(),
+    )
+    assert r.seal.state == yutha.SealState.UNSEALED
+    assert r.seal.batch_root is None
+    assert r.seal.on_chain_tx_digest is None
+    assert r.seal.swarm_anchor_object_id is None
+    assert r.seal.merkle_path == []
+
+
+def test_sealed_receipt_round_trips_through_proto() -> None:
+    """A sealed receipt (state=SEALED + on-chain anchor digest +
+    SwarmAnchor object id, the SuiSealer shape per RFC 0014) must
+    preserve every seal field across proto round-trip. Drift here
+    would silently strip anchoring metadata on its way to operators."""
+    batch_root = yutha.Hash(algorithm=yutha.HashAlgorithm.SHA256, digest=b"\x10" * 32)
+    merkle_sibling = yutha.Hash(algorithm=yutha.HashAlgorithm.SHA256, digest=b"\x11" * 32)
+    original = yutha.Receipt(
+        spec_version="1.0.0",
+        swarm_id=yutha.SwarmId.new(),
+        actor=yutha.AgentId.new(),
+        action_kind="envelope.send",
+        constitution_version="1.0.0",
+        occurred_at=yutha.Timestamp.now(),
+        seal=yutha.SealStatus(
+            state=yutha.SealState.SEALED,
+            batch_root=batch_root,
+            merkle_path=[merkle_sibling],
+            sealed_at=yutha.Timestamp.now(),
+            on_chain_tx_digest=b"\x20" * 32,
+            swarm_anchor_object_id=b"\x30" * 32,
+        ),
+    )
+    back = yutha.Receipt.from_proto(original.to_proto())
+    assert back == original
+    assert back.seal.state == yutha.SealState.SEALED
+    assert back.seal.on_chain_tx_digest == b"\x20" * 32
+    assert back.seal.swarm_anchor_object_id == b"\x30" * 32
+    assert back.seal.batch_root == batch_root
+    assert back.seal.merkle_path == [merkle_sibling]
+
+
+def test_locally_sealed_receipt_has_no_on_chain_digest() -> None:
+    """LocalSealer (in-process, no external commitment) populates
+    batch_root + merkle_path + sealed_at but leaves on_chain_tx_digest
+    and swarm_anchor_object_id None. Verify the round-trip preserves
+    the absent-Sui-anchor shape."""
+    original = yutha.Receipt(
+        spec_version="1.0.0",
+        swarm_id=yutha.SwarmId.new(),
+        actor=yutha.AgentId.new(),
+        action_kind="envelope.send",
+        constitution_version="1.0.0",
+        occurred_at=yutha.Timestamp.now(),
+        seal=yutha.SealStatus(
+            state=yutha.SealState.SEALED,
+            batch_root=yutha.Hash(algorithm=yutha.HashAlgorithm.SHA256, digest=b"\x40" * 32),
+            sealed_at=yutha.Timestamp.now(),
+            # on_chain_tx_digest + swarm_anchor_object_id deliberately None
+        ),
+    )
+    back = yutha.Receipt.from_proto(original.to_proto())
+    assert back.seal.state == yutha.SealState.SEALED
+    assert back.seal.on_chain_tx_digest is None
+    assert back.seal.swarm_anchor_object_id is None
+    assert back == original
+
+
+def test_canonical_bytes_omit_seal() -> None:
+    """The seal field is populated POST content-addressing — it must
+    not appear in canonical bytes, or any post-seal mutation would
+    change the receipt's content-address. Same invariant as
+    `test_receipt_canonical_bytes_omit_signatures`."""
+    base = yutha.Receipt(
+        spec_version="1.0.0",
+        swarm_id=yutha.SwarmId.new(),
+        actor=yutha.AgentId.new(),
+        action_kind="envelope.send",
+        constitution_version="1.0.0",
+        occurred_at=yutha.Timestamp.now(),
+    )
+    bytes_a = base.canonical_bytes()
+
+    sealed = base.model_copy(
+        update={
+            "seal": yutha.SealStatus(
+                state=yutha.SealState.SEALED,
+                batch_root=yutha.Hash(algorithm=yutha.HashAlgorithm.SHA256, digest=b"\x50" * 32),
+                sealed_at=yutha.Timestamp.now(),
+                on_chain_tx_digest=b"\x60" * 32,
+            )
+        }
+    )
+    bytes_b = sealed.canonical_bytes()
+    assert bytes_a == bytes_b, "sealing must not change canonical bytes"
+
+
+# -----------------------------------------------------------------------------
 # Constitution (F11a)
 # -----------------------------------------------------------------------------
 

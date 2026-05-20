@@ -120,10 +120,7 @@ async def test_support_queue_workload_constitution_activates_via_grpc(
             # The most informative failure for this test is the server
             # complaining about the workload namespace — surface a
             # specific skip with the fix.
-            if (
-                e.code() == grpc.StatusCode.INVALID_ARGUMENT
-                and "SupportQueue" in details
-            ):
+            if e.code() == grpc.StatusCode.INVALID_ARGUMENT and "SupportQueue" in details:
                 pytest.skip(
                     f"server at {address} doesn't recognize the SupportQueue "
                     f"namespace: {details}. Start the control plane with "

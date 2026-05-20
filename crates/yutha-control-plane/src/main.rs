@@ -236,7 +236,6 @@ struct Cli {
     // public audit trail; the local SealStore is updated in lockstep
     // for fast off-chain seal-status queries.
     // -------------------------------------------------------------------
-
     /// Sui RPC URL (gRPC) to anchor against. Localnet: `http://127.0.0.1:9000`.
     /// Testnet: `https://fullnode.testnet.sui.io`. Mainnet: `https://fullnode.mainnet.sui.io`.
     ///
@@ -273,13 +272,21 @@ struct Cli {
     /// Anchor cadence: trigger a seal when this many unsealed receipts
     /// have accumulated. Default 100. Lower for chatty swarms that
     /// want fresher anchors; higher to amortize gas costs.
-    #[arg(long, env = "YUTHA_ANCHOR_BATCH_COUNT_THRESHOLD", default_value_t = 100)]
+    #[arg(
+        long,
+        env = "YUTHA_ANCHOR_BATCH_COUNT_THRESHOLD",
+        default_value_t = 100
+    )]
     anchor_batch_count_threshold: usize,
 
     /// Anchor cadence: trigger a seal at most this often (seconds),
     /// regardless of count. Default 10s. Bounds the
     /// indefinitely-unsealed window for quiet swarms.
-    #[arg(long, env = "YUTHA_ANCHOR_BATCH_TIME_THRESHOLD_SECS", default_value_t = 10)]
+    #[arg(
+        long,
+        env = "YUTHA_ANCHOR_BATCH_TIME_THRESHOLD_SECS",
+        default_value_t = 10
+    )]
     anchor_batch_time_threshold_secs: u64,
 
     /// Anchor cadence: hard ceiling on a single batch's size. Default
@@ -469,9 +476,14 @@ async fn main() -> anyhow::Result<()> {
                  swarm_id must match the seed-derived value)"
             )
         })?;
-        spawn_anchor_driver(ac, swarm_id, anchor_receipt_store_for_candidates, anchor_seal_store)
-            .await
-            .context("spawn Sui anchor driver")?;
+        spawn_anchor_driver(
+            ac,
+            swarm_id,
+            anchor_receipt_store_for_candidates,
+            anchor_seal_store,
+        )
+        .await
+        .context("spawn Sui anchor driver")?;
     }
 
     serve_grpc(&cli, state).await?;
@@ -499,12 +511,8 @@ async fn spawn_anchor_driver(
 
     // 1. Load the sealer key. File contains a single `suiprivkey1…`
     //    bech32 string; the helper strips trailing whitespace.
-    let sealer_key = load_sealer_key_from_file(&cfg.sealer_key_file).with_context(|| {
-        format!(
-            "load sealer key from {}",
-            cfg.sealer_key_file.display()
-        )
-    })?;
+    let sealer_key = load_sealer_key_from_file(&cfg.sealer_key_file)
+        .with_context(|| format!("load sealer key from {}", cfg.sealer_key_file.display()))?;
 
     // 2. Connect the Sui RPC client. Connection is lazy (the underlying
     //    tonic Channel doesn't dial until first RPC), so this is cheap.
@@ -537,11 +545,7 @@ async fn spawn_anchor_driver(
     //    swarm_id — enforced by the operator at create_swarm_anchor
     //    time; mismatch surfaces as `ESealerKeyMismatch` (code 9) on
     //    the first commit because the canonical preimage diverges.
-    let sealer = Arc::new(SuiSealer::new(
-        Box::new(client),
-        sealer_key,
-        swarm_id,
-    ));
+    let sealer = Arc::new(SuiSealer::new(Box::new(client), sealer_key, swarm_id));
 
     // 5. Wrap the receipt store as the driver's candidate source.
     let candidate_source = Arc::new(ReceiptStoreCandidateSource::new(receipt_store));

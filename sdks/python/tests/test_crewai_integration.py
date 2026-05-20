@@ -169,9 +169,7 @@ async def test_crew_agent_lifecycle_via_dispatch_loop(
         received.append(env)
         return None  # skip the actual crew.kickoff
 
-    async def on_output(
-        agent: YuthaCrewAgent, env: yutha.Envelope, output: Any
-    ) -> None:
+    async def on_output(agent: YuthaCrewAgent, env: yutha.Envelope, output: Any) -> None:
         output_callback_fires.append((env, output))
 
     crew_wrapper = YuthaCrewAgent.connect(
@@ -185,9 +183,7 @@ async def test_crew_agent_lifecycle_via_dispatch_loop(
 
     async with crew_wrapper:
         await asyncio.sleep(0.1)
-        cap_id = await _issue_self_send_cap(
-            crew_wrapper.client, agent_id, swarm_id
-        )
+        cap_id = await _issue_self_send_cap(crew_wrapper.client, agent_id, swarm_id)
         send_receipt = await crew_wrapper.send(
             recipient=yutha.Recipient.for_agent(agent_id),
             performative=yutha.Performative.INFORM,
@@ -237,9 +233,7 @@ async def test_crew_agent_send_auto_increments_epoch(
         allow_delegation=False,
     )
 
-    def skip_factory(
-        agent: YuthaCrewAgent, env: yutha.Envelope, deliver_id: yutha.Hash
-    ) -> None:
+    def skip_factory(agent: YuthaCrewAgent, env: yutha.Envelope, deliver_id: yutha.Hash) -> None:
         received.append(env)
         return None
 
@@ -253,9 +247,7 @@ async def test_crew_agent_send_auto_increments_epoch(
 
     async with crew_wrapper:
         await asyncio.sleep(0.1)
-        cap_id = await _issue_self_send_cap(
-            crew_wrapper.client, agent_id, swarm_id
-        )
+        cap_id = await _issue_self_send_cap(crew_wrapper.client, agent_id, swarm_id)
         await crew_wrapper.send(
             yutha.Recipient.for_agent(agent_id),
             yutha.Performative.INFORM,
@@ -272,8 +264,6 @@ async def test_crew_agent_send_auto_increments_epoch(
             if len(received) >= 2:
                 break
             await asyncio.sleep(0.1)
-        assert len(received) >= 2, (
-            f"expected 2 envelopes on the stream, got {len(received)}"
-        )
+        assert len(received) >= 2, f"expected 2 envelopes on the stream, got {len(received)}"
         epochs = [e.epoch for e in received[:2]]
         assert epochs[0] < epochs[1], f"epochs not strictly increasing: {epochs}"
