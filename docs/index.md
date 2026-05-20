@@ -8,6 +8,10 @@ hide:
 
 # Agents are easy to build. Swarms are not.
 
+!!! info "Status — early-stage pre-release"
+
+    Yutha is at **[v0.1.0-alpha.1](https://github.com/abhinavg6/yutha/releases/tag/v0.1.0-alpha.1)** — solid enough to play with end-to-end, intentionally pre-1.0. The shape of the project is settled; wire formats and API surfaces may shift before 1.0. Pin tightly if you build on it, and [open an issue](https://github.com/abhinavg6/yutha/issues) if you hit something.
+
 **Yutha** — from the Sanskrit [यूथ (*yūtha*)](https://www.wisdomlib.org/definition/yutha) meaning a herd, troop, or band moving together — is open-source infrastructure for groups of AI agents. Two friends running hobby agents in a Discord, a marketing team coordinating a half-dozen agents inside one company, a regulated workflow with hundreds of agents across departments, or thousands of agents collaborating across organizations: same primitives, same audit log, same enforcement, same Yutha.
 
 You can stand up a *single* agent in an afternoon. Coordinating a handful — or a hundred — of them, in a way you'd trust for a customer interaction, an internal workflow, or a cross-company integration, is a different problem entirely. Almost every team rebuilds the same scaffolding from scratch: who an agent is, what it's allowed to do, what it actually did, and which norms govern the swarm it lives in. Each agent framework solves a fragment and stops.

@@ -2,6 +2,11 @@
 
 > **A framework-agnostic control plane for agent swarms.** Identity, capability, accountability, and norms — for agents from any framework, on any backend.
 
+[![Release](https://img.shields.io/github/v/release/abhinavg6/yutha?include_prereleases&label=release&color=orange)](https://github.com/abhinavg6/yutha/releases)
+[![License: Apache 2.0](https://img.shields.io/github/license/abhinavg6/yutha)](LICENSE)
+[![CI](https://github.com/abhinavg6/yutha/actions/workflows/ci.yml/badge.svg)](https://github.com/abhinavg6/yutha/actions/workflows/ci.yml)
+[![Docs](https://github.com/abhinavg6/yutha/actions/workflows/docs.yml/badge.svg)](https://github.com/abhinavg6/yutha/actions/workflows/docs.yml)
+
 Multi-agent systems work in demos and break in production. The reason is almost always the same: there's no shared substrate for *who an agent is*, *what it's allowed to do*, *what it actually did*, and *which norms govern the swarm it lives in*. Each framework reinvents a fragment of that and stops.
 
 Yutha is the substrate. It runs in front of agents you've already built — in [LangGraph](https://github.com/langchain-ai/langgraph), [CrewAI](https://www.crewai.com/), or anything else you'd like to write an adapter for — and gives them passports, signed receipts, attenuated capabilities, declarative constitutions ([Cedar](https://github.com/cedar-policy)+) with four-stage enforcement, and an optional cryptographic verification layer ([Sui](https://www.sui.io/) anchoring) when you need to prove what happened to a third party.
