@@ -1,6 +1,8 @@
 # Security Policy
 
-Yutha sits on the trust boundary of the multi-agent systems that use it. Vulnerability reports are handled with that responsibility in mind, even while the project is stewarded by a single maintainer.
+Yutha sits on the trust boundary of the multi-agent systems that use it. Vulnerability reports are handled with that responsibility in mind.
+
+This is an early-stage open-source project, stewarded by a single maintainer ([@abhinavg6](https://github.com/abhinavg6)) for now. It is actively developed and openly welcoming additional reviewers, security researchers, and contributors — see [Contributing](./CONTRIBUTING.md) if you'd like to help shape how this evolves.
 
 ## Reporting a vulnerability
 

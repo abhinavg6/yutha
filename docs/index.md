@@ -14,6 +14,39 @@ You can stand up a *single* agent in an afternoon. Coordinating a handful — or
 
 **Yutha is that scaffolding, built once, framework-agnostic.** It runs in front of agents you've already built — in [LangGraph](https://github.com/langchain-ai/langgraph), [CrewAI](https://www.crewai.com/), or anything else you'd like to write an adapter for — and gives them passports, signed receipts, attenuated capabilities, declarative constitutions with four-stage enforcement, and an optional cryptographic verification layer for when a third party needs to audit what happened.
 
+```mermaid
+flowchart TB
+    Op(["Operator"])
+
+    subgraph YA["Your agents · any framework"]
+        direction LR
+        A1["LangGraph agent"]
+        A2["CrewAI agent"]
+        A3["Any other framework"]
+    end
+
+    SDK["Yutha SDK<br/>+ framework adapter"]
+
+    subgraph CP["Yutha control plane · self-hosted"]
+        direction LR
+        Reg["Agent registry<br/>and topology<br/>(passports)"]
+        Cap["Capability store"]
+        Const["Cedar+ constitution<br/>+ four-stage enforcement"]
+        Rec["Append-only<br/>receipt log"]
+    end
+
+    Audit["Audit and monitoring"]
+    Sui["Sui anchoring<br/>(verifiable to third parties)"]
+
+    YA --> SDK
+    SDK <-->|gRPC| CP
+    Op -->|"constitution, capabilities, topology"| CP
+    Rec --> Audit
+    Rec -.->|"opt-in"| Sui
+```
+
+*How it fits together: your agents talk to the self-hosted control plane through the Yutha SDK. The control plane gates every consequential action against capabilities and the active constitution, and writes a signed receipt for each one. Audit and monitoring follow from the receipt log; Sui anchoring is an opt-in layer for when a third party needs to verify the trail without trusting the operator.*
+
 <div class="grid cards" markdown>
 
 -   :material-clock-fast:{ .lg .middle } **Run an agent through it in 15 minutes**
