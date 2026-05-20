@@ -31,7 +31,12 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt
-      - run: cargo fmt --all --check
+      # Deliberately NOT `--all`: rustfmt's `--all` flag formats workspace
+      # members AND their local path-based dependencies, which would walk
+      # into ../sui-rust-sdk and enforce our fmt rules on upstream code.
+      # Plain `cargo fmt --check` uses `cargo metadata --no-deps` and
+      # stays inside our workspace.
+      - run: cargo fmt --check
 
   clippy:
     name: clippy
