@@ -88,3 +88,9 @@ Pub.*.toml
 # test debugging). Never useful in tree.
 server.log
 *.log
+
+# Move-compiler output. `sui move build` / `sui client publish`
+# regenerates this directory on every invocation; committing it
+# produces enormous diffs and ties the repo to one Sui framework
+# version. Keep `sources/`, `tests/`, and `Move.toml`; skip `build/`.
+contracts/sui/**/build/

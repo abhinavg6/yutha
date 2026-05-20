@@ -218,6 +218,76 @@ struct Cli {
     /// automatically on startup against this database.
     #[arg(long, env = "YUTHA_POSTGRES_URL")]
     postgres_url: Option<String>,
+
+    // -------------------------------------------------------------------
+    // Sui-anchoring driver (RFC 0014 verifiability Layer 1).
+    //
+    // The four `--anchor-*` flags below are required-together: provide
+    // all four to enable the AnchorDriver background task, or none to
+    // leave anchoring disabled. Partial configuration is rejected at
+    // startup with a clear error. See
+    // `/docs/sui-anchoring-walkthrough.md` for end-to-end operator setup.
+    //
+    // When enabled, the driver polls the receipt store for unsealed
+    // receipts past the on-chain watermark, batches them per the
+    // cadence knobs, signs the canonical preimage, and submits
+    // `commit_batch_from_arrays` PTBs to the operator-deployed
+    // `receipt_anchor` Move package. AnchorCommitted events become the
+    // public audit trail; the local SealStore is updated in lockstep
+    // for fast off-chain seal-status queries.
+    // -------------------------------------------------------------------
+
+    /// Sui RPC URL (gRPC) to anchor against. Localnet: `http://127.0.0.1:9000`.
+    /// Testnet: `https://fullnode.testnet.sui.io`. Mainnet: `https://fullnode.mainnet.sui.io`.
+    ///
+    /// Enabling anchoring requires all four `--anchor-*` flags to be set.
+    #[arg(long, env = "YUTHA_ANCHOR_SUI_RPC_URL")]
+    anchor_sui_rpc_url: Option<String>,
+
+    /// Operator-deployed `receipt_anchor` package id, 0x-prefixed hex.
+    /// Obtained from `sui client publish` / `sui client test-publish`
+    /// against the operator's chosen Sui network.
+    #[arg(long, env = "YUTHA_ANCHOR_PACKAGE_ID")]
+    anchor_package_id: Option<String>,
+
+    /// Per-swarm `SwarmAnchor` shared-object id, 0x-prefixed hex.
+    /// Created via `sui client call ... create_swarm_anchor`. The
+    /// `swarm_id` stored on the anchor MUST equal the bootstrap-seed-
+    /// derived `SwarmId` this control plane uses for the registry —
+    /// see `BootstrapIdentity::from_seed_hex`. Mismatch surfaces as
+    /// `ESealerKeyMismatch` (canonical preimage diverges) on every
+    /// commit.
+    #[arg(long, env = "YUTHA_ANCHOR_SWARM_ANCHOR_ID")]
+    anchor_swarm_anchor_id: Option<String>,
+
+    /// Path to a file containing the sealer's `suiprivkey1…` bech32
+    /// string (Sui CLI's canonical keystore format). The corresponding
+    /// public key MUST equal the on-chain `SwarmAnchor.sealer_pubkey`
+    /// or every commit aborts with `ESealerKeyMismatch`.
+    ///
+    /// File should be `chmod 600`. Generate via the H5 walkthrough's
+    /// `sui keytool generate` + `sui keytool export` flow.
+    #[arg(long, env = "YUTHA_ANCHOR_SEALER_KEY_FILE")]
+    anchor_sealer_key_file: Option<PathBuf>,
+
+    /// Anchor cadence: trigger a seal when this many unsealed receipts
+    /// have accumulated. Default 100. Lower for chatty swarms that
+    /// want fresher anchors; higher to amortize gas costs.
+    #[arg(long, env = "YUTHA_ANCHOR_BATCH_COUNT_THRESHOLD", default_value_t = 100)]
+    anchor_batch_count_threshold: usize,
+
+    /// Anchor cadence: trigger a seal at most this often (seconds),
+    /// regardless of count. Default 10s. Bounds the
+    /// indefinitely-unsealed window for quiet swarms.
+    #[arg(long, env = "YUTHA_ANCHOR_BATCH_TIME_THRESHOLD_SECS", default_value_t = 10)]
+    anchor_batch_time_threshold_secs: u64,
+
+    /// Anchor cadence: hard ceiling on a single batch's size. Default
+    /// 1000. Protects against backlog blowouts after RPC downtime —
+    /// the next batch covers up to this many receipts; the rest waits
+    /// for the following tick.
+    #[arg(long, env = "YUTHA_ANCHOR_MAX_BATCH_SIZE", default_value_t = 1000)]
+    anchor_max_batch_size: usize,
 }
 
 #[derive(Debug, Clone, Copy, ValueEnum, PartialEq, Eq)]
@@ -271,6 +341,26 @@ async fn main() -> anyhow::Result<()> {
         Some(hex) => Some(parse_operator_public_key(hex)?),
         None => None,
     };
+
+    // Resolve the anchor flags up front so partial-config errors fail
+    // fast before any backend is constructed. The actual driver-spawn
+    // step happens later (after the receipt store + bootstrap identity
+    // are available) — see H6c wiring further down.
+    let anchor_config = resolve_anchor_config(&cli)?;
+    if let Some(ref ac) = anchor_config {
+        info!(
+            rpc_url = %ac.rpc_url,
+            package_id = %ac.package_id_hex,
+            swarm_anchor_id = %ac.swarm_anchor_id_hex,
+            sealer_key_file = ?ac.sealer_key_file,
+            batch_count_threshold = ac.batch_count_threshold,
+            batch_time_threshold = ?ac.batch_time_threshold,
+            max_batch_size = ac.max_batch_size,
+            "Sui anchoring ENABLED (RFC 0014 Layer 1): driver will be spawned after backends initialize"
+        );
+    } else {
+        info!("Sui anchoring disabled (no --anchor-* flags set)");
+    }
     // Resolve workload-extension names to their embedded sources.
     // Bail with a clear error on unknown names rather than silently
     // ignoring them — typos would otherwise mask "constitution
@@ -289,10 +379,24 @@ async fn main() -> anyhow::Result<()> {
     // based on the operator's chosen backend. Wrapping in the
     // PublishingReceiptStore decorator happens inside
     // bootstrap_backends regardless of backend choice.
-    let inner_receipt_store: Arc<dyn ReceiptStore> = match cli.receipt_backend {
+    //
+    // We hold the concrete store as an Arc once, then cast to both
+    // `Arc<dyn ReceiptStore>` (for the rest of bootstrap_backends) AND
+    // `Arc<dyn SealStore>` (for the H6 anchor driver, if enabled).
+    // Once the dyn cast happens via `Arc::new(store as Arc<dyn ...>)`,
+    // we can't recover the other trait object from it — so the fork
+    // has to happen here, at the typed Arc.
+    let (inner_receipt_store, anchor_seal_store): (
+        Arc<dyn ReceiptStore>,
+        Arc<dyn yutha_receipt::SealStore>,
+    ) = match cli.receipt_backend {
         ReceiptBackendArg::Memory => {
             info!("receipt backend: in-memory (non-persistent)");
-            Arc::new(MemoryReceiptStore::new())
+            let store = Arc::new(MemoryReceiptStore::new());
+            (
+                Arc::clone(&store) as Arc<dyn ReceiptStore>,
+                store as Arc<dyn yutha_receipt::SealStore>,
+            )
         }
         ReceiptBackendArg::Postgres => {
             let url = cli.postgres_url.as_deref().ok_or_else(|| {
@@ -307,11 +411,31 @@ async fn main() -> anyhow::Result<()> {
                 .connect(url)
                 .await
                 .with_context(|| format!("connect postgres {url}"))?;
-            let store = yutha_backend_postgres_receipt::PostgresStore::new(pool);
+            let store = Arc::new(yutha_backend_postgres_receipt::PostgresStore::new(pool));
             store.migrate().await.context("postgres migrate")?;
-            Arc::new(store)
+            (
+                Arc::clone(&store) as Arc<dyn ReceiptStore>,
+                store as Arc<dyn yutha_receipt::SealStore>,
+            )
         }
     };
+
+    // Snapshot the bootstrap swarm_id before `bootstrap_identity` is
+    // moved into `bootstrap_backends` below. The Sui-anchor driver
+    // (if enabled) needs this to construct the SuiSealer; it MUST
+    // equal the `swarm_id` stored on the on-chain `SwarmAnchor` (the
+    // operator's responsibility, documented in
+    // /docs/sui-anchoring-walkthrough.md). SwarmId is Copy so this is
+    // a no-op clone.
+    let bootstrap_swarm_id_for_anchor: Option<SwarmId> =
+        bootstrap_identity.as_ref().map(|bi| bi.swarm_id);
+
+    // Snapshot the receipt store for the anchor candidate source.
+    // bootstrap_backends wraps it in PublishingReceiptStore for the
+    // gRPC handlers; the driver wants the underlying store directly
+    // so it sees all appended receipts, including ones written by
+    // the gRPC path.
+    let anchor_receipt_store_for_candidates = Arc::clone(&inner_receipt_store);
 
     let (state, enforcement_rx) = bootstrap_backends(
         bootstrap_identity,
@@ -331,7 +455,121 @@ async fn main() -> anyhow::Result<()> {
     spawn_enforcement_forwarder(Arc::clone(&state), enforcement_rx);
     spawn_scheduler_tick(Arc::clone(&state));
 
+    // H6c: Sui-anchor driver. Spawned only when all four anchor flags
+    // were set; the resolver above already validated all-or-nothing.
+    // Requires the bootstrap-seed-derived swarm_id (must match the
+    // on-chain SwarmAnchor.swarm_id), so we additionally require
+    // `--bootstrap-seed` when anchoring is enabled — the random
+    // identity branch can't anchor because there's no off-chain
+    // source for the swarm_id the operator put on-chain.
+    if let Some(ac) = anchor_config {
+        let swarm_id = bootstrap_swarm_id_for_anchor.ok_or_else(|| {
+            anyhow::anyhow!(
+                "Sui anchoring requires --bootstrap-seed (the SwarmAnchor's on-chain \
+                 swarm_id must match the seed-derived value)"
+            )
+        })?;
+        spawn_anchor_driver(ac, swarm_id, anchor_receipt_store_for_candidates, anchor_seal_store)
+            .await
+            .context("spawn Sui anchor driver")?;
+    }
+
     serve_grpc(&cli, state).await?;
+    Ok(())
+}
+
+/// Construct the [`yutha_backend_sui_anchor::AnchorDriver`] from the
+/// resolved CLI config and spawn its `run()` loop. Reads the on-chain
+/// [`SwarmAnchor`] state once to seed the initial watermark (the
+/// driver's monotonic high-water mark across batches).
+///
+/// Returns on success once the spawn task is dispatched; the driver
+/// itself runs forever (until the process exits or a future
+/// `shutdown` is wired in).
+async fn spawn_anchor_driver(
+    cfg: ResolvedAnchorConfig,
+    swarm_id: SwarmId,
+    receipt_store: Arc<dyn ReceiptStore>,
+    seal_store: Arc<dyn yutha_receipt::SealStore>,
+) -> anyhow::Result<()> {
+    use yutha_backend_sui_anchor::{
+        load_sealer_key_from_file, AnchorDriver, AnchorDriverConfig, ReceiptStoreCandidateSource,
+        RpcAnchorClient, SuiSealer,
+    };
+
+    // 1. Load the sealer key. File contains a single `suiprivkey1…`
+    //    bech32 string; the helper strips trailing whitespace.
+    let sealer_key = load_sealer_key_from_file(&cfg.sealer_key_file).with_context(|| {
+        format!(
+            "load sealer key from {}",
+            cfg.sealer_key_file.display()
+        )
+    })?;
+
+    // 2. Connect the Sui RPC client. Connection is lazy (the underlying
+    //    tonic Channel doesn't dial until first RPC), so this is cheap.
+    let client = RpcAnchorClient::connect(
+        &cfg.rpc_url,
+        sealer_key.clone(),
+        &cfg.package_id_hex,
+        &cfg.swarm_anchor_id_hex,
+    )
+    .context("connect Sui RPC anchor client")?;
+
+    // 3. Read the on-chain SwarmAnchor state once at startup — gives us
+    //    the initial watermark (last_ns_range_end of the most recent
+    //    successful commit, or 0 if no commits yet).
+    let anchor_state = {
+        use yutha_backend_sui_anchor::SuiAnchorClient;
+        client
+            .read_anchor_state()
+            .await
+            .context("read initial SwarmAnchor state")?
+    };
+    info!(
+        batch_count = anchor_state.batch_count,
+        last_ns_range_end = anchor_state.last_ns_range_end,
+        "Sui anchor: read initial on-chain state"
+    );
+
+    // 4. Build the sealer (composes the client + the H2 LocalSealer
+    //    preimage path). The swarm_id MUST match the on-chain anchor's
+    //    swarm_id — enforced by the operator at create_swarm_anchor
+    //    time; mismatch surfaces as `ESealerKeyMismatch` (code 9) on
+    //    the first commit because the canonical preimage diverges.
+    let sealer = Arc::new(SuiSealer::new(
+        Box::new(client),
+        sealer_key,
+        swarm_id,
+    ));
+
+    // 5. Wrap the receipt store as the driver's candidate source.
+    let candidate_source = Arc::new(ReceiptStoreCandidateSource::new(receipt_store));
+
+    // 6. Assemble the driver config from the CLI flags + the
+    //    non-knob defaults (initial_backoff, max_backoff,
+    //    idle_poll_interval, retry_attempts).
+    let driver_cfg = AnchorDriverConfig {
+        batch_count_threshold: cfg.batch_count_threshold,
+        batch_time_threshold: cfg.batch_time_threshold,
+        max_batch_size: cfg.max_batch_size,
+        ..Default::default()
+    };
+
+    let driver = AnchorDriver::new(
+        driver_cfg,
+        sealer,
+        candidate_source,
+        seal_store,
+        anchor_state.last_ns_range_end,
+    );
+
+    // 7. Spawn. The loop runs forever (logs each seal via tracing::info;
+    //    transient failures back off and retry; permanent failures log
+    //    at error and continue the loop). When the process exits, tokio
+    //    runtime shutdown cancels the task.
+    tokio::spawn(driver.run());
+    info!("Sui anchor: driver spawned (cadence loop running)");
     Ok(())
 }
 
@@ -800,6 +1038,76 @@ fn parse_operator_public_key(hex_str: &str) -> anyhow::Result<yutha_core::Public
     }
     yutha_core::PublicKey::new(yutha_core::SignatureAlgorithm::Ed25519, bytes)
         .map_err(|e| anyhow::anyhow!("--operator-public-key: {e}"))
+}
+
+/// Resolved Sui-anchor configuration from the `--anchor-*` flags.
+/// `None` = anchoring disabled (no flags set); `Some(_)` = all four
+/// required flags present + cadence knobs resolved into typed values.
+///
+/// The four endpoint flags are required-together: setting any one
+/// without the others is a configuration error and surfaces as a
+/// startup failure.
+struct ResolvedAnchorConfig {
+    rpc_url: String,
+    package_id_hex: String,
+    swarm_anchor_id_hex: String,
+    sealer_key_file: PathBuf,
+    /// Cadence knobs forwarded into `AnchorDriverConfig`. We pull the
+    /// non-knob defaults (initial_backoff, max_backoff,
+    /// idle_poll_interval, retry_attempts) from
+    /// `AnchorDriverConfig::default()` rather than surfacing them on
+    /// the CLI — they're tuning parameters operators rarely change.
+    batch_count_threshold: usize,
+    batch_time_threshold: std::time::Duration,
+    max_batch_size: usize,
+}
+
+/// Validate the four `--anchor-*` endpoint flags as a group + parse
+/// the cadence knobs. Returns:
+///   - `Ok(None)` if all four endpoint flags are absent (anchoring off);
+///   - `Ok(Some(_))` if all four are present (anchoring on);
+///   - `Err(_)` on partial config (anchoring half-set is a typo, not a feature).
+fn resolve_anchor_config(cli: &Cli) -> anyhow::Result<Option<ResolvedAnchorConfig>> {
+    let endpoints = [
+        ("--anchor-sui-rpc-url", cli.anchor_sui_rpc_url.is_some()),
+        ("--anchor-package-id", cli.anchor_package_id.is_some()),
+        (
+            "--anchor-swarm-anchor-id",
+            cli.anchor_swarm_anchor_id.is_some(),
+        ),
+        (
+            "--anchor-sealer-key-file",
+            cli.anchor_sealer_key_file.is_some(),
+        ),
+    ];
+    let set_count = endpoints.iter().filter(|(_, v)| *v).count();
+    match set_count {
+        0 => Ok(None),
+        4 => Ok(Some(ResolvedAnchorConfig {
+            rpc_url: cli.anchor_sui_rpc_url.clone().unwrap(),
+            package_id_hex: cli.anchor_package_id.clone().unwrap(),
+            swarm_anchor_id_hex: cli.anchor_swarm_anchor_id.clone().unwrap(),
+            sealer_key_file: cli.anchor_sealer_key_file.clone().unwrap(),
+            batch_count_threshold: cli.anchor_batch_count_threshold,
+            batch_time_threshold: std::time::Duration::from_secs(
+                cli.anchor_batch_time_threshold_secs,
+            ),
+            max_batch_size: cli.anchor_max_batch_size,
+        })),
+        _ => {
+            let missing: Vec<&str> = endpoints
+                .iter()
+                .filter_map(|(name, present)| if *present { None } else { Some(*name) })
+                .collect();
+            anyhow::bail!(
+                "Sui anchoring partially configured: missing {}. \
+                 All four of --anchor-sui-rpc-url, --anchor-package-id, \
+                 --anchor-swarm-anchor-id, --anchor-sealer-key-file are required \
+                 together to enable anchoring, or all four omitted to disable it.",
+                missing.join(", ")
+            )
+        }
+    }
 }
 
 /// Build and run the gRPC server. Handles graceful Ctrl-C shutdown.

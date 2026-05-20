@@ -24,10 +24,15 @@
 //! - [`driver`] — `AnchorDriver`, the background task implementing the
 //!   hybrid cadence loop. Public so the control plane can
 //!   `tokio::spawn(driver.run())`.
+//! - [`candidate_source`] — `ReceiptStoreCandidateSource`, the
+//!   production [`driver::CandidateSource`] impl that wraps an
+//!   `Arc<dyn yutha_receipt::ReceiptStore>` and translates the
+//!   driver's `(watermark, max)` request into a `Query::ByTimeRange`.
 
 #![forbid(unsafe_code)]
 #![warn(missing_docs, rust_2018_idioms)]
 
+pub mod candidate_source;
 pub mod client;
 pub mod driver;
 pub mod error;
@@ -35,6 +40,7 @@ pub mod keystore;
 pub mod rpc;
 pub mod sealer;
 
+pub use candidate_source::ReceiptStoreCandidateSource;
 pub use client::{AnchorState, CommitBatchArgs, SuiAnchorClient};
 pub use driver::{AnchorDriver, AnchorDriverConfig};
 pub use error::{AnchorBackendError, Result};

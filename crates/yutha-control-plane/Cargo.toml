@@ -28,6 +28,12 @@ yutha-cedar-plus.workspace = true
 # `--receipt-backend postgres --postgres-url <url>`; defaults to the
 # in-memory store for zero-config local development.
 yutha-backend-postgres-receipt.workspace = true
+# Sui-anchoring backend (RFC 0014 verifiability Layer 1). Wires in
+# when the four `--anchor-*` flags are set; otherwise dead-weight at
+# zero gas (cadence task is never spawned, RPC client never connects).
+# Operators publish their own copy of the `receipt_anchor` Move
+# package per RFC 0014's operator-owned model.
+yutha-backend-sui-anchor.workspace = true
 # sqlx pool for the Postgres backend wiring. Pulled in transitively
 # by yutha-backend-postgres-receipt; declaring explicitly so the
 # `PgPoolOptions` construction in main.rs doesn't depend on

@@ -5356,6 +5356,7 @@ dependencies = [
  "tracing",
  "tracing-subscriber",
  "yutha-backend-postgres-receipt",
+ "yutha-backend-sui-anchor",
  "yutha-capability",
  "yutha-cedar-plus",
  "yutha-core",
