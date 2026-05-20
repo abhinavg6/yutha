@@ -18,13 +18,13 @@ What to include:
 
 ## What you can expect
 
-- **Acknowledgement within 7 days.** A real human reads your report.
-- **Initial assessment within 14 days.** You'll get an answer on whether it's a confirmed vulnerability, the rough severity, and a remediation plan.
-- **Coordinated disclosure.** We agree on a timeline together. Default window is 90 days from confirmation; longer for unusually severe issues that need user upgrade time.
+Yutha is stewarded by one person with a full-time job. The commitments below are calibrated to that reality — generous on purpose so they're actually honored. If anything is going to take longer than the stated window, you'll get a status update inside it.
+
+- **Acknowledgement within 14 days.** A real human reads your report.
+- **Initial assessment within 30 days.** You'll get an answer on whether it's a confirmed vulnerability, the rough severity, and a remediation plan.
+- **Coordinated disclosure.** We agree on a timeline together. Default window is 120 days from confirmation; longer for unusually severe issues that need user upgrade time, or for issues where the fix is intricate.
 - **Credit.** If you want it, you get it (in the advisory). If you want anonymity, you get that.
 - **Good-faith protection.** Researchers who follow this policy have nothing to fear from the project.
-
-These windows reflect a solo-maintainer cadence. If timelines slip, you'll hear about it.
 
 ## Severity rating
 

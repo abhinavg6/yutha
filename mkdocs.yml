@@ -26,6 +26,14 @@ docs_dir: docs
 # errors so we don't quietly ship a busted site.
 strict: true
 
+# Tolerate markdown files in docs/ that aren't referenced by the nav.
+# Default would warn and trip strict mode. We deliberately keep this
+# permissive so renames-in-flight (e.g. archived example pages staged
+# for git rm) don't block the build.
+validation:
+  nav:
+    omitted_files: ignore
+
 theme:
   name: material
   language: en
@@ -95,6 +103,12 @@ markdown_extensions:
   - footnotes
   - toc:
       permalink: true
+  # Inline icon shortcodes — required for the `:material-...:` and
+  # `:octicons-...:` syntax used in index.md's grid cards and CTAs.
+  # Without this, those tokens render as literal text.
+  - pymdownx.emoji:
+      emoji_index: !!python/name:material.extensions.emoji.twemoji
+      emoji_generator: !!python/name:material.extensions.emoji.to_svg
 
 plugins:
   - search
@@ -127,9 +141,9 @@ nav:
   - Examples:
       - examples/index.md
       - Customer support with refund cap: examples/customer-support.md
-      - Knowledge-base privacy gate: examples/privacy-gate.md
-      - Reversible long-running actions: examples/reversible-actions.md
-      - Verifiable AI pipeline: examples/verifiable-pipeline.md
+      - Code review crew with security boundaries: examples/code-review.md
+      - AP & invoice processing with payment caps: examples/ap-invoice.md
+      - Cross-organization agent federation: examples/cross-org-federation.md
   - Reference:
       - reference/index.md
       - Specs: reference/specs.md

@@ -1,8 +1,8 @@
 # Examples
 
-Worked end-to-end use cases. Each example shows the problem a team is actually trying to solve, the constitution and topology you'd choose, and the receipts you'd expect to see in the audit log. All four ship as runnable conformance scenarios in the repo.
+Worked end-to-end use cases. Each one starts from a real-world problem a team is trying to solve, walks through the constitution and topology choices, and shows the receipts you'd expect to see in the audit log.
 
-- **[Customer support with a refund cap](customer-support.md)** — a classifier, an L1 agent, an L2 escalation agent. The constitution caps refunds at $100, requires a supervisor for anything larger, and evicts agents that try to bypass the cap.
-- **[Knowledge-base privacy gate](privacy-gate.md)** — a research assistant talks to a KB agent. The constitution enforces that private memos require explicit caller capability; the receipt log proves access was authorized.
-- **[Reversible long-running actions](reversible-actions.md)** — an agent makes a state-changing call. On detected misbehavior, the four-stage enforcement loop progresses through flag → restrict → quarantine, and the engine reverses the action without manual rollback.
-- **[Verifiable AI pipeline](verifiable-pipeline.md)** — high-stakes batch processing where regulators or downstream systems need to verify the audit trail without trusting the operator. Receipts are anchored to Sui; anyone can independently verify the seal.
+- **[Customer support with a refund cap](customer-support.md)** — a classifier, an L1 agent, an L2 escalation agent. The constitution caps refunds, requires a supervisor for anything larger, and evicts agents that try to bypass the cap.
+- **[Code review crew with security boundaries](code-review.md)** — reviewer + auto-fix agents on every PR. Capability-gated: auto-fix can edit most paths but is denied writes to security-tagged files. Every change leaves a signed receipt that survives audit.
+- **[AP & invoice processing with payment caps](ap-invoice.md)** — classifier, extractor, approver. Hard cap per invoice; escalation procedure for high-value invoices; reverse path on duplicate detection. SOX-grade audit trail by default.
+- **[Cross-organization agent federation](cross-org-federation.md)** — two operators, two swarms, one shared constitution. Capability tokens cross the org boundary; the receipt log is the contract.

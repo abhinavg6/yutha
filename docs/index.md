@@ -80,6 +80,58 @@ These are not framework problems. They're substrate problems. They show up no ma
 
 </div>
 
+## What people build with it
+
+A flavour of where the substrate earns its keep — from the bread-and-butter to the speculative. Some of these have full walkthroughs under [Examples](examples/index.md); others are sketches of where Yutha naturally fits.
+
+<div class="grid cards" markdown>
+
+-   :material-headset:{ .lg .middle } **Customer support swarms**
+
+    ---
+
+    Classifier + L1 agent + L2 escalation. Constitution caps refunds, requires a supervisor above a threshold, evicts agents that try to bypass. The audit log shows exactly who decided what.
+
+    [:octicons-arrow-right-24: Walkthrough](examples/customer-support.md)
+
+-   :material-source-branch:{ .lg .middle } **Code review crews**
+
+    ---
+
+    Reviewer + auto-fix agents on every PR. Capability-gated: auto-fix can push minor edits but is denied writes to files tagged security-sensitive. Every change leaves a signed receipt explaining itself.
+
+    [:octicons-arrow-right-24: Walkthrough](examples/code-review.md)
+
+-   :material-file-document-check:{ .lg .middle } **AP & invoice processing**
+
+    ---
+
+    Classifier, extractor, approver. Constitution caps single payments, escalates to a human approver above the threshold, four-stage enforcement evicts agents that try to bypass. SOX-grade audit trail comes free with the substrate.
+
+    [:octicons-arrow-right-24: Walkthrough](examples/ap-invoice.md)
+
+-   :material-robot-industrial:{ .lg .middle } **Robotics fleet coordination**
+
+    ---
+
+    Warehouse AMRs, drone formations, manufacturing co-bots — any swarm of physical agents coordinating on a shared task. Identity per robot, capability gates for restricted zones or high-risk actions, signed receipts when an incident needs forensic reconstruction.
+
+-   :material-flask:{ .lg .middle } **AI scientist swarms**
+
+    ---
+
+    Hypothesis-generating agents paired with replication agents. Every claim, every dataset query, every method choice produces a content-addressed receipt — optionally anchored on-chain. Provenance that survives the operator going offline.
+
+-   :material-handshake:{ .lg .middle } **Cross-organization federation**
+
+    ---
+
+    Your reviewer agents talking to my publisher agents under a constitution both sides have ratified. Capabilities issued across org boundaries; receipts visible to both. Two companies' agents collaborating without trusting each other's infrastructure.
+
+    [:octicons-arrow-right-24: Walkthrough](examples/cross-org-federation.md)
+
+</div>
+
 ## What Yutha is *not*
 
 Yutha is intentionally not a lot of things. Drawing the boundary explicitly is part of how it stays focused.
