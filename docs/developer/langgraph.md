@@ -50,9 +50,12 @@ log. Leave this terminal running.
 **2. The Python SDK installed.** In a separate terminal:
 
 ```bash
-cd sdks/python
-uv pip install -e '.[dev,langgraph]'   # langgraph extra pulls in LangGraph
+pip install 'yutha[langgraph]'   # core SDK + LangGraph adapter
 ```
+
+The `langgraph` extra pulls in LangGraph plus its LangChain core transitive deps. The base `yutha` install doesn't carry any of that — see the rationale in [`pyproject.toml`](https://github.com/abhinavg6/yutha/blob/main/sdks/python/pyproject.toml).
+
+Working from a repo clone instead of PyPI (e.g. tracking `main`)? Use an editable install: `cd sdks/python && uv pip install -e '.[dev,langgraph]'`.
 
 **3. The same `YUTHA_BOOTSTRAP_SEED` in this terminal too** — it tells
 your client which `swarm_id` to bind passports to. Without that, the

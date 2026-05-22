@@ -52,11 +52,15 @@ your `PATH` or invoked through `cargo run -p ...`.
 
 **2. The Python SDK installed in a virtualenv.** We use it for one
 shell helper (deriving the operator public key from the seed) and
-for the section that drives synthetic traffic. From the repo root:
+for the section that drives synthetic traffic:
 
 ```bash
-cd sdks/python && uv pip install -e '.[dev]'
+pip install yutha
 ```
+
+Working from a repo clone (tracking `main` rather than the released
+PyPI version)? Use an editable install instead:
+`cd sdks/python && uv pip install -e '.[dev]'`.
 
 **3. A 32-byte bootstrap seed.** Yutha derives three things from
 this single hex value:

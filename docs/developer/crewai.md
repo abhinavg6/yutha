@@ -52,14 +52,16 @@ cargo run -p yutha-control-plane -- --admission-mode open
 **2. The Python SDK installed with the `crewai` extra:**
 
 ```bash
-cd sdks/python
-uv pip install -e '.[dev,crewai]'
+pip install 'yutha[crewai]'   # core SDK + CrewAI adapter
 ```
 
 The `crewai` extra pulls CrewAI 0.70+ in (LangChain core + a few
 transitive dependencies). The base `yutha` install doesn't carry
 any of that — see the rationale in
 [`pyproject.toml`](https://github.com/abhinavg6/yutha/blob/main/sdks/python/pyproject.toml).
+
+Working from a repo clone instead of PyPI? Use an editable install:
+`cd sdks/python && uv pip install -e '.[dev,crewai]'`.
 
 **3. The same `YUTHA_BOOTSTRAP_SEED` exported in your dev shell**
 so derived swarm_ids match.

@@ -91,9 +91,10 @@ dev = [
 ]
 
 [project.urls]
-Homepage = "https://yutha.dev"
-Repository = "https://github.com/yutha/yutha"
-Documentation = "https://docs.yutha.dev/python"
+Homepage = "https://yutha.ai"
+Repository = "https://github.com/abhinavg6/yutha"
+Documentation = "https://yutha.ai/developer/python-sdk/"
+Issues = "https://github.com/abhinavg6/yutha/issues"
 
 # --- Hatch build configuration ----------------------------------------------
 

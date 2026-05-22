@@ -3,6 +3,7 @@
 > **A framework-agnostic control plane for agent swarms.** Identity, capability, accountability, and norms — for agents from any framework, on any backend.
 
 [![Release](https://img.shields.io/github/v/release/abhinavg6/yutha?include_prereleases&label=release&color=orange)](https://github.com/abhinavg6/yutha/releases)
+[![PyPI](https://img.shields.io/pypi/v/yutha?label=pypi&color=blue)](https://pypi.org/project/yutha/)
 [![License: Apache 2.0](https://img.shields.io/github/license/abhinavg6/yutha)](LICENSE)
 [![CI](https://github.com/abhinavg6/yutha/actions/workflows/ci.yml/badge.svg)](https://github.com/abhinavg6/yutha/actions/workflows/ci.yml)
 [![Docs](https://github.com/abhinavg6/yutha/actions/workflows/docs.yml/badge.svg)](https://github.com/abhinavg6/yutha/actions/workflows/docs.yml)
@@ -28,6 +29,16 @@ The doc site is the canonical reference. Start at the landing page; pick the ope
 /docs        — Source for the doc site at yutha.ai
 ```
 
+## Install the Python SDK
+
+```bash
+pip install yutha                    # core SDK
+pip install 'yutha[langgraph]'       # + LangGraph adapter
+pip install 'yutha[crewai]'          # + CrewAI adapter
+```
+
+Python 3.11+. The control plane is a Rust binary — clone the repo and `cargo run -p yutha-control-plane` to bring one up, or follow the [operator quickstart](https://yutha.ai/operator/quickstart/) for the longer playbook.
+
 ## Quickstart
 
 The fifteen-minute joiner path (developer) and thirty-minute initiator path (operator) live on the doc site under [Developer Guide → Quickstart](https://yutha.ai/developer/quickstart/) and [Operator Guide → Quickstart](https://yutha.ai/operator/quickstart/) respectively.
@@ -35,6 +46,7 @@ The fifteen-minute joiner path (developer) and thirty-minute initiator path (ope
 If you want to poke locally without the doc site:
 
 - **End-to-end LangGraph example.** A customer-support swarm with capability-gated messaging, operator-driven eviction, and a verifiable audit trail. Runnable demo at [`sdks/python/examples/s1_support_queue.py`](./sdks/python/examples/s1_support_queue.py); walkthrough at [`docs/developer/langgraph.md`](./docs/developer/langgraph.md).
+- **Constitution + four-stage enforcement.** [`sdks/python/examples/code_review.py`](./sdks/python/examples/code_review.py) (LangGraph) and [`sdks/python/examples/ap_invoice.py`](./sdks/python/examples/ap_invoice.py) (CrewAI) demonstrate the Cedar-based constitution layer plus detect → coach → quarantine → evict.
 - **Conformance suite.** `cargo test -p yutha-conformance` runs the in-process scenarios covering the receipt log, send-path enforcement, operator revocation, and constitution evaluation.
 
 ## Contributing
