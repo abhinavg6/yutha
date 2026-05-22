@@ -129,7 +129,7 @@ A flavour of where the substrate earns its keep — from the bread-and-butter to
 
     ---
 
-    Classifier + L1 agent + L2 escalation. Constitution caps refunds, requires a supervisor above a threshold, evicts agents that try to bypass. The audit log shows exactly who decided what.
+    Router + specialists + supervisor escalation. Per-agent identity, capability-gated dispatch, live cap-revoke, and operator-driven eviction — the substrate primitives the other examples layer policy on top of. The audit log shows exactly which agent did what.
 
     [:octicons-arrow-right-24: Walkthrough](examples/customer-support.md)
 
