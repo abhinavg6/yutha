@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "yutha"
-version = "0.1.0a1"
+version = "0.1.0a2"
 description = "Python SDK for the Yutha agent-coordination control plane."
 readme = "README.md"
 requires-python = ">=3.11"
@@ -67,6 +67,43 @@ crewai = [
     "crewai>=0.70,<1.0",
 ]
 
+# OpenAI Agents framework integration. Users who want
+# `yutha.openai_agents.*` install via
+# `pip install 'yutha[openai-agents]'`. The package is published on
+# PyPI as `openai-agents` but the importable module is `agents`
+# (not `openai_agents`) — both adapter and demo follow that
+# convention.
+#
+# Pin to the 0.17 line (latest stable at adapter-design time);
+# broaden when openai-agents stabilizes past 1.0.
+openai-agents = [
+    "openai-agents>=0.17,<1.0",
+]
+
+# Microsoft Agent Framework (MAF) integration. Users who want
+# `yutha.maf.*` install via `pip install 'yutha[maf]'`.
+#
+# We deliberately depend on the narrower `agent-framework-core`
+# (the base Agent/middleware surface) + `agent-framework-openai`
+# (the OpenAIChatClient used by the devops_incident.py demo)
+# rather than the umbrella `agent-framework` package. The
+# umbrella pulls in `agent-framework-azure-ai-search`, whose
+# `azure-search-documents` dependency is currently pre-release
+# (11.7.0b2) — that would force every yutha installer to add
+# `--prerelease=allow` to their `pip install` invocation.
+# Sticking to the two sub-packages we actually use avoids that.
+#
+# Users who want richer MAF providers (Foundry, Azure OpenAI,
+# Anthropic, etc.) can install the extras directly — e.g.
+# `pip install 'yutha[maf]' agent-framework-foundry`.
+#
+# MAF is in active 1.x development; pin to the 1.x line and
+# broaden after a 2.0 cut.
+maf = [
+    "agent-framework-core>=1.0,<2.0",
+    "agent-framework-openai>=1.0,<2.0",
+]
+
 # Dev-only: codegen (regenerate `yutha/_proto/` from /spec/*.proto),
 # linting, and test runners. Contributors install via `pip install -e
 # .[dev]`; end-users only get the runtime deps above.
@@ -79,11 +116,13 @@ dev = [
     # Third-party type stubs for `grpc` / `grpc.aio`. `grpcio` itself
     # ships without inline stubs, so strict mypy needs these.
     "types-grpcio>=1.0",
-    # Include the langgraph + crewai extras so dev environments can
-    # run both adapters' tests + S1 demos without a second install
-    # step.
+    # Include all framework extras so dev environments can run
+    # every adapter's tests + demos without a second install step.
     "langgraph>=0.2,<0.4",
     "crewai>=0.70,<1.0",
+    "openai-agents>=0.17,<1.0",
+    "agent-framework-core>=1.0,<2.0",
+    "agent-framework-openai>=1.0,<2.0",
     "pytest>=8",
     "pytest-asyncio>=0.23",
     "ruff>=0.4",

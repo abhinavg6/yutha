@@ -1,14 +1,14 @@
 # Yutha
 
-> Yutha is open-source infrastructure for groups of AI agents — identity, capability, accountability, and norms for swarms of any size, across community, enterprise, and cross-organization domains. Framework-agnostic; works in front of agents built in LangGraph, CrewAI, or anything else you write an adapter for.
+> Yutha is open-source infrastructure for groups of AI agents — identity, capability, accountability, and norms for swarms of any size, across community, enterprise, and cross-organization domains. Framework-agnostic; works in front of agents built in LangGraph, CrewAI, OpenAI Agents, Microsoft Agent Framework, or anything else you write an adapter for.
 
 Yutha sits underneath whichever agent framework an agent is built with and gives swarms a shared substrate: Ed25519-keyed passports, typed envelopes, append-only signed receipts, attenuable capabilities, declarative constitutions in Cedar+, and an optional cryptographic verification layer via on-chain anchoring on Sui.
 
 Two personas:
 - **Operators** stand up a control plane, choose a topology, author and activate constitutions, manage operator credentials, monitor receipts, optionally anchor the receipt log for third-party verifiability.
-- **Developers** wrap an existing LangGraph or CrewAI agent with the Yutha SDK so it can join a swarm — getting a passport, capability-gated sends, and a signed audit trail per consequential action.
+- **Developers** wrap an existing LangGraph, CrewAI, OpenAI Agents, or Microsoft Agent Framework agent with the Yutha SDK so it can join a swarm — getting a passport, capability-gated sends, and a signed audit trail per consequential action.
 
-The repository at https://github.com/abhinavg6/yutha contains the Rust reference implementation (control plane, registry, capability store, transport, receipt log, Cedar+ engine), Python SDK + adapters (LangGraph, CrewAI), conformance suite, Move package for Sui anchoring, and the full RFC-governed spec set.
+The repository at https://github.com/abhinavg6/yutha contains the Rust reference implementation (control plane, registry, capability store, transport, receipt log, Cedar+ engine), Python SDK + adapters (LangGraph, CrewAI, OpenAI Agents, Microsoft Agent Framework), conformance suite, Move package for Sui anchoring, and the full RFC-governed spec set.
 
 ## Start here
 
@@ -16,6 +16,8 @@ The repository at https://github.com/abhinavg6/yutha contains the Rust reference
 - [Operator quickstart](https://yutha.ai/operator/quickstart/): 30-minute initiator path — stand up a control plane, activate a constitution, send your first envelope, observe receipts.
 - [Developer guide → LangGraph](https://yutha.ai/developer/langgraph/): 15-minute joiner path — wrap an existing LangGraph node as a Yutha agent.
 - [Developer guide → CrewAI](https://yutha.ai/developer/crewai/): joiner path for the CrewAI framework idiom.
+- [Example → OpenAI Agents research crew](https://yutha.ai/examples/research-crew/): end-to-end OpenAI Agents adapter walkthrough — citation enforcement, handoff bridging, cap-gated tools.
+- [Example → MAF DevOps incident-response](https://yutha.ai/examples/devops-incident/): end-to-end Microsoft Agent Framework adapter walkthrough — SRE countersign, schema-change quarantine, ChatAgent integration.
 
 ## Concepts
 
@@ -42,6 +44,8 @@ The repository at https://github.com/abhinavg6/yutha contains the Rust reference
 - [Python SDK](https://yutha.ai/developer/python-sdk/): the canonical client surface — admission, envelope, receipts, capability, constitution APIs.
 - [LangGraph adapter](https://yutha.ai/developer/langgraph/): full walkthrough wrapping a LangGraph node as a Yutha agent; the richest hands-on quickstart today.
 - [CrewAI adapter](https://yutha.ai/developer/crewai/): equivalent for CrewAI Agents and Crews.
+- [OpenAI Agents adapter (via example)](https://yutha.ai/examples/research-crew/): the `yutha.openai_agents.YuthaOpenAIAgent` integration surface covered end-to-end through a runnable research-crew example (handoffs via `RunHooks`, cap-gated `function_tool`s).
+- [Microsoft Agent Framework adapter (via example)](https://yutha.ai/examples/devops-incident/): the `yutha.maf.YuthaChatAgent` integration surface covered end-to-end through a runnable DevOps incident-response example (cap-gating via `@capability_required` on async tool callables; ChatAgent today, WorkflowBuilder/RequestInfoExecutor as documented follow-ons).
 - [Writing a new adapter](https://yutha.ai/developer/writing-adapters/): how to add support for a framework Yutha doesn't yet ship for.
 
 ## Examples
@@ -50,6 +54,8 @@ The repository at https://github.com/abhinavg6/yutha contains the Rust reference
 - [Customer support with refund cap](https://yutha.ai/examples/customer-support/): classifier + L1 + L2 escalation, supervisor-required for refunds above a threshold.
 - [Code review crew with security boundaries](https://yutha.ai/examples/code-review/): reviewer + auto-fix agents with capability gates around security-tagged paths.
 - [AP & invoice processing with payment caps](https://yutha.ai/examples/ap-invoice/): payment cap + CFO approval procedure + duplicate-detection reverse path.
+- [Research crew with citation enforcement](https://yutha.ai/examples/research-crew/): OpenAI Agents adapter — Lead/Researcher/FactChecker/Writer with constitution-enforced citations and quarantine on uncited claims.
+- [DevOps incident-response with SRE countersign](https://yutha.ai/examples/devops-incident/): Microsoft Agent Framework adapter — IncidentCommander/Diagnoser/SchemaSpecialist/SRE/RemediationExec with production-schema-change quarantine.
 - [Cross-organization federation](https://yutha.ai/examples/cross-org-federation/): two swarms, one shared constitution, capability tokens crossing the org boundary.
 
 ## Reference

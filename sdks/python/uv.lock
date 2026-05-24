@@ -9,6 +9,34 @@ resolution-markers = [
 ]
 
 [[package]]
+name = "agent-framework-core"
+version = "1.6.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "opentelemetry-api" },
+    { name = "pydantic" },
+    { name = "python-dotenv" },
+    { name = "typing-extensions" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/eb/ce/58ec4158bb58236aa56c229d4a7189747171d915298d06ee692a32db6c09/agent_framework_core-1.6.0.tar.gz", hash = "sha256:a9854771cd96d6a4095da7f4befc95d22fb217c200d14f9ef389d4710fa4b064", size = 378842, upload-time = "2026-05-22T02:24:27.39Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/34/0f/d3e3202168cb2f9a3acc67f3a3dc69d87fa504f3712cd0910bb8c0729c51/agent_framework_core-1.6.0-py3-none-any.whl", hash = "sha256:cdd09cc534b090cc030334267ebf2613468051890b4f6307f16c39bf6121729b", size = 421237, upload-time = "2026-05-22T02:23:26.461Z" },
+]
+
+[[package]]
+name = "agent-framework-openai"
+version = "1.6.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "agent-framework-core" },
+    { name = "openai" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/8a/7f/2b6b59d568270ff0d803e52368ea5080987318441a4911b90457a813f6ec/agent_framework_openai-1.6.0.tar.gz", hash = "sha256:2357e4865d6f2087b3206e526848a14b1b68f69d7f350e6b490b2ba99f1d6e5d", size = 50483, upload-time = "2026-05-22T02:24:22.2Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/62/4c/ff07aa2ddab4e062b386d9b3daac5f802f83e3217ff7472214113622df57/agent_framework_openai-1.6.0-py3-none-any.whl", hash = "sha256:4742b0ed99badd276a1a285f29160698157a85722c893f34daf6ae66683b3522", size = 55471, upload-time = "2026-05-22T02:23:55.051Z" },
+]
+
+[[package]]
 name = "aiohappyeyeballs"
 version = "2.6.1"
 source = { registry = "https://pypi.org/simple" }
@@ -855,6 +883,15 @@ wheels = [
 ]
 
 [[package]]
+name = "griffelib"
+version = "2.0.2"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/9d/82/74f4a3310cdabfbb10da554c3a672847f1ed33c6f61dd472681ce7f1fe67/griffelib-2.0.2.tar.gz", hash = "sha256:3cf20b3bc470e83763ffbf236e0076b1211bac1bc67de13daf494640f2de707e", size = 166461, upload-time = "2026-03-27T11:34:51.091Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/11/8c/c9138d881c79aa0ea9ed83cbd58d5ca75624378b38cee225dcf5c42cc91f/griffelib-2.0.2-py3-none-any.whl", hash = "sha256:925c857658fb1ba40c0772c37acbc2ab650bd794d9c1b9726922e36ea4117ea1", size = 142357, upload-time = "2026-03-27T11:34:46.275Z" },
+]
+
+[[package]]
 name = "grpcio"
 version = "1.80.0"
 source = { registry = "https://pypi.org/simple" }
@@ -1061,6 +1098,15 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/b1/df/48c586a5fe32a0f01324ee087459e112ebb7224f646c0b5023f5e79e9956/httpx-0.28.1.tar.gz", hash = "sha256:75e98c5f16b0f35b567856f597f06ff2270a374470a5c2392242528e3e3e42fc", size = 141406, upload-time = "2024-12-06T15:37:23.222Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/2a/39/e50c7c3a983047577ee07d2a9e53faf5a69493943ec3f6a384bdc792deb2/httpx-0.28.1-py3-none-any.whl", hash = "sha256:d909fcccc110f8c7faf814ca82a9a4d816bc5a6dbfea25d6591d6985b8ba59ad", size = 73517, upload-time = "2024-12-06T15:37:21.509Z" },
+]
+
+[[package]]
+name = "httpx-sse"
+version = "0.4.3"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/0f/4c/751061ffa58615a32c31b2d82e8482be8dd4a89154f003147acee90f2be9/httpx_sse-0.4.3.tar.gz", hash = "sha256:9b1ed0127459a66014aec3c56bebd93da3c1bc8bb6618c8082039a44889a755d", size = 15943, upload-time = "2025-10-10T21:48:22.271Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/d2/fd/6668e5aec43ab844de6fc74927e155a3b37bf40d7c3790e49fc0406b6578/httpx_sse-0.4.3-py3-none-any.whl", hash = "sha256:0ac1c9fe3c0afad2e0ebb25a934a59f4c7823b60792691f779fad2c5568830fc", size = 8960, upload-time = "2025-10-10T21:48:21.158Z" },
 ]
 
 [[package]]
@@ -1680,6 +1726,31 @@ wheels = [
 ]
 
 [[package]]
+name = "mcp"
+version = "1.27.1"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "anyio" },
+    { name = "httpx" },
+    { name = "httpx-sse" },
+    { name = "jsonschema" },
+    { name = "pydantic" },
+    { name = "pydantic-settings" },
+    { name = "pyjwt", extra = ["crypto"] },
+    { name = "python-multipart" },
+    { name = "pywin32", marker = "sys_platform == 'win32'" },
+    { name = "sse-starlette" },
+    { name = "starlette" },
+    { name = "typing-extensions" },
+    { name = "typing-inspection" },
+    { name = "uvicorn", marker = "sys_platform != 'emscripten'" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/38/83/d1efe7c2980d8a3afa476f4e3d42d53dd54c0ab94c27bee5d755b45c8b73/mcp-1.27.1.tar.gz", hash = "sha256:0f47e1820f8f8f941466b39749eb1d1839a04caddca2bc60e9d46e8a99914924", size = 608458, upload-time = "2026-05-08T16:50:12.601Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/fd/73/42d9596facebdb533b7f0b86c1b0364ef350d1f8ba78b1052e8a58b48b65/mcp-1.27.1-py3-none-any.whl", hash = "sha256:1af3c4203b329430fde7a87b4fcb6392a041f5cb851fd68fc674016ab4e7c06f", size = 216260, upload-time = "2026-05-08T16:50:10.547Z" },
+]
+
+[[package]]
 name = "mdurl"
 version = "0.1.2"
 source = { registry = "https://pypi.org/simple" }
@@ -2127,6 +2198,25 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/32/50/5901f01ef14e6c27788beb91e54fef5d6204fb5fb9e97402fc8a14de2e32/openai-2.37.0.tar.gz", hash = "sha256:f4bc562cc5f3a43d40d678105572d9d44765f6e0f50c125f63055419b72f4bd9", size = 754706, upload-time = "2026-05-15T22:30:35.428Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/ed/4c/bce61680d0699a78a405fd9a67989b175ba020590428831aab2ab1d2be7c/openai-2.37.0-py3-none-any.whl", hash = "sha256:814633888b8f3b1ffd6615697c6e4ef93632d08b7c2e28c8c5ef3556e5a10107", size = 1303238, upload-time = "2026-05-15T22:30:32.767Z" },
+]
+
+[[package]]
+name = "openai-agents"
+version = "0.17.3"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "griffelib" },
+    { name = "mcp" },
+    { name = "openai" },
+    { name = "pydantic" },
+    { name = "requests" },
+    { name = "types-requests" },
+    { name = "typing-extensions" },
+    { name = "websockets" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/fd/16/b79c1849125eb6d19cae98c21ff35caa2e55b5ec8d7a02b354b711917ef7/openai_agents-0.17.3.tar.gz", hash = "sha256:63b6dda6bd4fb51169e2a2cbd5d187a4e5ce823bbd15f965c8ed1d3b89072eec", size = 5406135, upload-time = "2026-05-19T01:28:15.971Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/80/ec/775a14cfd5f12f4ffe458c7ac9527831093c72e8c1aef682898fc6394106/openai_agents-0.17.3-py3-none-any.whl", hash = "sha256:a048bb0752d40913d18bccf6562f56260b603bb57c972597b6da58f60123f4bd", size = 841541, upload-time = "2026-05-19T01:28:13.334Z" },
 ]
 
 [[package]]
@@ -3045,6 +3135,11 @@ wheels = [
     { url = "https://files.pythonhosted.org/packages/e5/7a/8dd906bd22e79e47397a61742927f6747fe93242ef86645ee9092e610244/pyjwt-2.12.1-py3-none-any.whl", hash = "sha256:28ca37c070cad8ba8cd9790cd940535d40274d22f80ab87f3ac6a713e6e8454c", size = 29726, upload-time = "2026-03-13T19:27:35.677Z" },
 ]
 
+[package.optional-dependencies]
+crypto = [
+    { name = "cryptography" },
+]
+
 [[package]]
 name = "pypdfium2"
 version = "5.8.0"
@@ -3140,6 +3235,15 @@ source = { registry = "https://pypi.org/simple" }
 sdist = { url = "https://files.pythonhosted.org/packages/82/ed/0301aeeac3e5353ef3d94b6ec08bbcabd04a72018415dcb29e588514bba8/python_dotenv-1.2.2.tar.gz", hash = "sha256:2c371a91fbd7ba082c2c1dc1f8bf89ca22564a087c2c287cd9b662adde799cf3", size = 50135, upload-time = "2026-03-01T16:00:26.196Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/0b/d7/1959b9648791274998a9c3526f6d0ec8fd2233e4d4acce81bbae76b44b2a/python_dotenv-1.2.2-py3-none-any.whl", hash = "sha256:1d8214789a24de455a8b8bd8ae6fe3c6b69a5e3d64aa8a8e5d68e694bbcb285a", size = 22101, upload-time = "2026-03-01T16:00:25.09Z" },
+]
+
+[[package]]
+name = "python-multipart"
+version = "0.0.29"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/4e/fe/70bd71a6738b09a0bdf6480ca6436b167469ca4578b2a0efbe390b4b0e70/python_multipart-0.0.29.tar.gz", hash = "sha256:643e93849196645e2dbdd81a0f8829a23123ad7f797a84a364c6fb3563f18904", size = 45678, upload-time = "2026-05-17T17:29:47.654Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/8f/cb/769cfc37177252872a45a71f3fbdde9d51b471a3f3c14bfe95dde3407386/python_multipart-0.0.29-py3-none-any.whl", hash = "sha256:2ddcc971cef266225f54f552d8fa10bcfbb1f14446caec199060daac59ff2d69", size = 29640, upload-time = "2026-05-17T17:29:45.69Z" },
 ]
 
 [[package]]
@@ -3571,6 +3675,19 @@ wheels = [
 ]
 
 [[package]]
+name = "sse-starlette"
+version = "3.4.4"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "anyio" },
+    { name = "starlette" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/f7/2b/58abc2d1fd397e7dde08e947e05c884d8ef2f78d5e2588c17a12d42d6994/sse_starlette-3.4.4.tar.gz", hash = "sha256:07e0fa0460138baf25cdd5fb28683472c3995dc1642225191b3832d62526bcb0", size = 31819, upload-time = "2026-05-12T17:37:17.019Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/dc/67/805710444ea8cc75fbf70b920ed431a560c4bf9c57f7d5a3117213189399/sse_starlette-3.4.4-py3-none-any.whl", hash = "sha256:3f4dd50d8aed2771a091f3a83000323fc3844541c16b4fe585ae2420cc6df973", size = 16514, upload-time = "2026-05-12T17:37:15.601Z" },
+]
+
+[[package]]
 name = "stack-data"
 version = "0.6.3"
 source = { registry = "https://pypi.org/simple" }
@@ -3582,6 +3699,19 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/28/e3/55dcc2cfbc3ca9c29519eb6884dd1415ecb53b0e934862d3559ddcb7e20b/stack_data-0.6.3.tar.gz", hash = "sha256:836a778de4fec4dcd1dcd89ed8abff8a221f58308462e1c4aa2a3cf30148f0b9", size = 44707, upload-time = "2023-09-30T13:58:05.479Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/f1/7b/ce1eafaf1a76852e2ec9b22edecf1daa58175c090266e9f6c64afcd81d91/stack_data-0.6.3-py3-none-any.whl", hash = "sha256:d5558e0c25a4cb0853cddad3d77da9891a08cb85dd9f9f91b9f8cd66e511e695", size = 24521, upload-time = "2023-09-30T13:58:03.53Z" },
+]
+
+[[package]]
+name = "starlette"
+version = "1.1.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "anyio" },
+    { name = "typing-extensions", marker = "python_full_version < '3.13'" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/95/66/4d20cdf39a8d6a51e663b7038e3b828ff211d3891a43a713fe7e4643f3a8/starlette-1.1.0.tar.gz", hash = "sha256:e83c7fe0ddecd8719c5b840080325aec0260acec86e9832899e377b91d65e90f", size = 2660060, upload-time = "2026-05-23T16:55:41.376Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/93/79/920b8e0a8b20f793e8d64855095cb8febabf6175b8550b6f7a547d813891/starlette-1.1.0-py3-none-any.whl", hash = "sha256:7f0dfd38e428aad5cb6f9f667f0ca1d2d8ca3f3385dccac8305f79ec98458382", size = 72899, upload-time = "2026-05-23T16:55:39.201Z" },
 ]
 
 [[package]]
@@ -3789,6 +3919,18 @@ source = { registry = "https://pypi.org/simple" }
 sdist = { url = "https://files.pythonhosted.org/packages/05/1b/4ae76c732caa3ff5786ac9039d592d526ff2db898da93176c40b63e0b110/types_protobuf-7.34.1.20260508.tar.gz", hash = "sha256:1c93e8c294281b76a5255fc21c747db0004694463ac6ea9866ee06da969fa555", size = 68871, upload-time = "2026-05-08T04:46:17.465Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/9e/61/c94036a4690e18059e55451ba5ce6294ea790651a0f5a429ad961e6b9675/types_protobuf-7.34.1.20260508-py3-none-any.whl", hash = "sha256:a5d647381f8651bd505304ed1148b8a7b342781796e0f80e0284c774c2262a09", size = 85984, upload-time = "2026-05-08T04:46:16.422Z" },
+]
+
+[[package]]
+name = "types-requests"
+version = "2.33.0.20260518"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "urllib3" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/e0/01/c5a19253fe1ac159159ddf9a3a07cec8bb5e486ec4d9002ad2821da0e5d2/types_requests-2.33.0.20260518.tar.gz", hash = "sha256:df7bd3bfe0ca8402dfb841e7d9be714bb5578203283d66d7dc4ef69343449a5e", size = 24752, upload-time = "2026-05-18T06:07:37.966Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/1c/bc/b139710a3b6018f7fb2b9508b35c8af564e61bf2bf4fa619d088f3e16f85/types_requests-2.33.0.20260518-py3-none-any.whl", hash = "sha256:626d697d1adaaff76e2044dc8c5c051d8f21abc157bdfe204a75558076fe0bf0", size = 21391, upload-time = "2026-05-18T06:07:37.044Z" },
 ]
 
 [[package]]
@@ -4443,11 +4585,14 @@ crewai = [
     { name = "crewai" },
 ]
 dev = [
+    { name = "agent-framework-core" },
+    { name = "agent-framework-openai" },
     { name = "crewai" },
     { name = "grpcio-tools" },
     { name = "langgraph" },
     { name = "mypy" },
     { name = "mypy-protobuf" },
+    { name = "openai-agents" },
     { name = "pytest" },
     { name = "pytest-asyncio" },
     { name = "ruff" },
@@ -4456,9 +4601,20 @@ dev = [
 langgraph = [
     { name = "langgraph" },
 ]
+maf = [
+    { name = "agent-framework-core" },
+    { name = "agent-framework-openai" },
+]
+openai-agents = [
+    { name = "openai-agents" },
+]
 
 [package.metadata]
 requires-dist = [
+    { name = "agent-framework-core", marker = "extra == 'dev'", specifier = ">=1.0,<2.0" },
+    { name = "agent-framework-core", marker = "extra == 'maf'", specifier = ">=1.0,<2.0" },
+    { name = "agent-framework-openai", marker = "extra == 'dev'", specifier = ">=1.0,<2.0" },
+    { name = "agent-framework-openai", marker = "extra == 'maf'", specifier = ">=1.0,<2.0" },
     { name = "crewai", marker = "extra == 'crewai'", specifier = ">=0.70,<1.0" },
     { name = "crewai", marker = "extra == 'dev'", specifier = ">=0.70,<1.0" },
     { name = "cryptography", specifier = ">=42" },
@@ -4468,6 +4624,8 @@ requires-dist = [
     { name = "langgraph", marker = "extra == 'langgraph'", specifier = ">=0.2,<0.4" },
     { name = "mypy", marker = "extra == 'dev'", specifier = ">=1.10" },
     { name = "mypy-protobuf", marker = "extra == 'dev'", specifier = ">=3.5" },
+    { name = "openai-agents", marker = "extra == 'dev'", specifier = ">=0.17,<1.0" },
+    { name = "openai-agents", marker = "extra == 'openai-agents'", specifier = ">=0.17,<1.0" },
     { name = "protobuf", specifier = ">=6.30,<7.0" },
     { name = "pydantic", specifier = ">=2.5,<3.0" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=8" },
@@ -4475,7 +4633,7 @@ requires-dist = [
     { name = "ruff", marker = "extra == 'dev'", specifier = ">=0.4" },
     { name = "types-grpcio", marker = "extra == 'dev'", specifier = ">=1.0" },
 ]
-provides-extras = ["langgraph", "crewai", "dev"]
+provides-extras = ["langgraph", "crewai", "openai-agents", "maf", "dev"]
 
 [[package]]
 name = "zipp"

@@ -51,7 +51,7 @@ cargo test -p yutha-conformance
 
 # Python SDK + adapters.
 cd sdks/python
-uv sync --extra dev --extra crewai
+uv sync --extra dev --extra crewai --extra openai-agents --extra maf
 uv run pytest                          # unit tests
 uv run pytest -m integration -v        # integration (needs control plane up)
 uv run ruff check .
@@ -118,11 +118,13 @@ cargo run -p yutha-control-plane -- \
 | The Python client surface | `/sdks/python/src/yutha/client.py` |
 | The LangGraph adapter | `/sdks/python/src/yutha/langgraph/` |
 | The CrewAI adapter | `/sdks/python/src/yutha/crewai/` |
+| The OpenAI Agents adapter | `/sdks/python/src/yutha/openai_agents/` |
+| The Microsoft Agent Framework adapter | `/sdks/python/src/yutha/maf/` |
 | The Sui anchoring backend | `/backends/sui-anchor/`, `/contracts/sui/receipt_anchor/` |
 | The conformance suite | `/crates/yutha-conformance/` |
 | RFCs (proposals + accepted history) | `/spec/rfcs/` |
 | Operator end-to-end playbook | `/docs/operator/quickstart.md` |
-| Developer end-to-end playbook | `/docs/developer/langgraph.md` (LangGraph) or `crewai.md` (CrewAI) |
+| Developer end-to-end playbook | `/docs/developer/langgraph.md` (LangGraph), `crewai.md` (CrewAI), `/docs/examples/research-crew.md` (OpenAI Agents), `/docs/examples/devops-incident.md` (Microsoft Agent Framework) |
 
 ## What an agent typically gets wrong here
 

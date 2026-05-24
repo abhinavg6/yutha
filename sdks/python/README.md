@@ -5,29 +5,36 @@ for groups of AI agents. Identity, capability, accountability, and norms — bui
 once, framework-agnostic.
 
 > **Status — early-stage pre-release.** Currently
-> [`v0.1.0-alpha.1`](https://github.com/abhinavg6/yutha/releases/tag/v0.1.0-alpha.1).
+> [`v0.1.0-alpha.2`](https://github.com/abhinavg6/yutha/releases).
 > Solid enough to play with end-to-end, intentionally pre-1.0. Wire formats and
 > API surfaces may shift before 1.0; pin tightly if you build on it.
 
 The Python SDK gives you signed agent identities, capability-gated message
 sending, structured envelopes, and access to the append-only receipt log of
-the Yutha control plane. Adapters for [LangGraph](https://github.com/langchain-ai/langgraph)
-and [CrewAI](https://www.crewai.com/) ship as optional extras, so the same
-SDK works regardless of how you build the agents above it.
+the Yutha control plane. Adapters for
+[LangGraph](https://github.com/langchain-ai/langgraph),
+[CrewAI](https://www.crewai.com/),
+[OpenAI Agents](https://github.com/openai/openai-agents-python),
+and [Microsoft Agent Framework](https://github.com/microsoft/agent-framework)
+ship as optional extras, so the same SDK works regardless of how you build
+the agents above it.
 
 ---
 
 ## Install
 
 ```bash
-pip install yutha                    # core SDK only
-pip install 'yutha[langgraph]'       # + LangGraph adapter
-pip install 'yutha[crewai]'          # + CrewAI adapter
+pip install yutha                       # core SDK only
+pip install 'yutha[langgraph]'          # + LangGraph adapter
+pip install 'yutha[crewai]'             # + CrewAI adapter
+pip install 'yutha[openai-agents]'      # + OpenAI Agents adapter
+pip install 'yutha[maf]'                # + Microsoft Agent Framework adapter
 ```
 
 Python 3.11+ required. The core install pulls in `grpcio`, `protobuf`,
 `cryptography`, and `pydantic`; the framework extras pull in their
-respective dependencies (LangChain core, CrewAI, etc.).
+respective dependencies (LangChain core, CrewAI, OpenAI Agents,
+Microsoft Agent Framework, etc.).
 
 ## Quickstart
 
@@ -73,9 +80,16 @@ async with yutha.YuthaClient.connect(
   build a five-agent workflow with capability gating and a full audit trail.
 - **[CrewAI walkthrough](https://yutha.ai/developer/crewai/)** —
   the same SDK with CrewAI idioms.
-- **[Worked examples](https://yutha.ai/examples/)** — three runnable end-to-end
+- **[OpenAI Agents research-crew example](https://yutha.ai/examples/research-crew/)** —
+  end-to-end OpenAI Agents adapter walkthrough (handoff bridging,
+  citation-enforcing constitution, cap-gated `function_tool`s).
+- **[Microsoft Agent Framework DevOps example](https://yutha.ai/examples/devops-incident/)** —
+  end-to-end MAF adapter walkthrough (SRE countersign, schema-change
+  quarantine, `ChatAgent` integration).
+- **[Worked examples](https://yutha.ai/examples/)** — runnable end-to-end
   demos covering customer support, code review with security boundaries,
-  and AP / invoice processing.
+  AP / invoice processing, research-crew citation enforcement, and
+  DevOps incident-response.
 - **[Concepts](https://yutha.ai/concepts/primitives/)** — passports,
   envelopes, capabilities, receipts, and the Cedar-based constitution
   layer in fifteen minutes.

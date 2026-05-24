@@ -10,7 +10,7 @@
 
 Multi-agent systems work in demos and break in production. The reason is almost always the same: there's no shared substrate for *who an agent is*, *what it's allowed to do*, *what it actually did*, and *which norms govern the swarm it lives in*. Each framework reinvents a fragment of that and stops.
 
-Yutha is the substrate. It runs in front of agents you've already built — in [LangGraph](https://github.com/langchain-ai/langgraph), [CrewAI](https://www.crewai.com/), or anything else you'd like to write an adapter for — and gives them passports, signed receipts, attenuated capabilities, declarative constitutions ([Cedar](https://github.com/cedar-policy)+) with four-stage enforcement, and an optional cryptographic verification layer ([Sui](https://www.sui.io/) anchoring) when you need to prove what happened to a third party.
+Yutha is the substrate. It runs in front of agents you've already built — in [LangGraph](https://github.com/langchain-ai/langgraph), [CrewAI](https://www.crewai.com/), [OpenAI Agents](https://github.com/openai/openai-agents-python), [Microsoft Agent Framework](https://github.com/microsoft/agent-framework), or anything else you'd like to write an adapter for — and gives them passports, signed receipts, attenuated capabilities, declarative constitutions ([Cedar](https://github.com/cedar-policy)+) with four-stage enforcement, and an optional cryptographic verification layer ([Sui](https://www.sui.io/) anchoring) when you need to prove what happened to a third party.
 
 ## Full documentation
 
@@ -24,7 +24,7 @@ The doc site is the canonical reference. Start at the landing page; pick the ope
 /spec        — wire & artifact specs (RFC-governed)
 /crates      — Rust workspace: control plane, registry, capability, transport, receipts, cedar+ engine
 /backends    — Pluggable backends: Postgres, S3, Sui anchoring, Walrus, Seal, Nautilus
-/sdks        — Framework adapters (Python: LangGraph, CrewAI)
+/sdks        — Framework adapters (Python: LangGraph, CrewAI, OpenAI Agents, MAF)
 /contracts   — Move package for Sui receipt anchoring
 /docs        — Source for the doc site at yutha.ai
 ```
@@ -32,9 +32,11 @@ The doc site is the canonical reference. Start at the landing page; pick the ope
 ## Install the Python SDK
 
 ```bash
-pip install yutha                    # core SDK
-pip install 'yutha[langgraph]'       # + LangGraph adapter
-pip install 'yutha[crewai]'          # + CrewAI adapter
+pip install yutha                       # core SDK
+pip install 'yutha[langgraph]'          # + LangGraph adapter
+pip install 'yutha[crewai]'             # + CrewAI adapter
+pip install 'yutha[openai-agents]'      # + OpenAI Agents adapter
+pip install 'yutha[maf]'                # + Microsoft Agent Framework adapter
 ```
 
 Python 3.11+. The control plane is a Rust binary — clone the repo and `cargo run -p yutha-control-plane` to bring one up, or follow the [operator quickstart](https://yutha.ai/operator/quickstart/) for the longer playbook.
@@ -46,7 +48,7 @@ The fifteen-minute joiner path (developer) and thirty-minute initiator path (ope
 If you want to poke locally without the doc site:
 
 - **End-to-end LangGraph example.** A customer-support swarm with capability-gated messaging, operator-driven eviction, and a verifiable audit trail. Runnable demo at [`sdks/python/examples/s1_support_queue.py`](./sdks/python/examples/s1_support_queue.py); walkthrough at [`docs/developer/langgraph.md`](./docs/developer/langgraph.md).
-- **Constitution + four-stage enforcement.** [`sdks/python/examples/code_review.py`](./sdks/python/examples/code_review.py) (LangGraph) and [`sdks/python/examples/ap_invoice.py`](./sdks/python/examples/ap_invoice.py) (CrewAI) demonstrate the Cedar-based constitution layer plus detect → coach → quarantine → evict.
+- **Constitution + four-stage enforcement.** Four runnable demos across four adapters: [`code_review.py`](./sdks/python/examples/code_review.py) (LangGraph), [`ap_invoice.py`](./sdks/python/examples/ap_invoice.py) (CrewAI), [`research_crew.py`](./sdks/python/examples/research_crew.py) (OpenAI Agents), [`devops_incident.py`](./sdks/python/examples/devops_incident.py) (Microsoft Agent Framework). Each exercises the Cedar-based constitution layer + detect → coach → quarantine → evict.
 - **Conformance suite.** `cargo test -p yutha-conformance` runs the in-process scenarios covering the receipt log, send-path enforcement, operator revocation, and constitution evaluation.
 
 ## Contributing

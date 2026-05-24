@@ -16,7 +16,7 @@ hide:
 
 You can stand up a *single* agent in an afternoon. Coordinating a handful — or a hundred — of them, in a way you'd trust for a customer interaction, an internal workflow, or a cross-company integration, is a different problem entirely. Almost every team rebuilds the same scaffolding from scratch: who an agent is, what it's allowed to do, what it actually did, and which norms govern the swarm it lives in. Each agent framework solves a fragment and stops.
 
-**Yutha is that scaffolding, built once, framework-agnostic.** It runs in front of agents you've already built — in [LangGraph](https://github.com/langchain-ai/langgraph), [CrewAI](https://www.crewai.com/), or anything else you'd like to write an adapter for — and gives them passports, signed receipts, attenuated capabilities, declarative constitutions with four-stage enforcement, and an optional cryptographic verification layer for when a third party needs to audit what happened.
+**Yutha is that scaffolding, built once, framework-agnostic.** It runs in front of agents you've already built — in [LangGraph](https://github.com/langchain-ai/langgraph), [CrewAI](https://www.crewai.com/), [OpenAI Agents](https://github.com/openai/openai-agents-python), [Microsoft Agent Framework](https://github.com/microsoft/agent-framework), or anything else you'd like to write an adapter for — and gives them passports, signed receipts, attenuated capabilities, declarative constitutions with four-stage enforcement, and an optional cryptographic verification layer for when a third party needs to audit what happened.
 
 ```mermaid
 flowchart TB
@@ -26,7 +26,9 @@ flowchart TB
         direction LR
         A1["LangGraph agent"]
         A2["CrewAI agent"]
-        A3["Any other framework"]
+        A3["OpenAI Agents agent"]
+        A4["MAF agent"]
+        A5["Any other framework"]
     end
 
     SDK["Yutha SDK<br/>+ framework adapter"]
@@ -57,7 +59,7 @@ flowchart TB
 
     ---
 
-    Bring an existing LangGraph or CrewAI agent. Wrap it with the Python SDK. Join an existing swarm. Get a passport, a capability, and a signed audit trail.
+    Bring an existing LangGraph, CrewAI, OpenAI Agents, or Microsoft Agent Framework agent. Wrap it with the Python SDK. Join an existing swarm. Get a passport, a capability, and a signed audit trail.
 
     [:octicons-arrow-right-24: Developer quickstart](developer/quickstart.md)
 
@@ -113,7 +115,7 @@ These are not framework problems. They're substrate problems. They show up no ma
 
     ---
 
-    Build agents in the framework you already like — LangGraph, CrewAI, or anything else with a Python toolchain — and bring them to a Yutha-governed swarm. Adapters handle the passport, the cap-checking, the receipt emission.
+    Build agents in the framework you already like — LangGraph, CrewAI, OpenAI Agents, Microsoft Agent Framework, or anything else with a Python toolchain — and bring them to a Yutha-governed swarm. Adapters handle the passport, the cap-checking, the receipt emission.
 
     [:octicons-arrow-right-24: Developer guide](developer/index.md)
 
@@ -183,13 +185,13 @@ Yutha is intentionally not a lot of things. Drawing the boundary explicitly is p
 
 **Not a managed service.** There's no Yutha cloud to sign up for and no service to pay a subscription to. The reference implementation runs on infrastructure you already operate — Postgres, object storage, the cloud (or laptop) of your choice. The optional verifiability backend is opt-in and self-hosted.
 
-**Not framework-opinionated.** LangGraph and CrewAI adapters ship today. Anyone can write an adapter for a new framework against the spec; no permission required. Adapters in other languages (TypeScript, Go) are welcomed when the demand shows up.
+**Not framework-opinionated.** LangGraph, CrewAI, OpenAI Agents, and Microsoft Agent Framework adapters ship today. Anyone can write an adapter for a new framework against the spec; no permission required. Adapters in other languages (TypeScript, Go) are welcomed when the demand shows up.
 
 **Not a reputation engine.** Yutha tracks a reputation scalar per agent, but it is never the sole basis for a permission decision. Reputation informs; capabilities and the constitution decide.
 
 ## Where the project is
 
-Yutha is open-source, Apache 2.0, stewarded by a single maintainer right now. The reference implementation runs end-to-end across the Rust control plane and Python SDK; the LangGraph and CrewAI adapters are functional; the conformance suite covers the receipt log, send-path enforcement, operator revocation, constitution evaluation, the four-stage enforcement loop, and the verifiability anchor.
+Yutha is open-source, Apache 2.0, stewarded by a single maintainer right now. The reference implementation runs end-to-end across the Rust control plane and Python SDK; four framework adapters (LangGraph, CrewAI, OpenAI Agents, Microsoft Agent Framework) are functional with a runnable end-to-end example each; the conformance suite covers the receipt log, send-path enforcement, operator revocation, constitution evaluation, the four-stage enforcement loop, and the verifiability anchor.
 
 A handful of directions have been thought through but aren't built yet — pre-production swarm simulation, cross-swarm federation primitives, adapters in non-Python languages. They live as design notes in the RFC archive. Whether and when they ship depends on what the community ends up needing. The [GitHub repo](https://github.com/abhinavg6/yutha) is the place to follow along or propose something.
 
