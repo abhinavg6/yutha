@@ -6,7 +6,7 @@ This page uses *only* the core `yutha` Python SDK. No LangGraph, CrewAI, OpenAI 
 
 !!! info "Already comfortable with the basics?"
 
-    Jump to the [LangGraph walkthrough](langgraph.md), the [CrewAI walkthrough](crewai.md), the [OpenAI Agents example](../examples/research-crew.md), or the [Microsoft Agent Framework example](../examples/devops-incident.md) — each takes a real five-agent swarm end-to-end.
+    Jump to the [LangGraph walkthrough](langgraph.md), the [CrewAI walkthrough](crewai.md), the [OpenAI Agents walkthrough](openai-agents.md), or the [Microsoft Agent Framework walkthrough](maf.md) — each adapter guide pairs with a runnable end-to-end example.
 
 ## What you'll build
 
@@ -268,10 +268,10 @@ The Yutha control plane never owned the agents' reasoning loop, never picked a m
 
 You've seen the bare wire shape. The framework walkthroughs replace the hand-rolled `send_one` / `receive_one` with idiomatic agent abstractions, while keeping the same substrate underneath:
 
-- **[LangGraph](langgraph.md)** — wrap a LangGraph node as a Yutha agent. The richest hands-on walkthrough today; takes a five-agent customer-support swarm end-to-end with capability gating and a full audit trail.
-- **[CrewAI](crewai.md)** — same shape, CrewAI Agents and Crews.
-- **[OpenAI Agents → research crew with citation enforcement](../examples/research-crew.md)** — handoff bridging via `RunHooks`, cap-gating via `@capability_required` on `function_tool` bodies.
-- **[Microsoft Agent Framework → DevOps incident-response](../examples/devops-incident.md)** — `YuthaChatAgent` wrapping `agent_framework.Agent`, cap-gated async tool callables.
+- **[LangGraph](langgraph.md)** — wrap a LangGraph node as a Yutha agent. Deterministic state-graph handler with no LLM dependency at the dispatch level. Paired example: [customer support](../examples/customer-support.md).
+- **[CrewAI](crewai.md)** — each `Agent` in a Crew becomes a Yutha agent with its own identity. LLM-driven dispatch via `Crew.kickoff()`. Paired example: [AP/invoice processing](../examples/ap-invoice.md).
+- **[OpenAI Agents](openai-agents.md)** — each `agents.Agent` becomes a Yutha agent. Handoff bridging via `RunHooks` so every inter-agent transition produces a signed audit envelope; cap-gating via `@capability_required` on `function_tool` bodies. Paired example: [research crew with citation enforcement](../examples/research-crew.md).
+- **[Microsoft Agent Framework](maf.md)** — each `agent_framework.Agent` becomes a Yutha agent. Cap-gating on async-native tool callables (no sync/async bridge); honest v1 scope vs `WorkflowBuilder` / `RequestInfoExecutor` follow-ons. Paired example: [DevOps incident-response](../examples/devops-incident.md).
 - **[Writing a new adapter](writing-adapters.md)** — bring your own framework. The contract is small: mint a passport, register, thread `ACTIVE_CAPABILITY_ID` through your tool surface, send envelopes.
 
 Once you want a constitution governing the swarm — declarative norms with four-stage enforcement — read the [Concepts → Constitution & enforcement](../concepts/constitution.md) page, then the [Operator quickstart](../operator/quickstart.md) for how an operator authors and activates one.

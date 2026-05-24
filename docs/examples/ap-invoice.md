@@ -19,6 +19,14 @@ This is the **CrewAI** companion to the
 substrate machinery, same audit-trail shape — just different
 framework idioms in the agent layer.
 
+For the framework adapter's full surface — `YuthaCrewAgent`
+lifecycle, the dispatch loop, the `task_factory` pattern,
+`@capability_required` on CrewAI tools, audit-log queries — see
+the [CrewAI developer guide](../developer/crewai.md). This page
+is the applied walkthrough that exercises that surface
+end-to-end with a real Cedar+ constitution and the four-stage
+enforcement loop on top.
+
 ---
 
 ## What this example shows

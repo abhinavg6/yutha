@@ -13,6 +13,14 @@ The runnable demo lives at
 It runs end-to-end against a real control plane in about
 fifteen seconds.
 
+For the framework adapter's full surface — `YuthaAgent`
+lifecycle, the LangGraph dispatch loop,
+`@capability_required` patterns, audit-log queries — see the
+[LangGraph developer guide](../developer/langgraph.md). This
+page is the applied walkthrough that exercises that surface
+end-to-end with a real Cedar+ constitution and the four-stage
+enforcement loop on top.
+
 ---
 
 ## What this example shows

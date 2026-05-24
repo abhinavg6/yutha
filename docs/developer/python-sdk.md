@@ -8,10 +8,10 @@ The Python package [`yutha`](https://pypi.org/project/yutha/) is the canonical c
 
 **A framework adapter walkthrough — the richest hands-on path.** Pick the one that matches what you already build agents in:
 
-- [LangGraph](langgraph.md) — wrap a LangGraph node as a Yutha agent. Full 15-minute joiner walkthrough.
-- [CrewAI](crewai.md) — same shape, CrewAI idioms.
-- [OpenAI Agents → research crew example](../examples/research-crew.md) — `yutha.openai_agents.YuthaOpenAIAgent` with handoff bridging via `RunHooks` and cap-gated `function_tool`s.
-- [Microsoft Agent Framework → DevOps incident example](../examples/devops-incident.md) — `yutha.maf.YuthaChatAgent` wrapping `agent_framework.Agent` with `@capability_required` on async tool callables.
+- [LangGraph](langgraph.md) — wrap a LangGraph node as a Yutha agent. Deterministic state-graph handler with no LLM dependency at the dispatch level.
+- [CrewAI](crewai.md) — each `Agent` in a Crew becomes a Yutha agent with its own identity. LLM-driven dispatch via `Crew.kickoff()`.
+- [OpenAI Agents](openai-agents.md) — each `agents.Agent` becomes a Yutha agent. Handoff bridging via `RunHooks` so every inter-agent transition produces a signed audit envelope; cap-gating via `@capability_required` on `function_tool` bodies.
+- [Microsoft Agent Framework](maf.md) — each `agent_framework.Agent` becomes a Yutha agent. Cap-gating on async-native tool callables; honest v1 scope vs `WorkflowBuilder` / `RequestInfoExecutor` follow-ons.
 
 **Worked end-to-end examples — runnable demos under [`sdks/python/examples/`](https://github.com/abhinavg6/yutha/tree/main/sdks/python/examples).** Five runnable scripts (one per shipped use case) plus the framework adapter demos. Each emits a real audit trail you can inspect with [`yutha-ops list-receipts`](../operator/operator-credentials.md).
 

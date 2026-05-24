@@ -563,6 +563,14 @@ export YUTHA_BOOTSTRAP_SEED=<same hex>
 uv run python examples/s1_support_queue.py
 ```
 
+For a richer LangGraph example that adds a Cedar+ constitution and
+exercises the four-stage enforcement loop (detect → coach →
+quarantine → evict) end-to-end, see the
+[code-review walkthrough](../examples/code-review.md). It builds
+on the same `YuthaAgent` + `@capability_required` primitives this
+page covers, plus the constitution surface from the
+[operator quickstart](../operator/quickstart.md).
+
 ---
 
 ## Common gotchas

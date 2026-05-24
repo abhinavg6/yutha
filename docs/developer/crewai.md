@@ -382,6 +382,14 @@ cargo run -p yutha-control-plane -- --admission-mode open
 python sdks/python/examples/s1_support_queue_crewai.py
 ```
 
+For a richer CrewAI example that adds a Cedar+ constitution and
+exercises the four-stage enforcement loop (detect → coach →
+quarantine → evict) end-to-end, see the
+[AP/invoice walkthrough](../examples/ap-invoice.md). It uses the
+same `YuthaCrewAgent` + `@capability_required` primitives this
+page covers, plus the constitution surface from the
+[operator quickstart](../operator/quickstart.md).
+
 ---
 
 ## Where to go from here

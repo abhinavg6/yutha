@@ -24,6 +24,15 @@ cast — lives at
 Each runs end-to-end against a real control plane in a few
 seconds.
 
+For each framework adapter's full surface — `YuthaAgent` /
+`YuthaCrewAgent` lifecycle, `@capability_required` patterns,
+audit-log queries — see the
+[LangGraph developer guide](../developer/langgraph.md) (primary
+demo) or the [CrewAI developer guide](../developer/crewai.md)
+(port). This page is the applied walkthrough that exercises
+those surfaces end-to-end against the substrate primitives,
+without a constitution layered on top.
+
 ---
 
 ## What this example shows
