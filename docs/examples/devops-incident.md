@@ -23,6 +23,15 @@ This is the **Microsoft Agent Framework** companion to the
 Same substrate machinery — different framework idioms,
 different business framing.
 
+For the framework adapter's full surface — `YuthaChatAgent`
+lifecycle, the dispatch loop, `@capability_required` on async
+tool callables, audit-log patterns, plus the honest v1 scope vs
+`WorkflowBuilder` / `RequestInfoExecutor` / `FunctionMiddleware`
+follow-ons — see the
+[Microsoft Agent Framework developer guide](../developer/maf.md).
+This page is the applied walkthrough that exercises that surface
+end-to-end with a real constitution.
+
 ---
 
 ## What this example shows

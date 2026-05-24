@@ -137,6 +137,8 @@ nav:
       - Python SDK: developer/python-sdk.md
       - LangGraph: developer/langgraph.md
       - CrewAI: developer/crewai.md
+      - OpenAI Agents: developer/openai-agents.md
+      - Microsoft Agent Framework: developer/maf.md
       - Writing a new adapter: developer/writing-adapters.md
   - Examples:
       - examples/index.md

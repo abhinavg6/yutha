@@ -42,10 +42,10 @@ The repository at https://github.com/abhinavg6/yutha contains the Rust reference
 - [Developer guide overview](https://yutha.ai/developer/): when this section applies — building agents that join a Yutha-governed swarm.
 - [Quickstart](https://yutha.ai/developer/quickstart/): 15-minute joiner path, framework-neutral.
 - [Python SDK](https://yutha.ai/developer/python-sdk/): the canonical client surface — admission, envelope, receipts, capability, constitution APIs.
-- [LangGraph adapter](https://yutha.ai/developer/langgraph/): full walkthrough wrapping a LangGraph node as a Yutha agent; the richest hands-on quickstart today.
-- [CrewAI adapter](https://yutha.ai/developer/crewai/): equivalent for CrewAI Agents and Crews.
-- [OpenAI Agents adapter (via example)](https://yutha.ai/examples/research-crew/): the `yutha.openai_agents.YuthaOpenAIAgent` integration surface covered end-to-end through a runnable research-crew example (handoffs via `RunHooks`, cap-gated `function_tool`s).
-- [Microsoft Agent Framework adapter (via example)](https://yutha.ai/examples/devops-incident/): the `yutha.maf.YuthaChatAgent` integration surface covered end-to-end through a runnable DevOps incident-response example (cap-gating via `@capability_required` on async tool callables; ChatAgent today, WorkflowBuilder/RequestInfoExecutor as documented follow-ons).
+- [LangGraph adapter](https://yutha.ai/developer/langgraph/): full walkthrough wrapping a LangGraph node as a Yutha agent; deterministic state-graph handler, no LLM dependency at the dispatch level. Paired example: customer support with refund cap.
+- [CrewAI adapter](https://yutha.ai/developer/crewai/): each `Agent` in a Crew becomes a Yutha agent with its own identity; LLM-driven dispatch via `Crew.kickoff()`. Paired example: AP/invoice processing.
+- [OpenAI Agents adapter](https://yutha.ai/developer/openai-agents/): each `agents.Agent` becomes a Yutha agent; handoff bridging via `RunHooks` so every inter-agent transition produces a signed audit envelope; cap-gating via `@capability_required` on `function_tool` bodies. Paired example: research crew with citation enforcement.
+- [Microsoft Agent Framework adapter](https://yutha.ai/developer/maf/): each `agent_framework.Agent` becomes a Yutha agent; cap-gating on async-native tool callables (no sync/async bridge); honest v1 scope vs `WorkflowBuilder` / `RequestInfoExecutor` / `FunctionMiddleware` follow-ons. Paired example: DevOps incident-response.
 - [Writing a new adapter](https://yutha.ai/developer/writing-adapters/): how to add support for a framework Yutha doesn't yet ship for.
 
 ## Examples

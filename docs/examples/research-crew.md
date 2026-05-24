@@ -19,6 +19,14 @@ This is the **OpenAI Agents** companion to the
 machinery; first example to use OpenAI Agents' **handoff**
 primitive as a first-class substrate hook.
 
+For the framework adapter's full surface — `YuthaOpenAIAgent`
+lifecycle, the `RunHooks` handoff bridge implementation,
+`@capability_required` on `function_tool` callables, audit-log
+patterns — see the
+[OpenAI Agents developer guide](../developer/openai-agents.md).
+This page is the applied walkthrough that exercises that surface
+end-to-end with a real constitution.
+
 ---
 
 ## What this example shows
