@@ -14,10 +14,11 @@ Open-source infrastructure for groups of AI agents. Identity, capability, accoun
 /spec        — wire & artifact specs (RFC-governed; the contract)
 /crates      — Rust workspace: control plane, registry, capability, transport,
                receipts, Cedar+ engine, ops CLI, proto crate, conformance suite
-/backends    — Pluggable backends: postgres-receipt, s3-blob, sui-anchor,
-               walrus-receipt, seal-encrypt, nautilus-attest
+/backends    — Pluggable backends: postgres-receipt (production receipt
+               store), sui-anchor (optional verifiability layer)
 /contracts   — Move package for Sui receipt anchoring (sources/, tests/)
-/sdks        — Framework adapters (sdks/python/ ships today: LangGraph, CrewAI)
+/sdks        — Framework adapters (sdks/python/ ships today: LangGraph,
+               CrewAI, OpenAI Agents, Microsoft Agent Framework)
 /interop     — Cross-language differential testing (interop/go/)
 /docs        — Source for the MkDocs Material site published at yutha.ai
 /scripts     — Repo tooling (e.g. build-llms-full.py)

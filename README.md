@@ -23,7 +23,7 @@ The doc site is the canonical reference. Start at the landing page; pick the ope
 ```
 /spec        — wire & artifact specs (RFC-governed)
 /crates      — Rust workspace: control plane, registry, capability, transport, receipts, cedar+ engine
-/backends    — Pluggable backends: Postgres, S3, Sui anchoring, Walrus, Seal, Nautilus
+/backends    — Pluggable backends: Postgres receipts, Sui anchoring
 /sdks        — Framework adapters (Python: LangGraph, CrewAI, OpenAI Agents, MAF)
 /contracts   — Move package for Sui receipt anchoring
 /docs        — Source for the doc site at yutha.ai

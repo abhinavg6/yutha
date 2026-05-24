@@ -97,7 +97,7 @@ These are not framework problems. They're substrate problems. They show up no ma
 
 **Optional cryptographic verification.** When the operator needs to prove the audit trail to a third party — a regulator, a customer, a downstream system — Yutha can anchor Merkle roots of receipt batches to a public blockchain ([Sui](https://www.sui.io/) today). Anyone can independently verify the seal without trusting the operator.
 
-**Pluggable backends.** Receipt storage in Postgres or in-memory for development, blob storage on S3 or Walrus, anchoring on Sui — same APIs, swap the implementation behind the spec.
+**Pluggable backends.** Receipt storage in Postgres for production or in-memory for development, optional anchoring on Sui — same APIs, swap the implementation behind the spec.
 
 ## Who it's for
 

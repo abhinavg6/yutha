@@ -95,7 +95,10 @@ Keep this terminal — every following command needs both env vars.
 
 ## Step 1 — Start the control plane
 
-A production-shaped startup line. Five flags carry the load:
+A production-shaped startup line. Five flags carry the load. For
+the full production deployment surface — TLS, mTLS, the Postgres
+backend, scaling posture, what's not yet supported — read
+[Deployment](deployment.md) before standing one up for real.
 
 ```bash
 cargo run --release -p yutha-control-plane -- \
@@ -156,6 +159,12 @@ syntax — useful for reviewers but tedious for authors. The intent
 language is a YAML DSL that compiles down to Cedar plus an engine-
 config file. You author the YAML; the compiler does the syntactic
 heavy lift.
+
+The example below is intentionally compact — one forbid rule and one
+enforcement chain. For the full rule-kind catalog (scoring rules,
+procedures, memory norms, resource budgets), the compile-vs-Cedar
+validation boundary, and the iteration / rollback patterns, see
+[Authoring constitutions](authoring-constitutions.md).
 
 A running example: a customer-support refund cap. The rule is
 "refunds over $100 require supervisor approval, and three
@@ -309,6 +318,12 @@ three forbidden-payload envelopes in a row (matching the
 `no-forbidden-payloads` rule), and waits for the enforcement
 chain to land in the audit log.
 
+The `yutha-ops grep` invocations below are the minimum operator
+query surface. For the wider monitoring surface — audit-trail
+reconstruction patterns, the canonical action-kind catalog,
+alerting thresholds for the four enforcement stages, structured
+logs and tracing — see [Monitoring & receipts](monitoring.md).
+
 ```python
 # scripts/operator_walkthrough_traffic.py
 import asyncio, hashlib, os, secrets
@@ -421,7 +436,11 @@ sets a short `escalate_after` and the next entry in
 
 **Manual revoke** is the operator-driven escape hatch. When you've
 seen enough — a real attack, a runaway agent, a misconfigured
-workload — you evict directly:
+workload — you evict directly. For the full credential lifecycle
+behind the `yutha-ops revoke` command (what the operator credential
+authorizes, the active-stream tear-down semantics, the cascade
+contract, what's deferred per RFC 0009), see
+[Operator credentials](operator-credentials.md):
 
 ```bash
 yutha-ops revoke 019e3ce9-8d7d-70ec-9209-e34415ca9477 \
@@ -472,7 +491,33 @@ iterations shows you the full history.
 ## Where to go from here
 
 You now have the full operator surface in muscle memory: author in
-YAML, compile, activate, grep, revoke. Three follow-on tracks:
+YAML, compile, activate, grep, revoke. The rest of the Operator
+Guide goes deeper on each piece:
+
+- **[Authoring constitutions](authoring-constitutions.md)** — the
+  full rule-kind catalog (scoring rules, procedures, memory norms,
+  resource budgets in addition to the forbid/permit/enforcement
+  shapes shown here), compile-vs-Cedar validation boundary,
+  iteration loop, rollback.
+- **[Operator credentials](operator-credentials.md)** — what the
+  credential authorizes, generating/storing/rotating, the revoke +
+  cascade + active-stream tear-down semantics in depth, and the
+  multi-operator/threshold/rate-limit follow-ons RFC 0009 defers.
+- **[Monitoring & receipts](monitoring.md)** — `yutha-ops grep`
+  patterns beyond the one-liner above, audit-trail reconstruction
+  recipes, alerting thresholds for the four enforcement stages,
+  structured logs and tracing, dashboard suggestions.
+- **[Deployment](deployment.md)** — production-grade startup, TLS
+  + mTLS, the Postgres backend and its backup story, scaling
+  posture (single-tenant by design today), what is and is not yet
+  supported.
+- **[Sui anchoring](sui-anchoring.md)** — the optional
+  verifiability layer, when a third party needs to verify the log
+  without trusting you. Walks publishing the Move package,
+  creating the per-swarm `SwarmAnchor`, and wiring the anchor
+  driver into a running control plane.
+
+A few specific follow-on tracks worth calling out:
 
 - **Custom workloads.** The two shipped workload schemas
   (`support-queue`, `code-review`) live under
@@ -480,18 +525,12 @@ YAML, compile, activate, grep, revoke. Three follow-on tracks:
   one is a Cedar `entity` + `action` schema fragment plus a
   registration entry in `yutha-cedar-plus`'s `loader.rs`. The
   README under that directory walks the pattern.
-- **The four-stage loop in depth.** [RFC
-  0013](https://github.com/abhinavg6/yutha/blob/main/spec/rfcs/0013-four-stage-enforcement-loop.md) is the
-  source of truth for stage cadence, reputation deltas, and the
-  reversal contract. Read it before tuning `escalate_after` values
-  in production.
-- **Operator credential hygiene.** RFC 0009 §3 details the
-  minimum credential lifecycle. Key rotation, multi-key trust
-  bundles, and rate-limited revocation are explicit follow-ons for
-  Phase 3.
-
-If you want to drive the same workflow programmatically (CI
-pipeline, automation, GitOps-style amendment workflow), use the
-Python SDK's `ConstitutionAPI` directly — `yutha-ops` is a thin
-wrapper around the same `ConstitutionService.Activate` and
-`AdmissionService.OperatorRevoke` RPCs it exposes.
+- **The four-stage loop in depth.** [RFC 0013](https://github.com/abhinavg6/yutha/blob/main/spec/rfcs/0013-four-stage-enforcement-loop.md)
+  is the source of truth for stage cadence, reputation deltas,
+  and the reversal contract. Read it before tuning
+  `escalate_after` values in production.
+- **Programmatic driving.** If you want to run the same workflow
+  from CI (GitOps-style amendment workflow, automated
+  revocations), the Python SDK's `ConstitutionAPI` exposes
+  the same `ConstitutionService.Activate` and
+  `AdmissionService.OperatorRevoke` RPCs `yutha-ops` wraps.
