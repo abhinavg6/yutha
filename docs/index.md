@@ -10,7 +10,7 @@ hide:
 
 !!! info "Status — early-stage pre-release"
 
-    Yutha is at **[v0.1.0-alpha.1](https://github.com/abhinavg6/yutha/releases/tag/v0.1.0-alpha.1)** — solid enough to play with end-to-end, intentionally pre-1.0. The shape of the project is settled; wire formats and API surfaces may shift before 1.0. Pin tightly if you build on it, and [open an issue](https://github.com/abhinavg6/yutha/issues) if you hit something.
+    Yutha is at **[v0.1.0-alpha.2](https://github.com/abhinavg6/yutha/releases/tag/v0.1.0-alpha.2)** — solid enough to play with end-to-end, intentionally pre-1.0. The shape of the project is settled; wire formats and API surfaces may shift before 1.0. Pin tightly if you build on it, and [open an issue](https://github.com/abhinavg6/yutha/issues) if you hit something.
 
 **Yutha** — from the Sanskrit [यूथ (*yūtha*)](https://www.wisdomlib.org/definition/yutha) meaning a herd, troop, or band moving together — is open-source infrastructure for groups of AI agents. Two friends running hobby agents in a Discord, a marketing team coordinating a half-dozen agents inside one company, a regulated workflow with hundreds of agents across departments, or thousands of agents collaborating across organizations: same primitives, same audit log, same enforcement, same Yutha.
 
