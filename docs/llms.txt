@@ -24,7 +24,7 @@ The repository at https://github.com/abhinavg6/yutha contains the Rust reference
 - [Concepts overview](https://yutha.ai/concepts/): the conceptual layer of Yutha; read once and the rest of the docs make sense without re-explaining foundations.
 - [Primitives](https://yutha.ai/concepts/primitives/): passports, envelopes, receipts, capabilities — the four building blocks.
 - [Topology](https://yutha.ai/concepts/topology/): closed, open, and hybrid swarm shapes; when to choose which.
-- [Constitution & enforcement](https://yutha.ai/concepts/constitution/): Cedar+ policy language, evaluation semantics, four-stage enforcement loop (flag, restrict, quarantine, evict).
+- [Constitution & enforcement](https://yutha.ai/concepts/constitution/): Cedar+ policy language, evaluation semantics, four-stage enforcement loop (detect, coach, quarantine, evict).
 - [Verifiability](https://yutha.ai/concepts/verifiability/): optional on-chain anchoring of receipt batches via Sui; third-party verification without trusting the operator.
 
 ## Operator guide

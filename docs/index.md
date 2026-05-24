@@ -93,7 +93,7 @@ These are not framework problems. They're substrate problems. They show up no ma
 
 **Capabilities, not permissions.** Authority is granted as bounded, attenuable *capabilities* — first-class tokens that say *who* may do *what* for *how long* on *which targets*. Capabilities can be narrowed (never widened) when delegated, revoked atomically, and cascaded across delegation chains. Cap checks happen at the control plane, not in each agent's code.
 
-**Constitutions, declaratively.** Norms governing a swarm are written in Cedar+, an extension of AWS's [Cedar](https://github.com/cedar-policy) policy language with soft scoring rules and procedural state machines. The control plane evaluates every consequential action against the active constitution. Violations progress through a four-stage enforcement loop — flag, restrict, quarantine, evict — never as a single all-or-nothing decision.
+**Constitutions, declaratively.** Norms governing a swarm are written in Cedar+, an extension of AWS's [Cedar](https://github.com/cedar-policy) policy language with soft scoring rules and procedural state machines. The control plane evaluates every consequential action against the active constitution. Violations progress through a four-stage enforcement loop — detect, coach, quarantine, evict — never as a single all-or-nothing decision.
 
 **Optional cryptographic verification.** When the operator needs to prove the audit trail to a third party — a regulator, a customer, a downstream system — Yutha can anchor Merkle roots of receipt batches to a public blockchain ([Sui](https://www.sui.io/) today). Anyone can independently verify the seal without trusting the operator.
 
@@ -123,7 +123,7 @@ These are not framework problems. They're substrate problems. They show up no ma
 
 ## What people build with it
 
-A flavour of where the substrate earns its keep — from the bread-and-butter to the speculative. Some of these have full walkthroughs under [Examples](examples/index.md); others are sketches of where Yutha naturally fits.
+Each card below maps to a walkthrough under [Examples](examples/index.md). Five are runnable end-to-end demos you can stand up against a local control plane in an afternoon; cross-organization federation is a design sketch — the substrate primitives are there, the federation-specific glue lands in a later phase.
 
 <div class="grid cards" markdown>
 
@@ -139,7 +139,7 @@ A flavour of where the substrate earns its keep — from the bread-and-butter to
 
     ---
 
-    Reviewer + auto-fix agents on every PR. Capability-gated: auto-fix can push minor edits but is denied writes to files tagged security-sensitive. Every change leaves a signed receipt explaining itself.
+    Reviewer + auto-fix agents on every PR. Constitution forbids `patch_applied + security_sensitive` envelopes; two bypass attempts walk the four-stage enforcement loop end-to-end (detect → coach → quarantine → evict). Every change leaves a signed receipt.
 
     [:octicons-arrow-right-24: Walkthrough](examples/code-review.md)
 
@@ -147,21 +147,25 @@ A flavour of where the substrate earns its keep — from the bread-and-butter to
 
     ---
 
-    Classifier, extractor, approver. Constitution caps single payments, escalates to a human approver above the threshold, four-stage enforcement evicts agents that try to bypass. SOX-grade audit trail comes free with the substrate.
+    Classifier, auto-approver, supervisor, treasury. Constitution caps single payments and gates over-cap authorizations on a `supervisor_approved` tag; the approver's bypass attempts trip the same enforcement chain. SOX-grade audit trail by default.
 
     [:octicons-arrow-right-24: Walkthrough](examples/ap-invoice.md)
 
--   :material-robot-industrial:{ .lg .middle } **Robotics fleet coordination**
+-   :material-book-search-outline:{ .lg .middle } **Research crew with citation enforcement**
 
     ---
 
-    Warehouse AMRs, drone formations, manufacturing co-bots — any swarm of physical agents coordinating on a shared task. Identity per robot, capability gates for restricted zones or high-risk actions, signed receipts when an incident needs forensic reconstruction.
+    Researcher, fact-checker, editor connected by OpenAI Agents' handoff primitive. Constitution forbids `claim_published` envelopes that lack `verified_citations`; every handoff produces a Yutha audit envelope so the full collaboration chain is reconstructable from the receipt log.
 
--   :material-flask:{ .lg .middle } **AI scientist swarms**
+    [:octicons-arrow-right-24: Walkthrough](examples/research-crew.md)
+
+-   :material-alarm-light-outline:{ .lg .middle } **DevOps incident-response with SRE countersign**
 
     ---
 
-    Hypothesis-generating agents paired with replication agents. Every claim, every dataset query, every method choice produces a content-addressed receipt — optionally anchored on-chain. Provenance that survives the operator going offline.
+    Incident commander, diagnoser, schema specialist, SRE, remediation executor — a Microsoft Agent Framework swarm walking a runbook. Constitution forbids production `schema_change` actions unless an `sre_countersigned` tag is present; bypass attempts trip the four-stage enforcement chain.
+
+    [:octicons-arrow-right-24: Walkthrough](examples/devops-incident.md)
 
 -   :material-handshake:{ .lg .middle } **Cross-organization federation**
 
@@ -169,7 +173,7 @@ A flavour of where the substrate earns its keep — from the bread-and-butter to
 
     Your reviewer agents talking to my publisher agents under a constitution both sides have ratified. Capabilities issued across org boundaries; receipts visible to both. Two companies' agents collaborating without trusting each other's infrastructure.
 
-    [:octicons-arrow-right-24: Walkthrough](examples/cross-org-federation.md)
+    [:octicons-arrow-right-24: Walkthrough (sketch)](examples/cross-org-federation.md)
 
 </div>
 

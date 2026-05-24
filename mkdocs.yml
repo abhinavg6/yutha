@@ -135,7 +135,7 @@ nav:
       - developer/index.md
       - Quickstart: developer/quickstart.md
       - Python SDK: developer/python-sdk.md
-      - LangChain & LangGraph: developer/langgraph.md
+      - LangGraph: developer/langgraph.md
       - CrewAI: developer/crewai.md
       - Writing a new adapter: developer/writing-adapters.md
   - Examples:
