@@ -148,7 +148,6 @@ nav:
       - Research crew with citation enforcement: examples/research-crew.md
       - DevOps incident-response with SRE countersign: examples/devops-incident.md
       - Procurement platform with vendor isolation: examples/procurement-platform.md
-      - Cross-organization agent federation: examples/cross-org-federation.md
   - Reference:
       - reference/index.md
       - Specs: reference/specs.md

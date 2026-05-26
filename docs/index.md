@@ -123,7 +123,7 @@ These are not framework problems. They're substrate problems. They show up no ma
 
 ## What people build with it
 
-Each card below maps to a walkthrough under [Examples](examples/index.md). Six are runnable end-to-end demos you can stand up against a local control plane in an afternoon; cross-organization federation is a design sketch — the substrate primitives are there, the federation-specific glue lands in a later phase.
+Each card below maps to a walkthrough under [Examples](examples/index.md). All six are runnable end-to-end demos you can stand up against a local control plane in an afternoon.
 
 <div class="grid cards" markdown>
 

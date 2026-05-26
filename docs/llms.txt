@@ -58,7 +58,6 @@ The repository at https://github.com/abhinavg6/yutha contains the Rust reference
 - [Research crew with citation enforcement](https://yutha.ai/examples/research-crew/): OpenAI Agents adapter — Lead/Researcher/FactChecker/Writer with constitution-enforced citations and quarantine on uncited claims.
 - [DevOps incident-response with SRE countersign](https://yutha.ai/examples/devops-incident/): Microsoft Agent Framework adapter — IncidentCommander/Diagnoser/SchemaSpecialist/SRE/RemediationExec with production-schema-change quarantine.
 - [Procurement platform with vendor isolation](https://yutha.ai/examples/procurement-platform/): first heterogeneous-framework demo — LangGraph buyer intake plus three CrewAI vendor agents on one swarm; bounded capabilities with `OnlyIfTagged` caveats pin each vendor to its invited RFPs; a Cedar+ constitution forbids cross-vendor data leakage; a bad-acting vendor walks the four-stage enforcement loop.
-- [Cross-organization federation](https://yutha.ai/examples/cross-org-federation/): two swarms, one shared constitution, capability tokens crossing the org boundary.
 
 ## Reference
 

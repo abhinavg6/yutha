@@ -513,8 +513,8 @@ A few directions to extend the example:
   agreement linking the two. The supervisor's `supervisor_approved`
   tag arrives across the federation boundary; the constitution
   enforces uniformly regardless of which swarm the message
-  originated in. (Federation primitives are sketched in design
-  notes — see [cross-organization federation](cross-org-federation.md).)
+  originated in. The federation primitives are Phase 4 work; the
+  walkthrough lands alongside them.
 
 ---
 

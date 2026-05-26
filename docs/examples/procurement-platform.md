@@ -612,9 +612,8 @@ Specifically, the seams that will move on federation day:
   for their slice of the interaction.
 
 The substrate is designed for this; the federation-specific glue
-is what's missing. See the
-[cross-org federation sketch](cross-org-federation.md) for the
-shape that work will take.
+is what's missing. A dedicated walkthrough will land alongside
+the Phase 4 federation primitives.
 
 A few directions to extend the example *before* federation lands,
 in roughly increasing ambition:
