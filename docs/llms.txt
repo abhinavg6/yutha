@@ -18,6 +18,7 @@ The repository at https://github.com/abhinavg6/yutha contains the Rust reference
 - [Developer guide → CrewAI](https://yutha.ai/developer/crewai/): joiner path for the CrewAI framework idiom.
 - [Example → OpenAI Agents research crew](https://yutha.ai/examples/research-crew/): end-to-end OpenAI Agents adapter walkthrough — citation enforcement, handoff bridging, cap-gated tools.
 - [Example → MAF DevOps incident-response](https://yutha.ai/examples/devops-incident/): end-to-end Microsoft Agent Framework adapter walkthrough — SRE countersign, schema-change quarantine, ChatAgent integration.
+- [Example → Procurement platform](https://yutha.ai/examples/procurement-platform/): heterogeneous-framework demo — LangGraph buyer intake + three CrewAI vendor agents on one swarm — with `OnlyIfTagged` capability caveats enforcing a multi-party confidentiality wall and a Cedar+ constitution that walks the four-stage enforcement loop on a bad-acting vendor.
 
 ## Concepts
 
@@ -56,6 +57,7 @@ The repository at https://github.com/abhinavg6/yutha contains the Rust reference
 - [AP & invoice processing with payment caps](https://yutha.ai/examples/ap-invoice/): payment cap + CFO approval procedure + duplicate-detection reverse path.
 - [Research crew with citation enforcement](https://yutha.ai/examples/research-crew/): OpenAI Agents adapter — Lead/Researcher/FactChecker/Writer with constitution-enforced citations and quarantine on uncited claims.
 - [DevOps incident-response with SRE countersign](https://yutha.ai/examples/devops-incident/): Microsoft Agent Framework adapter — IncidentCommander/Diagnoser/SchemaSpecialist/SRE/RemediationExec with production-schema-change quarantine.
+- [Procurement platform with vendor isolation](https://yutha.ai/examples/procurement-platform/): first heterogeneous-framework demo — LangGraph buyer intake plus three CrewAI vendor agents on one swarm; bounded capabilities with `OnlyIfTagged` caveats pin each vendor to its invited RFPs; a Cedar+ constitution forbids cross-vendor data leakage; a bad-acting vendor walks the four-stage enforcement loop.
 - [Cross-organization federation](https://yutha.ai/examples/cross-org-federation/): two swarms, one shared constitution, capability tokens crossing the org boundary.
 
 ## Reference

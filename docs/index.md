@@ -123,7 +123,7 @@ These are not framework problems. They're substrate problems. They show up no ma
 
 ## What people build with it
 
-Each card below maps to a walkthrough under [Examples](examples/index.md). Five are runnable end-to-end demos you can stand up against a local control plane in an afternoon; cross-organization federation is a design sketch — the substrate primitives are there, the federation-specific glue lands in a later phase.
+Each card below maps to a walkthrough under [Examples](examples/index.md). Six are runnable end-to-end demos you can stand up against a local control plane in an afternoon; cross-organization federation is a design sketch — the substrate primitives are there, the federation-specific glue lands in a later phase.
 
 <div class="grid cards" markdown>
 
@@ -167,13 +167,13 @@ Each card below maps to a walkthrough under [Examples](examples/index.md). Five 
 
     [:octicons-arrow-right-24: Walkthrough](examples/devops-incident.md)
 
--   :material-handshake:{ .lg .middle } **Cross-organization federation**
+-   :material-handshake-outline:{ .lg .middle } **Procurement platform with vendor isolation**
 
     ---
 
-    Your reviewer agents talking to my publisher agents under a constitution both sides have ratified. Capabilities issued across org boundaries; receipts visible to both. Two companies' agents collaborating without trusting each other's infrastructure.
+    Buyer-side LangGraph intake + three CrewAI vendor agents on one swarm. Bounded capabilities pin each vendor to the RFPs it was invited to; the constitution forbids cross-vendor data leakage; a bad-acting vendor walks the four-stage enforcement loop. The first runnable demo of a heterogeneous-framework swarm — and a clean upgrade path to federation once Phase 4 lands.
 
-    [:octicons-arrow-right-24: Walkthrough (sketch)](examples/cross-org-federation.md)
+    [:octicons-arrow-right-24: Walkthrough](examples/procurement-platform.md)
 
 </div>
 
