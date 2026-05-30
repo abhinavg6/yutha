@@ -78,3 +78,20 @@ files and assert the same expected hex.
 A future cross-language CI step (akin to `/interop/go/` for receipt
 canonical bytes) will run all such loaders in lockstep on every PR
 that touches the Signer surface.
+
+## Per-backend integration tests (Phase C)
+
+The 16 fixtures here are seed-derivable, so they cover
+`InProcessSigner` and any future seed-derivable signer. External
+backends — Vault transit, GCP KMS, Azure Key Vault — cannot use
+this pattern: their keys are externally provisioned and have no
+knowable seed.
+
+Phase C uses a complementary pattern documented in
+[RFC 0017 §3.7](../../rfcs/0017-external-signer-backends.md#37-conformance-pattern-for-non-seed-derivable-keys):
+each external backend ships a `tests/integration.rs` that the
+operator runs against a real backend, validating
+`(connect → public_key matches expected → sign → verify)` plus
+adversarial cases. Together the two patterns cover the full
+conformance surface — byte-equivalence where the seed is knowable,
+verify-roundtrip + standardised error-mapping where it isn't.

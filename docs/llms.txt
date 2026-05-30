@@ -35,6 +35,9 @@ The repository at https://github.com/abhinavg6/yutha contains the Rust reference
 - [Authoring constitutions](https://yutha.ai/operator/authoring-constitutions/): plain-English DSL, scoring rules, procedures, resource budgets, memory norms.
 - [Operator credentials](https://yutha.ai/operator/operator-credentials/): generating, rotating, and revoking the operator key; active-stream tear-down; capability cascade.
 - [Sui anchoring](https://yutha.ai/operator/sui-anchoring/): opt-in verifiability layer — publishing the Move package, creating a SwarmAnchor, wiring the AnchorDriver into the control plane.
+- [Vault Signer](https://yutha.ai/operator/vault-signer/): opt-in key custody — move the bootstrap Ed25519 key out of process memory into HashiCorp Vault transit; Token or AppRole auth; least-privilege policy.
+- [GCP KMS Signer](https://yutha.ai/operator/gcp-kms-signer/): opt-in key custody — hold the bootstrap Ed25519 key in Google Cloud KMS (algorithm `EC_SIGN_ED25519`); ADC + Workload Identity auth; `cloudkms.signerVerifier` IAM role.
+- [Azure Key Vault Signer](https://yutha.ai/operator/azure-kv-signer/): opt-in key custody — hold the bootstrap Ed25519 key in Azure Managed HSM (`OKP-HSM` / `Ed25519`); DefaultAzureCredential auth chain; **Managed HSM Crypto User** role. Requires the Managed HSM tier; standard Key Vault does not support Ed25519.
 - [Monitoring & receipts](https://yutha.ai/operator/monitoring/): querying the receipt log, what to alert on, OpenTelemetry export.
 - [Deployment](https://yutha.ai/operator/deployment/): Postgres backend, scaling, single-tenant defaults, self-hosted vs. verifiable-backend.
 

@@ -17,9 +17,9 @@ pub trait Signer: Send + Sync + Debug {
 Implementations:
 
 - **`InProcessSigner`** — the zero-dependency default. Wraps `yutha_crypto::SigningKey` byte-for-byte. What hobby swarms and development workflows run today.
-- **`yutha-signer-gcp-kms`** *(separate crate, Phase C)* — GCP Cloud KMS-backed.
-- **`yutha-signer-azure-kv`** *(separate crate, Phase C)* — Azure Key Vault Managed HSM-backed.
-- **`yutha-signer-vault-transit`** *(separate crate, Phase C)* — HashiCorp Vault transit engine. The recommended path for enterprises on AWS, since AWS KMS doesn't yet support Ed25519.
+- [**`yutha-signer-vault`**](../yutha-signer-vault) — HashiCorp Vault transit engine. The recommended path for enterprises on AWS, since AWS KMS doesn't yet support Ed25519. Ships in Phase C-B.
+- [**`yutha-signer-gcp-kms`**](../yutha-signer-gcp-kms) — Google Cloud KMS (`EC_SIGN_ED25519`). Ships in Phase C-C.
+- [**`yutha-signer-azure-kv`**](../yutha-signer-azure-kv) — Azure Key Vault Managed HSM (`OKP-HSM` / `Ed25519`). Ships in Phase C-D.
 
 ## Why it exists
 

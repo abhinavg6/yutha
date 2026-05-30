@@ -1,8 +1,43 @@
 # Workstream A Status — Spec Drafts
 
-> **As of:** 2026-05-27 (Phase A — identity-keys workstream — entry; prior entries below)
+> **As of:** 2026-05-30 (Phase B + Phase C of the identity-keys workstream — entries; prior entries below)
 > **Author:** background work session, autonomous
 > **Audience:** Abhinav (returning to the project), incoming Workstream A reviewers
+
+## Phases B + C — identity-keys workstream, shipped 2026-05-30
+
+The enterprise-identity workstream's two implementation phases for the Signer seam landed across the substrate, the per-backend crates, and the operator runbooks. Attestor (Phase D) is still paper-only; SPIFFE/OIDC implementations remain ahead.
+
+### Phase B — `Signer` trait + async refactor + `InProcessSigner` default
+
+Implementation phase for RFC 0015. The async `Signer` trait landed in a new `yutha-signer` crate; every existing sign call site in the substrate was refactored to take `&dyn Signer` and `await`. `InProcessSigner` is the zero-dependency default — byte-for-byte signature-equivalent to the previous direct `SigningKey::sign_message` path, asserted by the unit-test suite and by 16 conformance vectors under `/spec/vectors/signer/sign-and-verify/`.
+
+| Artifact | Status |
+|----------|--------|
+| [`crates/yutha-signer/`](../crates/yutha-signer/) | Shipped. Async trait + `SignerError` + `InProcessSigner`; `Debug` redacts private bytes; `concurrent_sign_safety` test; full unit-test coverage. |
+| Substrate refactor — passport / envelope / capability / bearer-mint / control-plane self-signed receipts | Shipped. All five sign call sites became async; every `*::sign(...)` is `*::sign(...).await`. |
+| Python SDK + LangGraph / CrewAI / OpenAI Agents / MAF adapters + 7 example scripts + walkthrough docs | Shipped. Async `Signer` Protocol with `InProcessSigner` mirror; `BearerSession`/`OperatorBearerSession` hold a signer instead of a key. |
+| [`/spec/vectors/signer/`](./vectors/signer/) | New. 16 sign-and-verify JSON fixtures (8 seed patterns × 2 message lengths), `concurrent-safety.md` runtime contract, Rust test loader at `crates/yutha-signer/tests/vectors.rs` with `YUTHA_REGENERATE_VECTORS=1` workflow. |
+
+Verification gates that passed before declaring Phase B done: `cargo build --workspace`, `cargo test --workspace`, `cargo clippy --workspace --all-targets -- -D warnings`, conformance scenarios S1–S7, vector regen + assertion, Postgres backend integration tests, live-server Python integration tests (`test_integration`, `test_constitution_integration`, `test_langgraph_agent`, `test_crewai_integration`, `test_workload_constitution`, `test_s4_enforcement_via_grpc`, `test_operator_revoke`, `test_s1_support_queue_demo`), `ruff` + `ruff-format` + `mypy --strict`, `mkdocs --strict`.
+
+### Phase C — External Signer backends (RFC 0017 + three crates)
+
+| Artifact | Status |
+|----------|--------|
+| [`/spec/rfcs/0017-external-signer-backends.md`](./rfcs/0017-external-signer-backends.md) | Draft (Phase C-A). Umbrella RFC pinning the cross-backend contract: per-backend-crate convention, `async connect()` construction pattern, `YUTHA_SIGNER_{BACKEND}_*` env-var convention, standardised error-mapping table, public-key caching at connect-time only, opt-in `TokioThrottle` helper, conformance-test pattern for non-seed-derivable keys, per-backend specifics for Vault transit / GCP KMS / Azure Key Vault. |
+| [`crates/yutha-signer-vault/`](../crates/yutha-signer-vault/) | Shipped (Phase C-B). `vaultrs 0.8` SDK; `VaultAuth` enum with Token + AppRole supported end-to-end, Kubernetes + AWS IAM as reserved-but-unimplemented variants. Operator-verified against a docker-vault dev server. |
+| [`crates/yutha-signer-gcp-kms/`](../crates/yutha-signer-gcp-kms/) | Shipped (Phase C-C). Google's official `google-cloud-kms-v1 ^1` SDK (swapped from yoshidan's community crate originally pinned in RFC 0017 §4.2; spec amended). ADC + Workload Identity via the shared `google-cloud-gax` runtime. EC_SIGN_ED25519 algorithm pin asserted at connect. |
+| [`crates/yutha-signer-azure-kv/`](../crates/yutha-signer-azure-kv/) | Shipped (Phase C-D). `azure_security_keyvault_keys 0.14` + `azure_identity 0.35` + `azure_core 0.35` (all in lockstep at the 0.35 cohort). `DeveloperToolsCredential` default with `connect_with_credential` escape hatch for production identities. Uses `KeyType::UnknownValue("OKP-HSM")` / `CurveName::UnknownValue("Ed25519")` / `SignatureAlgorithm::UnknownValue("EdDSA")` until Microsoft regenerates the Rust SDK enums; the `UnknownValue(String)` escape hatch is designed for exactly this case. |
+| [`docs/operator/{vault,gcp-kms,azure-kv}-signer.md`](../docs/operator/) | Shipped (Phase C-B/C/D). Three operator walkthroughs covering Managed-HSM activation, gcloud kms provisioning, Vault transit + AppRole; wired into mkdocs nav, operator-section index, and `llms.txt`. |
+
+Verification gates that passed before declaring Phase C done: `cargo build/test/clippy` clean per crate and at the workspace level, `mkdocs build --strict` clean, RFC 0017 adoption checklist closed for the four shipped items.
+
+Per-backend integration tests follow [RFC 0017 §3.7](./rfcs/0017-external-signer-backends.md#37-conformance-pattern-for-non-seed-derivable-keys) — `#[ignore]`-gated against a real backend when the operator sets the relevant `YUTHA_SIGNER_*_*` env vars. Operator confirmed the Vault path end-to-end locally; GCP KMS and Azure Managed HSM are integration-test-ready, awaiting paid-resource runs (gated by infrastructure cost).
+
+Phasing checkpoint: Phase C ends here. Phase D (Attestor trait + `NativeAttestor` default) is the next consequential step; do not roll into Phase D without explicit go-ahead.
+
+---
 
 ## Phase A — identity-keys (RFCs 0015 + 0016), in flight 2026-05-27
 

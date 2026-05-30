@@ -17,5 +17,8 @@ If you're building agents that *join* a swarm someone else operates, you're a de
 - **[Authoring constitutions](authoring-constitutions.md)** — how to write Cedar+ policy that says what you mean.
 - **[Operator credentials](operator-credentials.md)** — how the operator identity works, how to rotate it, how to revoke an agent.
 - **[Sui anchoring](sui-anchoring.md)** — opt-in cryptographic verifiability via on-chain Merkle commitments.
+- **[Vault Signer](vault-signer.md)** — opt-in key-custody: move the bootstrap Ed25519 key out of process memory into HashiCorp Vault.
+- **[GCP KMS Signer](gcp-kms-signer.md)** — opt-in key-custody: hold the bootstrap Ed25519 key in Google Cloud KMS (`EC_SIGN_ED25519`).
+- **[Azure Key Vault Signer](azure-kv-signer.md)** — opt-in key-custody: hold the bootstrap Ed25519 key in Azure Managed HSM (`OKP-HSM` / `Ed25519`).
 - **[Monitoring & receipts](monitoring.md)** — what to watch, what to alert on.
 - **[Deployment](deployment.md)** — Postgres backend, scaling, single-tenant defaults.

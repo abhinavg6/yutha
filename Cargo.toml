@@ -14,6 +14,9 @@ members = [
     "crates/yutha-control-plane",
     "crates/yutha-cedar-plus",
     "crates/yutha-ops",
+    "crates/yutha-signer-vault",
+    "crates/yutha-signer-gcp-kms",
+    "crates/yutha-signer-azure-kv",
     "backends/postgres-receipt",
     "backends/s3-blob",
     "backends/sui-anchor",
@@ -45,6 +48,9 @@ yutha-capability = { path = "crates/yutha-capability", version = "0.1.0-alpha.1"
 yutha-transport = { path = "crates/yutha-transport", version = "0.1.0-alpha.1" }
 yutha-registry = { path = "crates/yutha-registry", version = "0.1.0-alpha.1" }
 yutha-cedar-plus = { path = "crates/yutha-cedar-plus", version = "0.1.0-alpha.1" }
+yutha-signer-vault = { path = "crates/yutha-signer-vault", version = "0.1.0-alpha.1" }
+yutha-signer-gcp-kms = { path = "crates/yutha-signer-gcp-kms", version = "0.1.0-alpha.1" }
+yutha-signer-azure-kv = { path = "crates/yutha-signer-azure-kv", version = "0.1.0-alpha.1" }
 yutha-backend-postgres-receipt = { path = "backends/postgres-receipt", version = "0.1.0-alpha.1" }
 yutha-backend-sui-anchor = { path = "backends/sui-anchor", version = "0.1.0-alpha.1" }
 
@@ -124,6 +130,42 @@ anyhow = "1.0"
 # Hex encode/decode — used for bearer-token wire framing (the
 # `authorization: bearer <hex>` header on the gRPC metadata).
 hex = "0.4"
+
+# Base64 — Vault transit returns signatures in the wire format
+# `vault:v1:<base64>` and public keys as base64 strings; the Vault Signer
+# backend (RFC 0017 §4.1, crates/yutha-signer-vault) decodes both.
+base64 = "0.22"
+
+# HashiCorp Vault async client. RFC 0017 §4.1 pins vaultrs as the SDK for
+# the `yutha-signer-vault` backend; community-maintained, MIT, no first-
+# party Rust client from HashiCorp. Used only by yutha-signer-vault and
+# any test crates that exercise it. Default features pull rustls so we
+# don't drag in native-tls.
+vaultrs = "0.8"
+
+# Google Cloud KMS — official Google Rust SDK (googleapis/google-cloud-rust),
+# used by the yutha-signer-gcp-kms backend per RFC 0017 §4.2. Built-in ADC
+# + Workload Identity via the shared google-cloud-gax runtime. `bytes` is
+# pulled in for the `Bytes` type the sign response returns.
+google-cloud-kms-v1 = "1"
+bytes = "1"
+
+# Azure Key Vault keys — official Microsoft azure-sdk-for-rust crates
+# used by the yutha-signer-azure-kv backend per RFC 0017 §4.3.
+# `azure_identity` provides DefaultAzureCredential (managed identity →
+# env-var SP → CLI). Both pin a single 0.x line; Microsoft is still
+# stabilising the surface, so we bump on minor releases. Managed HSM
+# tier is the only Azure Key Vault flavour that supports Ed25519 today.
+azure_security_keyvault_keys = "0.14"
+# azure_identity 0.35 is the version that depends on azure_core ^0.35
+# — must match the KV crate's azure_core pin or we get two trait copies
+# in the dep graph (one impl, one expected). 0.30 brings in azure_core
+# 0.30.1 and breaks TokenCredential resolution. 1.0+ also exists but
+# we follow the 0.35 cohort the KV crate is locked to.
+azure_identity = "0.35"
+# azure_core is the shared runtime/error type both KV + identity link against;
+# we pin the same range the KV crate's `^0.35.0` constraint resolves against.
+azure_core = "0.35"
 
 # Identifiers.
 uuid = { version = "1.8", features = ["v7"] }

@@ -1,0 +1,36 @@
+[package]
+name = "yutha-signer-azure-kv"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+authors.workspace = true
+description = "Azure Key Vault Managed HSM backend for the Yutha `Signer` trait (RFC 0017 §4.3). Holds the Ed25519 signing key inside an Azure Managed HSM; every sign call is an HTTPS RPC to keys/<name>/sign with the EdDSA algorithm. Authenticates via DefaultAzureCredential (managed identity / env-var SP / az CLI). NOTE: requires the Managed HSM tier — standard Key Vault does not support Ed25519."
+readme = "README.md"
+
+[dependencies]
+yutha-core.workspace = true
+yutha-signer.workspace = true
+
+# Official Microsoft Azure SDK for Rust.
+azure_security_keyvault_keys.workspace = true
+azure_identity.workspace = true
+# Shared runtime types (Error, ErrorKind, StatusCode) — both deps above
+# transitively link against this version.
+azure_core.workspace = true
+
+# JWK `x` field arrives as base64url; we decode for `kty=OKP`/`crv=Ed25519`.
+base64.workspace = true
+
+async-trait.workspace = true
+thiserror.workspace = true
+tracing.workspace = true
+
+# Public-key SHA-256 fingerprint precomputed at connect.
+sha2.workspace = true
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
+yutha-crypto.workspace = true

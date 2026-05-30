@@ -375,7 +375,7 @@ mkdocs `--strict` must remain clean throughout; ruff + mypy + cargo + cargo clip
 
 AWS KMS today does not support Ed25519 signing, which would otherwise forecloses the most common enterprise cloud as a key custodian in v1. **Decided 2026-05-27:** ship `yutha-signer-vault-transit` as the AWS-friendly path in Phase C. HashiCorp Vault transit supports Ed25519 natively, runs on AWS infrastructure (EC2, ECS, EKS — wherever the enterprise's existing Vault deployment lives), and integrates cleanly with AWS IAM via the [AWS auth backend](https://developer.hashicorp.com/vault/docs/auth/aws) for agent authentication.
 
-This puts three Phase-C deliverables in v1: GCP KMS, Azure Key Vault (Managed HSM tier), and Vault transit. AWS-native KMS support remains a longer-term possibility down two paths, neither blocking this RFC:
+This puts three Phase-C deliverables in v1: GCP KMS, Azure Key Vault (Managed HSM tier), and Vault transit. The shared pattern those three follow is pinned in [RFC 0017 — External Signer backends](./0017-external-signer-backends.md). AWS-native KMS support remains a longer-term possibility down two paths, neither blocking this RFC:
 
 - **Wait for AWS.** AWS has been adding key algorithms over time; Ed25519 may land at some point. When it does, `yutha-signer-aws-kms` becomes a small, mechanical follow-on crate.
 - **Algorithm-agnostic sibling track.** A larger future RFC could allow Yutha to negotiate between Ed25519 and ECDSA P-256 (which AWS KMS does support today). Touches every spec that pins Ed25519; out of scope for this RFC; would need its own.

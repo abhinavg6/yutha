@@ -1,0 +1,34 @@
+[package]
+name = "yutha-signer-vault"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+authors.workspace = true
+description = "HashiCorp Vault transit-engine backend for the Yutha `Signer` trait (RFC 0017 §4.1). Holds the Ed25519 signing key inside Vault; every sign call is a network RPC to `transit/sign/<key>`. The recommended enterprise-on-AWS custody path until AWS KMS adds native Ed25519 support (see RFC 0015 §9.1)."
+readme = "README.md"
+
+[dependencies]
+yutha-core.workspace = true
+yutha-signer.workspace = true
+
+# Vault HTTP client. RFC 0017 §4.1 pins this; see README §SDK choice for the
+# rationale + the documented `reqwest`-direct fallback path.
+vaultrs.workspace = true
+
+# Wire codecs Vault uses on the transit-sign path.
+base64.workspace = true
+
+async-trait.workspace = true
+thiserror.workspace = true
+tracing.workspace = true
+
+# Used by VaultAuth::from_env and the public-key SHA-256 fingerprint.
+sha2.workspace = true
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
+yutha-crypto.workspace = true
+serde_json.workspace = true

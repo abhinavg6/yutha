@@ -37,11 +37,11 @@ A `Signer` is a handle to a signing capability. The contract is one method: give
 
 Native default: `InProcessSigner` wraps the existing `SigningKey` byte-for-byte. Zero dependencies; what hobby swarms run today.
 
-Reference enterprise implementations (Phase C — three v1 deliverables):
+Reference enterprise implementations (Phase C — three v1 deliverables, all following the shared pattern in [RFC 0017](../rfcs/0017-external-signer-backends.md)):
 
-- **GCP Cloud KMS** — Ed25519 keys supported natively (`EC_SIGN_ED25519`).
-- **Azure Key Vault** — Managed HSM tier (Premium) supports Ed25519.
-- **HashiCorp Vault transit** — supports Ed25519; the recommended path for enterprises on AWS, where KMS doesn't yet ship Ed25519 (see [RFC 0015 §9.1](../rfcs/0015-signer-interface.md#91-aws-kms-ed25519-support--decided)).
+- **HashiCorp Vault transit** — supports Ed25519; the recommended path for enterprises on AWS, where KMS doesn't yet ship Ed25519 (see [RFC 0015 §9.1](../rfcs/0015-signer-interface.md#91-aws-kms-ed25519-support--decided)). Ships first in Phase C-B as the OSS-friendly reference.
+- **GCP Cloud KMS** — Ed25519 keys supported natively (`EC_SIGN_ED25519`). Ships in Phase C-C.
+- **Azure Key Vault** — Managed HSM tier (Premium) supports Ed25519. Ships in Phase C-D.
 
 Natural follow-ons (deferred until requested):
 
@@ -101,7 +101,7 @@ Three concerns are deliberately deferred. Each is anticipated in the trait shape
 
 ### 5.1 Authorization seam
 
-External RBAC/ABAC / policy-decision-point integration for capability granting. Today Cedar+ runs in-process; an enterprise might want the constitution evaluator to consult Open Policy Agent or a corporate PDP. Yutha's existing capabilities + Cedar+ is sufficient for v1. Future RFC 0017+ when demand surfaces.
+External RBAC/ABAC / policy-decision-point integration for capability granting. Today Cedar+ runs in-process; an enterprise might want the constitution evaluator to consult Open Policy Agent or a corporate PDP. Yutha's existing capabilities + Cedar+ is sufficient for v1. Future RFC 0018+ when demand surfaces.
 
 ### 5.2 Lifecycle propagation
 
@@ -123,13 +123,13 @@ The plan agreed before Phase A starts. Each phase ends in a checkpoint; do not r
 
 | Phase | Scope | Output |
 |---|---|---|
-| A — *paper* | This memo + RFC 0015 + RFC 0016 | Spec only; no code |
-| B — *Signer trait + async refactor* | Land the `Signer` trait, refactor all five sign call sites to async, ship `InProcessSigner` as the default | One PR-stack, breaking change |
-| C — *cloud KMS Signer impls* | Three new crates: AWS KMS, GCP KMS, Azure Key Vault. Sequential — AWS first | Three feature-gated crates |
+| A — *paper* | This memo + RFC 0015 + RFC 0016 | Spec only; no code; **done 2026-05-27** |
+| B — *Signer trait + async refactor* | Land the `Signer` trait, refactor all five sign call sites to async, ship `InProcessSigner` as the default | One PR-stack, breaking change; **done 2026-05-30** |
+| C — *external Signer impls* | RFC 0017 umbrella + three new crates: Vault transit (first), GCP KMS, Azure Key Vault Managed HSM. AWS KMS punted (RFC 0015 §9.1; no Ed25519 today). **Done 2026-05-30** — all three backends scaffolded, connect+sign+verify integration-tested. | RFC 0017 + three feature-gated crates |
 | D — *Attestor trait + admission refactor* | Land the `Attestor` trait, wire into the admission handler, ship `NativeAttestor` as the default | One PR-stack, breaking change |
 | E — *SPIFFE/SPIRE Attestor* | The reference enterprise Attestor. Spike before production impl | One feature-gated crate |
 | F — *OIDC Attestor* | The broad-compatibility Attestor | One feature-gated crate |
-| G — *enterprise-identity walkthrough* | `docs/operator/enterprise-identity.md` — end-to-end docs covering a SPIRE + AWS-KMS deployment | One doc page; matches sui-anchoring's walkthrough shape |
+| G — *enterprise-identity walkthrough* | `docs/operator/enterprise-identity.md` — end-to-end docs covering a SPIRE + Vault-transit deployment (the OSS-friendly reference path) | One doc page; matches sui-anchoring's walkthrough shape |
 
 ## 7. Anti-patterns
 
@@ -139,7 +139,7 @@ Six things this work explicitly will not do, restated so they remain visible dur
 - **No mandatory external dependency on the standalone path.** The native passport + in-process signer remain the default and the always-available zero-dependency way to run Yutha.
 - **No raw key material across the Signer interface.** Signing is always a call into the backend. Implementations may not return private bytes for any reason.
 - **No reinvention of SPIFFE or OIDC.** These are the standards. Implement them; do not redesign them.
-- **No coupling of the two seams.** `Signer` and `Attestor` are independent. An enterprise running NativeAttestor + AWS-KMS Signer is a real configuration; so is SPIFFE Attestor + InProcessSigner.
+- **No coupling of the two seams.** `Signer` and `Attestor` are independent. An enterprise running NativeAttestor + Vault-transit Signer is a real configuration; so is SPIFFE Attestor + InProcessSigner.
 - **No backcompat to maintain.** Per [the no-backcompat-pre-Phase-2-public guidance](../../AGENTS.md), the repo is private with no production users. `Passport::sign(&SigningKey)` becomes `Passport::sign(&dyn Signer).await` directly. Demos and tests update once.
 
 ## 8. References

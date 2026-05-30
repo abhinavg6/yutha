@@ -129,6 +129,9 @@ nav:
       - Authoring constitutions: operator/authoring-constitutions.md
       - Operator credentials: operator/operator-credentials.md
       - Sui anchoring: operator/sui-anchoring.md
+      - Vault Signer (key custody): operator/vault-signer.md
+      - GCP KMS Signer (key custody): operator/gcp-kms-signer.md
+      - Azure Key Vault Signer (key custody): operator/azure-kv-signer.md
       - Monitoring & receipts: operator/monitoring.md
       - Deployment: operator/deployment.md
   - Developer Guide:

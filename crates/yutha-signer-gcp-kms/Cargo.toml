@@ -1,0 +1,34 @@
+[package]
+name = "yutha-signer-gcp-kms"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+authors.workspace = true
+description = "Google Cloud KMS backend for the Yutha `Signer` trait (RFC 0017 §4.2). Holds the Ed25519 signing key inside GCP KMS (algorithm EC_SIGN_ED25519); every sign call is a gRPC RPC to cryptoKeyVersions.asymmetricSign. Authenticates via Application Default Credentials, including Workload Identity on GKE / Cloud Run."
+readme = "README.md"
+
+[dependencies]
+yutha-core.workspace = true
+yutha-signer.workspace = true
+
+# Google's official Rust KMS SDK. Pinned to ^1 in the workspace; the
+# 1.x line is marked stable by Google.
+google-cloud-kms-v1.workspace = true
+bytes.workspace = true
+
+# Wire codecs GCP KMS uses on the public-key path.
+base64.workspace = true
+
+async-trait.workspace = true
+thiserror.workspace = true
+tracing.workspace = true
+
+# Used by the public-key SHA-256 fingerprint.
+sha2.workspace = true
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
+yutha-crypto.workspace = true
