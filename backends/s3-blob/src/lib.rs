@@ -197,6 +197,8 @@ mod tests {
 
         let hash = sha256_hash([0x00; 32]);
         let mismatch_err = BlobError::AddressMismatch(hash);
-        assert!(mismatch_err.to_string().contains("content-address mismatch"));
+        assert!(mismatch_err
+            .to_string()
+            .contains("content-address mismatch"));
     }
 }

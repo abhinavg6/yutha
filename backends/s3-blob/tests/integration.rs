@@ -113,7 +113,10 @@ async fn get_missing_key_returns_none() {
 
     let addr = Hash::new(HashAlgorithm::Sha256, vec![0x00; 32]).unwrap();
     let result = store.get(&addr).await.expect("get failed");
-    assert!(result.is_none(), "expected None for a missing key, got Some");
+    assert!(
+        result.is_none(),
+        "expected None for a missing key, got Some"
+    );
 }
 
 /// Putting the same content twice must not error (idempotent).
@@ -128,7 +131,10 @@ async fn put_is_idempotent() {
     let addr = content_address(&payload);
 
     store.put(&addr, &payload).await.expect("first put failed");
-    store.put(&addr, &payload).await.expect("second put failed — put is not idempotent");
+    store
+        .put(&addr, &payload)
+        .await
+        .expect("second put failed — put is not idempotent");
 
     let fetched = store
         .get(&addr)
@@ -151,7 +157,10 @@ async fn get_with_wrong_address_returns_mismatch_error() {
     // Put some real bytes.
     let payload = b"mismatch test payload".to_vec();
     let correct_addr = content_address(&payload);
-    store.put(&correct_addr, &payload).await.expect("put failed");
+    store
+        .put(&correct_addr, &payload)
+        .await
+        .expect("put failed");
 
     // Build a hash whose digest matches the key bytes on disk (so the object
     // EXISTS) but whose digest value we override to be wrong — simulating
@@ -215,7 +224,11 @@ async fn large_evidence_payload_round_trips() {
         .expect("large get failed")
         .expect("None for large payload");
 
-    assert_eq!(fetched.len(), payload.len(), "size mismatch on large payload");
+    assert_eq!(
+        fetched.len(),
+        payload.len(),
+        "size mismatch on large payload"
+    );
     assert_eq!(fetched, payload, "bytes mismatch on large payload");
 }
 
