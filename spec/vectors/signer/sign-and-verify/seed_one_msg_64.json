@@ -1,0 +1,12 @@
+{
+  "name": "seed_one_msg_64",
+  "description": "All-0x01 seed, 64-byte message of repeating 0x20. Crosses one Ed25519 block boundary on the internal SHA-512.",
+  "kind": "signer-sign-and-verify",
+  "inputs": {
+    "message_hex": "20202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020",
+    "seed_hex": "0101010101010101010101010101010101010101010101010101010101010101"
+  },
+  "expected_public_key_hex": "8a88e3dd7409f195fd52db2d3cba5d72ca6709bf1d94121bf3748801b40f6f5c",
+  "expected_key_fingerprint_hex": "34750f98bd59fcfc946da45aaabe933be154a4b5094e1c4abf42866505f3c97e",
+  "expected_signature_hex": "06b526590f2615cfba47756c74523a1937b475c0fa9996fdacf3c087d1ab2c4c22c7bfb044014faa257a27dbf565fba652ee764c27a00b2c98fe89fb1f0ccc09"
+}

@@ -486,16 +486,16 @@ mod tests {
     use super::*;
     use std::sync::Arc;
     use yutha_core::SpecVersion;
-    use yutha_crypto::sign::generate_keypair;
     use yutha_passport::{
         MemoryPassportStore, Passport, PassportResolverAdapter, PassportStore, PassportTier,
     };
+    use yutha_signer::{InProcessSigner, Signer};
 
     /// Build a token, sign it, and hex-encode it for the wire.
-    fn mint_token(
+    async fn mint_token(
         agent_id: AgentId,
         swarm_id: SwarmId,
-        signing_key: &yutha_crypto::SigningKey,
+        signer: &InProcessSigner,
         expires_at: Timestamp,
     ) -> String {
         let mut token = cp_proto::AgentBearerToken {
@@ -508,33 +508,34 @@ mod tests {
             signature: None,
         };
         let canonical = token.encode_to_vec();
-        let sig = signing_key.sign_message(&canonical);
+        let sig = signer.sign_message(&canonical).await.unwrap();
         token.signature = Some((&sig).into());
         let bytes = token.encode_to_vec();
         hex::encode(bytes)
     }
 
     /// Build a passport for an agent, register it in the passport store,
-    /// and return the resolver plus the signing key.
+    /// and return the resolver plus the signer.
     async fn register_agent(
         swarm_id: SwarmId,
-    ) -> (Arc<dyn PassportResolver>, AgentId, yutha_crypto::SigningKey) {
+    ) -> (Arc<dyn PassportResolver>, AgentId, InProcessSigner) {
         let store: Arc<dyn PassportStore> = Arc::new(MemoryPassportStore::new());
-        let key = generate_keypair();
+        let signer = InProcessSigner::generate();
         let agent_id = AgentId::new();
         let passport = Passport::builder()
             .spec_version(SpecVersion::parse("1.0.0").unwrap())
             .agent_id(agent_id)
             .swarm_id(swarm_id)
-            .agent_public_key(key.public())
+            .agent_public_key(signer.public_key())
             .accepted_constitution_version("1.0.0")
             .tier(PassportTier::Minimal)
             .issued_at(Timestamp::now())
-            .sign(&key)
+            .sign(&signer)
+            .await
             .unwrap();
         store.register(passport).await.unwrap();
         let resolver: Arc<dyn PassportResolver> = Arc::new(PassportResolverAdapter::new(store));
-        (resolver, agent_id, key)
+        (resolver, agent_id, signer)
     }
 
     fn request_with_auth(value: &str) -> Request<()> {
@@ -558,8 +559,8 @@ mod tests {
     #[tokio::test]
     async fn valid_token_authenticates() {
         let swarm = SwarmId::new();
-        let (resolver, agent_id, key) = register_agent(swarm).await;
-        let hex_token = mint_token(agent_id, swarm, &key, future_timestamp());
+        let (resolver, agent_id, signer) = register_agent(swarm).await;
+        let hex_token = mint_token(agent_id, swarm, &signer, future_timestamp()).await;
         let req = request_with_auth(&format!("bearer agent {hex_token}"));
         let ctx = require_bearer_auth(&req, &resolver, swarm).await.unwrap();
         assert_eq!(ctx.agent_id, agent_id);
@@ -593,8 +594,8 @@ mod tests {
     async fn wrong_swarm_rejected() {
         let issuer_swarm = SwarmId::new();
         let cp_swarm = SwarmId::new();
-        let (resolver, agent_id, key) = register_agent(issuer_swarm).await;
-        let hex_token = mint_token(agent_id, issuer_swarm, &key, future_timestamp());
+        let (resolver, agent_id, signer) = register_agent(issuer_swarm).await;
+        let hex_token = mint_token(agent_id, issuer_swarm, &signer, future_timestamp()).await;
         let req = request_with_auth(&format!("bearer agent {hex_token}"));
         let err = require_bearer_auth(&req, &resolver, cp_swarm)
             .await
@@ -606,10 +607,10 @@ mod tests {
     #[tokio::test]
     async fn expired_token_rejected() {
         let swarm = SwarmId::new();
-        let (resolver, agent_id, key) = register_agent(swarm).await;
+        let (resolver, agent_id, signer) = register_agent(swarm).await;
         // Mint with expiry strictly before now.
         let past = Timestamp::new("2020-01-01T00:00:00Z".into(), 1).unwrap();
-        let hex_token = mint_token(agent_id, swarm, &key, past);
+        let hex_token = mint_token(agent_id, swarm, &signer, past).await;
         let req = request_with_auth(&format!("bearer agent {hex_token}"));
         let err = require_bearer_auth(&req, &resolver, swarm)
             .await
@@ -621,10 +622,10 @@ mod tests {
     #[tokio::test]
     async fn unknown_agent_rejected() {
         let swarm = SwarmId::new();
-        let (resolver, _registered_agent, _registered_key) = register_agent(swarm).await;
-        let other_key = generate_keypair();
+        let (resolver, _registered_agent, _registered_signer) = register_agent(swarm).await;
+        let other_signer = InProcessSigner::generate();
         let stranger = AgentId::new();
-        let hex_token = mint_token(stranger, swarm, &other_key, future_timestamp());
+        let hex_token = mint_token(stranger, swarm, &other_signer, future_timestamp()).await;
         let req = request_with_auth(&format!("bearer agent {hex_token}"));
         let err = require_bearer_auth(&req, &resolver, swarm)
             .await
@@ -644,7 +645,7 @@ mod tests {
         // over the wrong bytes — that's the exact failure mode this test
         // is trying to assert.
         let swarm = SwarmId::new();
-        let (resolver, agent_id, key) = register_agent(swarm).await;
+        let (resolver, agent_id, signer) = register_agent(swarm).await;
 
         let mut token = cp_proto::AgentBearerToken {
             agent_id: Some((&agent_id).into()),
@@ -657,7 +658,10 @@ mod tests {
         };
         // Sign DIFFERENT bytes — same key, but a message that has nothing
         // to do with this token's canonical bytes.
-        let bogus_sig = key.sign_message(b"definitely not the canonical bytes of this token");
+        let bogus_sig = signer
+            .sign_message(b"definitely not the canonical bytes of this token")
+            .await
+            .unwrap();
         token.signature = Some((&bogus_sig).into());
         let hex_token = hex::encode(token.encode_to_vec());
 

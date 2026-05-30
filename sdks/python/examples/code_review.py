@@ -200,19 +200,19 @@ def build_code_review_constitution(swarm_id: yutha.SwarmId) -> Constitution:
 
 def derive_bootstrap_identity(
     seed: bytes,
-) -> tuple[yutha.SigningKey, yutha.AgentId, yutha.SwarmId]:
+) -> tuple[yutha.InProcessSigner, yutha.AgentId, yutha.SwarmId]:
     """Reproduce ``BootstrapIdentity::from_seed_hex``: seed is the
     Ed25519 private key, ``sha256(seed || 0x01)[:16]`` is the
     agent_id, ``sha256(seed || 0x02)[:16]`` is the swarm_id."""
     if len(seed) != 32:
         raise ValueError(f"seed must be exactly 32 bytes, got {len(seed)}")
-    signing_key = yutha.SigningKey.from_seed_bytes(seed)
+    signer = yutha.InProcessSigner.from_seed_bytes(seed)
     agent_id = yutha.AgentId(value=hashlib.sha256(seed + b"\x01").digest()[:16])
     swarm_id = yutha.SwarmId(value=hashlib.sha256(seed + b"\x02").digest()[:16])
-    return signing_key, agent_id, swarm_id
+    return signer, agent_id, swarm_id
 
 
-def derive_operator_identity(seed: bytes) -> tuple[yutha.SigningKey, yutha.PublicKey]:
+def derive_operator_identity(seed: bytes) -> tuple[yutha.InProcessSigner, yutha.PublicKey]:
     """Domain-separated derivation of the Ed25519 operator keypair.
 
     Uses ``sha256(seed || 0x03)[:32]`` as the operator's private-key
@@ -222,12 +222,12 @@ def derive_operator_identity(seed: bytes) -> tuple[yutha.SigningKey, yutha.Publi
     if len(seed) != 32:
         raise ValueError(f"seed must be exactly 32 bytes, got {len(seed)}")
     op_seed = hashlib.sha256(seed + b"\x03").digest()
-    op_signing = yutha.SigningKey.from_seed_bytes(op_seed)
-    return op_signing, op_signing.public_key()
+    op_signer = yutha.InProcessSigner.from_seed_bytes(op_seed)
+    return op_signer, op_signer.public_key()
 
 
 def load_bootstrap_identity_from_env() -> tuple[
-    yutha.SigningKey, yutha.AgentId, yutha.SwarmId, bytes
+    yutha.InProcessSigner, yutha.AgentId, yutha.SwarmId, bytes
 ]:
     """Read ``YUTHA_BOOTSTRAP_SEED`` and derive the full identity."""
     seed_hex = os.environ.get("YUTHA_BOOTSTRAP_SEED")
@@ -249,8 +249,8 @@ def load_bootstrap_identity_from_env() -> tuple[
         raise RuntimeError(
             f"YUTHA_BOOTSTRAP_SEED must be exactly 64 hex chars (32 bytes); got {len(seed)} bytes"
         )
-    signing_key, agent_id, swarm_id = derive_bootstrap_identity(seed)
-    return signing_key, agent_id, swarm_id, seed
+    signer, agent_id, swarm_id = derive_bootstrap_identity(seed)
+    return signer, agent_id, swarm_id, seed
 
 
 # -----------------------------------------------------------------------------
@@ -317,20 +317,20 @@ DEMO_TAG = "code-review-demo"
 # -----------------------------------------------------------------------------
 
 
-def make_passport(
+async def make_passport(
     name: str,
     framework: str,
     swarm_id: yutha.SwarmId,
-    signing_key: yutha.SigningKey,
+    signer: yutha.Signer,
     agent_id: yutha.AgentId,
 ) -> yutha.Passport:
     """Build a signed passport for one demo agent. Open-mode
     admission requires ``expires_at`` and ``tier >= Minimal``."""
-    return yutha.Passport(
+    return await yutha.Passport(
         spec_version="1.0.0",
         agent_id=agent_id,
         swarm_id=swarm_id,
-        agent_public_key=signing_key.public_key(),
+        agent_public_key=signer.public_key(),
         owner=f"yutha-demo:code-review:{name}",
         framework=framework,
         framework_version="1.0.0",
@@ -338,7 +338,7 @@ def make_passport(
         tier=yutha.PassportTier.MINIMAL,
         issued_at=yutha.Timestamp.now(),
         expires_at=FAR_FUTURE,
-    ).sign(signing_key)
+    ).sign(signer)
 
 
 # -----------------------------------------------------------------------------
@@ -509,10 +509,10 @@ async def run_code_review(server_addr: str = SERVER_ADDR) -> dict[str, int]:
     print(f"# code-review crew demo · server={server_addr}")
 
     # --- bootstrap identity (used for swarm_id binding + pre-snapshot) ---
-    bootstrap_key, bootstrap_agent_id, swarm_id, seed = load_bootstrap_identity_from_env()
+    bootstrap_signer, bootstrap_agent_id, swarm_id, seed = load_bootstrap_identity_from_env()
     print(f"# swarm_id={swarm_id.value.hex()} (from YUTHA_BOOTSTRAP_SEED)")
 
-    op_signing_key, op_public_key = derive_operator_identity(seed)
+    op_signer, op_public_key = derive_operator_identity(seed)
     print(f"# operator pubkey (pass as --operator-public-key): {op_public_key.value.hex()}")
 
     # --- Phase 0: pre-flow audit snapshot ---
@@ -524,18 +524,18 @@ async def run_code_review(server_addr: str = SERVER_ADDR) -> dict[str, int]:
         server_addr,
         agent_id=bootstrap_agent_id,
         swarm_id=swarm_id,
-        signing_key=bootstrap_key,
+        signer=bootstrap_signer,
     ) as bootstrap_client:
         before = await query_audit(bootstrap_client, kinds)
     print(f"# pre-flow snapshot taken via bootstrap agent {bootstrap_agent_id.value.hex()[:16]}…")
 
     # --- identities ----------------------------------------------------
-    identities: dict[str, tuple[yutha.SigningKey, yutha.AgentId, yutha.Passport]] = {}
+    identities: dict[str, tuple[yutha.InProcessSigner, yutha.AgentId, yutha.Passport]] = {}
     for name, framework in CAST:
-        key = yutha.SigningKey.generate()
+        agent_signer = yutha.InProcessSigner.generate()
         agent_id = yutha.AgentId(value=secrets.token_bytes(16))
-        passport = make_passport(name, framework, swarm_id, key, agent_id)
-        identities[name] = (key, agent_id, passport)
+        passport = await make_passport(name, framework, swarm_id, agent_signer, agent_id)
+        identities[name] = (agent_signer, agent_id, passport)
 
     # --- handlers ------------------------------------------------------
     received: dict[str, list[yutha.Envelope]] = {n: [] for n in identities}
@@ -561,11 +561,11 @@ async def run_code_review(server_addr: str = SERVER_ADDR) -> dict[str, int]:
     agent_handles: dict[str, YuthaAgent] = {}
     try:
         print("\n# Phase 1 — connect + register")
-        for name, (key, _agent_id, passport) in identities.items():
+        for name, (agent_signer, _agent_id, passport) in identities.items():
             ag = YuthaAgent.connect(
                 server_addr,
                 passport=passport,
-                signing_key=key,
+                signer=agent_signer,
                 handler=handlers[name],
             )
             agent_handles[name] = ag
@@ -598,7 +598,7 @@ async def run_code_review(server_addr: str = SERVER_ADDR) -> dict[str, int]:
                 server_addr,
                 operator_id="yutha-demo:code-review:operator",
                 swarm_id=swarm_id,
-                operator_signing_key=op_signing_key,
+                operator_signer=op_signer,
             ) as op_client:
                 activated = await op_client.constitution.activate(constitution)
             # `ActivatedConstitution` carries the content-address + the
@@ -648,7 +648,7 @@ async def run_code_review(server_addr: str = SERVER_ADDR) -> dict[str, int]:
             await _wait_for_envelope(received, "auto_fix", expected=1)
             patch_receipt = await send_patch_applied(
                 f"PATCH_APPLIED: {HAPPY_PR[1]}".encode(),
-                extra_tags=[],
+                [],
             )
             print(f"  auto-fix → reviewer patch_applied receipt={patch_receipt.digest.hex()[:16]}…")
             await _wait_for_envelope(received, "reviewer", expected=1)
@@ -791,7 +791,7 @@ async def _attempt_bypass(
     try:
         await send_patch_applied(
             f"PATCH_APPLIED: {file_path}".encode(),
-            extra_tags=[SECURITY_SENSITIVE_TAG],
+            [SECURITY_SENSITIVE_TAG],
         )
     except yutha.ConstitutionDenied as e:
         return e

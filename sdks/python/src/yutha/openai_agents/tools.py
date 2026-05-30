@@ -217,7 +217,7 @@ def _wrap_function_tool(tool: FunctionTool, cap_id: Hash) -> FunctionTool:
         finally:
             ACTIVE_CAPABILITY_ID.reset(token)
 
-    tool.on_invoke_tool = patched_invoke  # type: ignore[method-assign]
+    tool.on_invoke_tool = patched_invoke
     return tool
 
 

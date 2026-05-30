@@ -264,7 +264,11 @@ pub async fn emit_enforcement_receipt(
     let bytes = receipt
         .canonical_bytes()
         .map_err(|e| format!("canonical {}: {e}", effect.action_kind))?;
-    let sig = state.control_plane_identity.sign(&bytes);
+    let sig = state
+        .control_plane_identity
+        .sign(&bytes)
+        .await
+        .map_err(|e| format!("signer {}: {e}", effect.action_kind))?;
     receipt
         .signatures
         .push(SignedBy::new(SignatureRole::Actor, sig, Timestamp::now()));

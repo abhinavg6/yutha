@@ -1,0 +1,12 @@
+{
+  "name": "seed_alternating_msg_8",
+  "description": "Seed 0x5a 0xa5 alternating, 8-byte message ('yuthasdk' ASCII).",
+  "kind": "signer-sign-and-verify",
+  "inputs": {
+    "message_hex": "7975746861736b64",
+    "seed_hex": "5aa55aa55aa55aa55aa55aa55aa55aa55aa55aa55aa55aa55aa55aa55aa55aa5"
+  },
+  "expected_public_key_hex": "5fba54ea0413ce10b272dfdd7e5e0f6864dcb0293ae4480d17e07e11c8dd4db7",
+  "expected_key_fingerprint_hex": "83d970040e916d83158ef3ee9087f1b924786d75c298d795d6362b5273648715",
+  "expected_signature_hex": "b584f961279f3765d40a2afa597756e14f61eadb5a44e5621e2b0f16129fb52550d2e3015f3851f1c6ab3bf7971e619b15428d8fda3a56e2c45404fc4cab770d"
+}

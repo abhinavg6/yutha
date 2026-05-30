@@ -223,11 +223,18 @@ impl CapabilityBuilder {
         })
     }
 
-    /// Build and sign with the supplied issuer signing key.
-    pub fn sign(self, signing_key: &yutha_crypto::SigningKey) -> Result<Capability> {
+    /// Build and sign with the issuer's [`yutha_signer::Signer`].
+    ///
+    /// Async because the [`yutha_signer::Signer`] trait is async — for
+    /// `InProcessSigner` this completes immediately; for cloud-KMS-backed
+    /// signers it makes one network call to the KMS backend.
+    pub async fn sign(self, signer: &dyn yutha_signer::Signer) -> Result<Capability> {
         let mut c = self.build()?;
         let bytes = c.canonical_bytes().map_err(CapabilityError::Crypto)?;
-        let sig = signing_key.sign_message(&bytes);
+        let sig = signer
+            .sign_message(&bytes)
+            .await
+            .map_err(|e| CapabilityError::Signer(e.to_string()))?;
         c.issuer_signature = Some(sig);
         Ok(c)
     }
@@ -237,10 +244,10 @@ impl CapabilityBuilder {
 mod tests {
     use super::*;
     use crate::caveat::Caveat;
-    use yutha_crypto::sign::generate_keypair;
+    use yutha_signer::InProcessSigner;
 
-    fn make_cap(scope: Scope) -> Capability {
-        let key = generate_keypair();
+    async fn make_cap(scope: Scope) -> Capability {
+        let signer = InProcessSigner::generate();
         Capability::builder()
             .spec_version(SpecVersion::parse("1.0.0").unwrap())
             .capability_id(vec![0u8; 16])
@@ -250,13 +257,14 @@ mod tests {
             .scope(scope)
             .valid_from(Timestamp::now())
             .valid_until(Timestamp::new("2099-01-01T00:00:00Z".into(), u64::MAX / 2).unwrap())
-            .sign(&key)
+            .sign(&signer)
+            .await
             .unwrap()
     }
 
-    #[test]
-    fn check_permits_matching_action() {
-        let cap = make_cap(Scope::for_action("send_message"));
+    #[tokio::test]
+    async fn check_permits_matching_action() {
+        let cap = make_cap(Scope::for_action("send_message")).await;
         let descriptor = ActionDescriptor {
             action_kind: "send_message".into(),
             ..Default::default()
@@ -265,9 +273,9 @@ mod tests {
         assert!(outcome.permitted);
     }
 
-    #[test]
-    fn check_denies_disallowed_action() {
-        let cap = make_cap(Scope::for_action("send_message"));
+    #[tokio::test]
+    async fn check_denies_disallowed_action() {
+        let cap = make_cap(Scope::for_action("send_message")).await;
         let descriptor = ActionDescriptor {
             action_kind: "exfiltrate".into(),
             ..Default::default()
@@ -277,10 +285,10 @@ mod tests {
         assert!(outcome.deny_reason.contains("scope"));
     }
 
-    #[test]
-    fn check_denies_when_caveat_fails() {
+    #[tokio::test]
+    async fn check_denies_when_caveat_fails() {
         let scope = Scope::for_action("send_message");
-        let key = generate_keypair();
+        let signer = InProcessSigner::generate();
         let cap = Capability::builder()
             .spec_version(SpecVersion::parse("1.0.0").unwrap())
             .capability_id(vec![0u8; 16])
@@ -293,7 +301,8 @@ mod tests {
             .caveat(Caveat::NeverIfTagged {
                 forbidden_tags: vec!["external".into()],
             })
-            .sign(&key)
+            .sign(&signer)
+            .await
             .unwrap();
 
         let denied = cap.check(&ActionDescriptor {
@@ -314,9 +323,9 @@ mod tests {
         assert!(permitted.permitted);
     }
 
-    #[test]
-    fn is_within_window_respects_bounds() {
-        let cap = make_cap(Scope::empty());
+    #[tokio::test]
+    async fn is_within_window_respects_bounds() {
+        let cap = make_cap(Scope::empty()).await;
         assert!(cap.is_within_window(&cap.valid_from));
 
         // Past wall-clock — well before make_cap()'s valid_from
@@ -332,13 +341,13 @@ mod tests {
         assert!(!cap.is_within_window(&future));
     }
 
-    #[test]
-    fn is_within_window_denies_on_malformed_wall_clock() {
+    #[tokio::test]
+    async fn is_within_window_denies_on_malformed_wall_clock() {
         // RFC 0008 §3.3: malformed wall_clock → default-deny. A
         // hostile caller could bypass `Timestamp::new`'s
         // construction-time validation by building the struct
         // directly; the bound check refuses to act on it.
-        let cap = make_cap(Scope::empty());
+        let cap = make_cap(Scope::empty()).await;
         let bad_now = Timestamp {
             wall_clock: "not-a-timestamp".into(),
             monotonic_ns: 0,

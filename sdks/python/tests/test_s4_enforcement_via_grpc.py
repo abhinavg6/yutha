@@ -72,12 +72,12 @@ POLL_INTERVAL_SECONDS = 0.25
 
 def _derive_identity(
     seed: bytes,
-) -> tuple[yutha.SigningKey, yutha.AgentId, yutha.SwarmId]:
-    signing_key = yutha.SigningKey.from_seed_bytes(seed)
+) -> tuple[yutha.InProcessSigner, yutha.AgentId, yutha.SwarmId]:
+    signer = yutha.InProcessSigner.from_seed_bytes(seed)
     agent_id_bytes = hashlib.sha256(seed + b"\x01").digest()[:16]
     swarm_id_bytes = hashlib.sha256(seed + b"\x02").digest()[:16]
     return (
-        signing_key,
+        signer,
         yutha.AgentId(value=agent_id_bytes),
         yutha.SwarmId(value=swarm_id_bytes),
     )
@@ -85,14 +85,14 @@ def _derive_identity(
 
 def _derive_operator_keypair(
     seed: bytes,
-) -> tuple[yutha.SigningKey, yutha.PublicKey]:
+) -> tuple[yutha.InProcessSigner, yutha.PublicKey]:
     op_seed = hashlib.sha256(seed + b"\x03").digest()
-    signing = yutha.SigningKey.from_seed_bytes(op_seed)
-    return signing, signing.public_key()
+    signer = yutha.InProcessSigner.from_seed_bytes(op_seed)
+    return signer, signer.public_key()
 
 
 @pytest.fixture
-def bootstrap_identity() -> tuple[yutha.SigningKey, yutha.AgentId, yutha.SwarmId]:
+def bootstrap_identity() -> tuple[yutha.InProcessSigner, yutha.AgentId, yutha.SwarmId]:
     seed_hex = os.environ.get("YUTHA_BOOTSTRAP_SEED")
     if not seed_hex:
         pytest.skip("set YUTHA_BOOTSTRAP_SEED")
@@ -126,7 +126,7 @@ async def forbid_active(
     constitution the session-scoped permissive fixture activated.
     The forbid constitution carries a permit-all fallback so other
     tests in the session still work."""
-    operator_signing_key, _ = _derive_operator_keypair(seed_bytes)
+    operator_signer, _ = _derive_operator_keypair(seed_bytes)
     _, _, swarm_id = _derive_identity(seed_bytes)
     constitution = forbid_constitution(swarm_id)
 
@@ -134,7 +134,7 @@ async def forbid_active(
         address,
         operator_id="yutha-test:s4-grpc",
         swarm_id=swarm_id,
-        operator_signing_key=operator_signing_key,
+        operator_signer=operator_signer,
     )
     try:
         try:
@@ -201,25 +201,25 @@ def _evidence_str(receipt: yutha.Receipt, key: str) -> str | None:
 
 @pytest.mark.asyncio
 async def test_s4_full_enforcement_chain_via_grpc(
-    bootstrap_identity: tuple[yutha.SigningKey, yutha.AgentId, yutha.SwarmId],
+    bootstrap_identity: tuple[yutha.InProcessSigner, yutha.AgentId, yutha.SwarmId],
     address: str,
     forbid_active: None,  # fixture has side-effects only — name kept so pytest injects it
 ) -> None:
     """End-to-end Python mirror of the Rust S4 conformance scenario."""
-    bootstrap_key, _bootstrap_id, swarm_id = bootstrap_identity
+    bootstrap_signer, _bootstrap_id, swarm_id = bootstrap_identity
 
     # ---- Step 1: register a throwaway "alice" agent ----
     #
     # Open admission mode admits any well-formed passport. Alice's
     # quarantine state stays scoped to alice; the bootstrap agent
     # remains usable for other tests.
-    alice_key = yutha.SigningKey.generate()
+    alice_signer = yutha.InProcessSigner.generate()
     alice_id = yutha.AgentId.new()
-    alice_passport = yutha.Passport(
+    alice_passport = await yutha.Passport(
         spec_version="1.0.0",
         agent_id=alice_id,
         swarm_id=swarm_id,
-        agent_public_key=alice_key.public_key(),
+        agent_public_key=alice_signer.public_key(),
         owner="yutha-test:s4-grpc:alice",
         framework="test",
         framework_version="1.0.0",
@@ -227,7 +227,7 @@ async def test_s4_full_enforcement_chain_via_grpc(
         tier=yutha.PassportTier.MINIMAL,
         issued_at=yutha.Timestamp.now(),
         expires_at=yutha.Timestamp(wall_clock="2099-01-01T00:00:00Z", monotonic_ns=2**62),
-    ).sign(alice_key)
+    ).sign(alice_signer)
 
     # The bootstrap client registers alice (Admission.Register is
     # anonymous, but bearer auth still needs SOMEONE to be the
@@ -237,13 +237,13 @@ async def test_s4_full_enforcement_chain_via_grpc(
         address,
         agent_id=bootstrap_identity[1],
         swarm_id=swarm_id,
-        signing_key=bootstrap_key,
+        signer=bootstrap_signer,
     )
     alice_client = yutha.YuthaClient.connect(
         address,
         agent_id=alice_id,
         swarm_id=swarm_id,
-        signing_key=alice_key,
+        signer=alice_signer,
     )
 
     try:
@@ -271,7 +271,7 @@ async def test_s4_full_enforcement_chain_via_grpc(
         # The corresponding constitution.evaluate.deny receipt
         # lands in the audit log regardless of the wire response.
         async def send_forbidden(nonce: bytes) -> None:
-            envelope = yutha.Envelope(
+            envelope = await yutha.Envelope(
                 spec_version="1.0.0",
                 swarm_id=swarm_id,
                 envelope_id=secrets.token_bytes(16),
@@ -283,7 +283,7 @@ async def test_s4_full_enforcement_chain_via_grpc(
                 nonce=nonce,
                 epoch=1,
                 sent_at=yutha.Timestamp.now(),
-            ).sign(alice_key)
+            ).sign(alice_signer)
             # `EnvelopeAPI.send` translates the server-side
             # `PERMISSION_DENIED: constitution check denied: ...`
             # into a structured `ConstitutionDenied` carrying the

@@ -1,0 +1,12 @@
+{
+  "name": "seed_one_msg_32",
+  "description": "All-0x01 seed, 32-byte message of repeating 0x10.",
+  "kind": "signer-sign-and-verify",
+  "inputs": {
+    "message_hex": "1010101010101010101010101010101010101010101010101010101010101010",
+    "seed_hex": "0101010101010101010101010101010101010101010101010101010101010101"
+  },
+  "expected_public_key_hex": "8a88e3dd7409f195fd52db2d3cba5d72ca6709bf1d94121bf3748801b40f6f5c",
+  "expected_key_fingerprint_hex": "34750f98bd59fcfc946da45aaabe933be154a4b5094e1c4abf42866505f3c97e",
+  "expected_signature_hex": "2f2a986533530d8f527cc048c9ed5e35f99958c082e4a7d297f4e9017d38452d0f4f4b3cb876ce36f38f9a291ef2e1e8f52648aef4bdb8e6942e2bf530a2810d"
+}

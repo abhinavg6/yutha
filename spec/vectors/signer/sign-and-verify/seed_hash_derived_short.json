@@ -1,0 +1,13 @@
+{
+  "name": "seed_hash_derived_short",
+  "description": "Seed = SHA-256(b'yutha-vector-1') (committed verbatim so cross-language impls don't need to compute it). Short message 'sign me'.",
+  "kind": "signer-sign-and-verify",
+  "inputs": {
+    "_comment_seed": "sha256(b'yutha-vector-1') — re-derive via: python -c \"import hashlib; print(hashlib.sha256(b'yutha-vector-1').hexdigest())\"",
+    "message_hex": "7369676e206d65",
+    "seed_hex": "fa17f5d59c5d2d1bb3f5cc9b4d62128cbb2ed87b1b7c01c5d40fe5e5a5ed5a8c"
+  },
+  "expected_public_key_hex": "a7542ddeb7109a90e9737308c1fc6dcafea503558dc32bac8642ccf704ffa05a",
+  "expected_key_fingerprint_hex": "61e9c1e6290098ad68377cb921f4856f63dde473fcd7e7d05b0f6b1ad81d50e5",
+  "expected_signature_hex": "f8f1d20cdb443067474bdbdbf1578402cebb976bfefa78ce37c68fc4e3deb4643454a4d7f7689194961dd096906ad4a1c6a41b03ced17dce64832982a275ae03"
+}

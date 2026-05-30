@@ -5291,6 +5291,7 @@ dependencies = [
  "yutha-passport",
  "yutha-proto",
  "yutha-receipt",
+ "yutha-signer",
 ]
 
 [[package]]
@@ -5332,6 +5333,7 @@ dependencies = [
  "yutha-passport",
  "yutha-receipt",
  "yutha-registry",
+ "yutha-signer",
  "yutha-transport",
 ]
 
@@ -5365,6 +5367,7 @@ dependencies = [
  "yutha-proto",
  "yutha-receipt",
  "yutha-registry",
+ "yutha-signer",
  "yutha-transport",
 ]
 
@@ -5429,6 +5432,7 @@ dependencies = [
  "yutha-crypto",
  "yutha-proto",
  "yutha-receipt",
+ "yutha-signer",
 ]
 
 [[package]]
@@ -5473,6 +5477,21 @@ dependencies = [
  "yutha-passport",
  "yutha-proto",
  "yutha-receipt",
+ "yutha-signer",
+]
+
+[[package]]
+name = "yutha-signer"
+version = "0.1.0-alpha.1"
+dependencies = [
+ "async-trait",
+ "proptest",
+ "serde",
+ "serde_json",
+ "thiserror 1.0.69",
+ "tokio",
+ "yutha-core",
+ "yutha-crypto",
 ]
 
 [[package]]
@@ -5492,6 +5511,7 @@ dependencies = [
  "yutha-passport",
  "yutha-proto",
  "yutha-receipt",
+ "yutha-signer",
 ]
 
 [[package]]

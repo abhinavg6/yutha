@@ -71,11 +71,11 @@ mod tests {
     use crate::passport::Passport;
     use crate::tier::PassportTier;
     use yutha_core::{SpecVersion, SwarmId, Timestamp};
-    use yutha_crypto::sign::generate_keypair;
+    use yutha_signer::InProcessSigner;
 
-    fn signed_passport(agent_id: AgentId) -> (Passport, PublicKey) {
-        let key = generate_keypair();
-        let pk = key.public();
+    async fn signed_passport(agent_id: AgentId) -> (Passport, PublicKey) {
+        let signer = InProcessSigner::generate();
+        let pk = signer.public_key();
         let p = Passport::builder()
             .spec_version(SpecVersion::parse("1.0.0").unwrap())
             .agent_id(agent_id)
@@ -84,7 +84,8 @@ mod tests {
             .accepted_constitution_version("1.0.0")
             .tier(PassportTier::Minimal)
             .issued_at(Timestamp::now())
-            .sign(&key)
+            .sign(&signer)
+            .await
             .unwrap();
         (p, pk)
     }
@@ -93,7 +94,7 @@ mod tests {
     async fn adapter_resolves_registered_agent() {
         let store: Arc<dyn PassportStore> = Arc::new(MemoryPassportStore::new());
         let agent_id = AgentId::new();
-        let (p, pk) = signed_passport(agent_id);
+        let (p, pk) = signed_passport(agent_id).await;
         store.register(p).await.unwrap();
 
         let adapter = PassportResolverAdapter::new(store);
@@ -113,7 +114,7 @@ mod tests {
     async fn adapter_returns_none_for_revoked_agent() {
         let store: Arc<dyn PassportStore> = Arc::new(MemoryPassportStore::new());
         let agent_id = AgentId::new();
-        let (p, _pk) = signed_passport(agent_id);
+        let (p, _pk) = signed_passport(agent_id).await;
         store.register(p).await.unwrap();
         store.revoke(&agent_id, "test").await.unwrap();
 
@@ -126,10 +127,10 @@ mod tests {
     async fn adapter_picks_up_key_rotation() {
         let store: Arc<dyn PassportStore> = Arc::new(MemoryPassportStore::new());
         let agent_id = AgentId::new();
-        let (p1, _pk1) = signed_passport(agent_id);
+        let (p1, _pk1) = signed_passport(agent_id).await;
         store.register(p1).await.unwrap();
 
-        let (p2, pk2) = signed_passport(agent_id);
+        let (p2, pk2) = signed_passport(agent_id).await;
         store.rotate_key(p2).await.unwrap();
 
         let adapter = PassportResolverAdapter::new(store);

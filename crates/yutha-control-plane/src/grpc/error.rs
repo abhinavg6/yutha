@@ -118,6 +118,7 @@ impl ErrorIntoStatus for PassportError {
             PassportError::RotationContinuityMissing => Status::unauthenticated(self.to_string()),
             PassportError::Backend(_) => Status::internal(self.to_string()),
             PassportError::Crypto(_) => Status::internal(self.to_string()),
+            PassportError::Signer(_) => Status::internal(self.to_string()),
             PassportError::Core(c) => c.to_status(),
         }
     }
@@ -147,6 +148,7 @@ impl ErrorIntoStatus for CapabilityError {
             CapabilityError::SubjectQuarantined(_) => Status::permission_denied(self.to_string()),
             CapabilityError::Backend(_) => Status::internal(self.to_string()),
             CapabilityError::Crypto(_) => Status::internal(self.to_string()),
+            CapabilityError::Signer(_) => Status::internal(self.to_string()),
             CapabilityError::Core(c) => c.to_status(),
         }
     }

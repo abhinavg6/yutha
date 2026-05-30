@@ -1,0 +1,13 @@
+{
+  "name": "seed_hash_derived_spec",
+  "description": "Seed = SHA-256(b'yutha-vector-2') (committed verbatim). Message = 'yutha-spec-v1.0.0' ASCII — typical-looking application input.",
+  "kind": "signer-sign-and-verify",
+  "inputs": {
+    "_comment_seed": "sha256(b'yutha-vector-2') — re-derive via: python -c \"import hashlib; print(hashlib.sha256(b'yutha-vector-2').hexdigest())\"",
+    "message_hex": "79757468612d737065632d76312e302e30",
+    "seed_hex": "f1f93f06e7d6ef13a1be9d2e7d8ea0f0e8b3a5f7df51d4ef0e6e8f44d72bcbf6"
+  },
+  "expected_public_key_hex": "a249637f88c9a6c6c5afce666c20d7568d57ab65571df3f778a55c5a64bc9c73",
+  "expected_key_fingerprint_hex": "ac80f3308cdc6232007f4de887b349e3507e987028fbb88eb19641d9ef1c3941",
+  "expected_signature_hex": "9e4316aecab0f3ec0b8303a2cc9f3c6cb6a9f82b5448cf41898c6678222e88612cb14c7d53e9cba9d8f02c411259c0d1c24f4f2a8375f520660d3689dcf90301"
+}

@@ -13,13 +13,13 @@ import yutha
 # -----------------------------------------------------------------------------
 
 
-def _build_passport(key: yutha.SigningKey | None = None) -> yutha.Passport:
-    key = key or yutha.SigningKey.generate()
+def _build_passport(signer: yutha.Signer | None = None) -> yutha.Passport:
+    signer = signer or yutha.InProcessSigner.generate()
     return yutha.Passport(
         spec_version="1.0.0",
         agent_id=yutha.AgentId.new(),
         swarm_id=yutha.SwarmId.new(),
-        agent_public_key=key.public_key(),
+        agent_public_key=signer.public_key(),
         owner="test-owner",
         framework="langgraph",
         framework_version="0.2.0",
@@ -36,36 +36,40 @@ def test_passport_round_trip_through_proto() -> None:
     assert back == original
 
 
-def test_passport_sign_and_verify() -> None:
-    key = yutha.SigningKey.generate()
-    passport = _build_passport(key).sign(key)
+@pytest.mark.asyncio
+async def test_passport_sign_and_verify() -> None:
+    signer = yutha.InProcessSigner.generate()
+    passport = await _build_passport(signer).sign(signer)
     assert passport.agent_signature is not None
     passport.verify_self_signature()  # raises on failure
 
 
-def test_passport_sign_rejects_wrong_key() -> None:
-    k1 = yutha.SigningKey.generate()
-    k2 = yutha.SigningKey.generate()
-    passport = _build_passport(k1)
-    with pytest.raises(ValueError, match="signing key does not match"):
-        passport.sign(k2)
+@pytest.mark.asyncio
+async def test_passport_sign_rejects_wrong_signer() -> None:
+    s1 = yutha.InProcessSigner.generate()
+    s2 = yutha.InProcessSigner.generate()
+    passport = _build_passport(s1)
+    with pytest.raises(ValueError, match="signer does not match agent_public_key"):
+        await passport.sign(s2)
 
 
-def test_passport_tampered_payload_fails_verification() -> None:
-    key = yutha.SigningKey.generate()
-    signed = _build_passport(key).sign(key)
+@pytest.mark.asyncio
+async def test_passport_tampered_payload_fails_verification() -> None:
+    signer = yutha.InProcessSigner.generate()
+    signed = await _build_passport(signer).sign(signer)
     tampered = signed.model_copy(update={"owner": "evil"})
     with pytest.raises(yutha.VerificationFailed):
         tampered.verify_self_signature()
 
 
-def test_passport_with_capabilities_and_resources_round_trips() -> None:
-    key = yutha.SigningKey.generate()
-    original = yutha.Passport(
+@pytest.mark.asyncio
+async def test_passport_with_capabilities_and_resources_round_trips() -> None:
+    signer = yutha.InProcessSigner.generate()
+    original = await yutha.Passport(
         spec_version="1.0.0",
         agent_id=yutha.AgentId.new(),
         swarm_id=yutha.SwarmId.new(),
-        agent_public_key=key.public_key(),
+        agent_public_key=signer.public_key(),
         capabilities=[
             yutha.CapabilityDeclaration(
                 kind="issue_refund",
@@ -83,7 +87,7 @@ def test_passport_with_capabilities_and_resources_round_trips() -> None:
         ),
         issued_at=yutha.Timestamp.now(),
         expires_at=yutha.Timestamp(wall_clock="2099-01-01T00:00:00Z", monotonic_ns=2**62),
-    ).sign(key)
+    ).sign(signer)
     back = yutha.Passport.from_proto(original.to_proto())
     assert back == original
     back.verify_self_signature()
@@ -94,7 +98,7 @@ def test_passport_with_capabilities_and_resources_round_trips() -> None:
 # -----------------------------------------------------------------------------
 
 
-def _build_envelope(key: yutha.SigningKey, sender: yutha.AgentId) -> yutha.Envelope:
+def _build_envelope(sender: yutha.AgentId) -> yutha.Envelope:
     return yutha.Envelope(
         spec_version="1.0.0",
         swarm_id=yutha.SwarmId.new(),
@@ -111,28 +115,31 @@ def _build_envelope(key: yutha.SigningKey, sender: yutha.AgentId) -> yutha.Envel
     )
 
 
-def test_envelope_round_trip_through_proto() -> None:
-    key = yutha.SigningKey.generate()
+@pytest.mark.asyncio
+async def test_envelope_round_trip_through_proto() -> None:
+    signer = yutha.InProcessSigner.generate()
     sender = yutha.AgentId.new()
-    original = _build_envelope(key, sender).sign(key)
+    original = await _build_envelope(sender).sign(signer)
     back = yutha.Envelope.from_proto(original.to_proto())
     assert back == original
 
 
-def test_envelope_sign_and_verify() -> None:
-    key = yutha.SigningKey.generate()
+@pytest.mark.asyncio
+async def test_envelope_sign_and_verify() -> None:
+    signer = yutha.InProcessSigner.generate()
     sender = yutha.AgentId.new()
-    env = _build_envelope(key, sender).sign(key)
-    env.verify_signature(key.public_key())
+    env = await _build_envelope(sender).sign(signer)
+    env.verify_signature(signer.public_key())
 
 
-def test_envelope_tampered_payload_fails_verification() -> None:
-    key = yutha.SigningKey.generate()
+@pytest.mark.asyncio
+async def test_envelope_tampered_payload_fails_verification() -> None:
+    signer = yutha.InProcessSigner.generate()
     sender = yutha.AgentId.new()
-    env = _build_envelope(key, sender).sign(key)
+    env = await _build_envelope(sender).sign(signer)
     tampered = env.model_copy(update={"payload": b"different"})
     with pytest.raises(yutha.VerificationFailed):
-        tampered.verify_signature(key.public_key())
+        tampered.verify_signature(signer.public_key())
 
 
 @pytest.mark.parametrize(
@@ -165,7 +172,7 @@ def test_recipient_rejects_zero_or_multiple_variants() -> None:
 # -----------------------------------------------------------------------------
 
 
-def _build_capability(key: yutha.SigningKey) -> yutha.Capability:
+def _build_capability() -> yutha.Capability:
     return yutha.Capability(
         spec_version="1.0.0",
         capability_id=b"\x03" * 16,
@@ -181,9 +188,10 @@ def _build_capability(key: yutha.SigningKey) -> yutha.Capability:
     )
 
 
-def test_capability_round_trip_through_proto() -> None:
-    key = yutha.SigningKey.generate()
-    original = _build_capability(key).sign(key)
+@pytest.mark.asyncio
+async def test_capability_round_trip_through_proto() -> None:
+    signer = yutha.InProcessSigner.generate()
+    original = await _build_capability().sign(signer)
     back = yutha.Capability.from_proto(original.to_proto())
     # Compare fields individually — full-equality would require the
     # signature's key_fingerprint to round-trip, which it does, but
@@ -195,18 +203,20 @@ def test_capability_round_trip_through_proto() -> None:
     assert back.issuer_signature == original.issuer_signature
 
 
-def test_capability_sign_and_verify() -> None:
-    key = yutha.SigningKey.generate()
-    cap = _build_capability(key).sign(key)
-    cap.verify_signature(key.public_key())
+@pytest.mark.asyncio
+async def test_capability_sign_and_verify() -> None:
+    signer = yutha.InProcessSigner.generate()
+    cap = await _build_capability().sign(signer)
+    cap.verify_signature(signer.public_key())
 
 
-def test_capability_tampered_scope_fails_verification() -> None:
-    key = yutha.SigningKey.generate()
-    cap = _build_capability(key).sign(key)
+@pytest.mark.asyncio
+async def test_capability_tampered_scope_fails_verification() -> None:
+    signer = yutha.InProcessSigner.generate()
+    cap = await _build_capability().sign(signer)
     tampered = cap.model_copy(update={"scope": yutha.Scope.for_action("different_action")})
     with pytest.raises(yutha.VerificationFailed):
-        tampered.verify_signature(key.public_key())
+        tampered.verify_signature(signer.public_key())
 
 
 @pytest.mark.parametrize(

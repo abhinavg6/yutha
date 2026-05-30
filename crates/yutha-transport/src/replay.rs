@@ -105,10 +105,10 @@ mod tests {
     use crate::performative::Performative;
     use crate::recipient::Recipient;
     use yutha_core::{CausalRef, SpecVersion, SwarmId};
-    use yutha_crypto::sign::generate_keypair;
+    use yutha_signer::InProcessSigner;
 
-    fn make_envelope(
-        key: &yutha_crypto::SigningKey,
+    async fn make_envelope(
+        signer: &InProcessSigner,
         nonce: Vec<u8>,
         epoch: u64,
         expires_at: Option<Timestamp>,
@@ -127,23 +127,23 @@ mod tests {
         if let Some(e) = expires_at {
             b = b.expires_at(e);
         }
-        b.sign(key).unwrap()
+        b.sign(signer).await.unwrap()
     }
 
     #[tokio::test]
     async fn first_envelope_accepted() {
         let rp = ReplayProtection::new();
-        let key = generate_keypair();
-        let e = make_envelope(&key, vec![1u8; 16], 1, None);
+        let signer = InProcessSigner::generate();
+        let e = make_envelope(&signer, vec![1u8; 16], 1, None).await;
         assert!(rp.admit(&e, &Timestamp::now()).await.is_ok());
     }
 
     #[tokio::test]
     async fn duplicate_nonce_rejected() {
         let rp = ReplayProtection::new();
-        let key = generate_keypair();
-        let mut e1 = make_envelope(&key, vec![1u8; 16], 1, None);
-        let mut e2 = make_envelope(&key, vec![1u8; 16], 2, None);
+        let signer = InProcessSigner::generate();
+        let mut e1 = make_envelope(&signer, vec![1u8; 16], 1, None).await;
+        let mut e2 = make_envelope(&signer, vec![1u8; 16], 2, None).await;
         // Pin both to the same sender for the replay check to bite.
         let same_sender = AgentId::new();
         e1.from_agent = same_sender;
@@ -162,9 +162,9 @@ mod tests {
     #[tokio::test]
     async fn expired_envelope_rejected() {
         let rp = ReplayProtection::new();
-        let key = generate_keypair();
+        let signer = InProcessSigner::generate();
         let expired = Timestamp::new("2020-01-01T00:00:00Z".into(), 1).unwrap();
-        let e = make_envelope(&key, vec![1u8; 16], 1, Some(expired));
+        let e = make_envelope(&signer, vec![1u8; 16], 1, Some(expired)).await;
         // "now" with monotonic_ns > 1 makes expired_at <= now true.
         let now = Timestamp::new("2030-01-01T00:00:00Z".into(), 2).unwrap();
         let result = rp.admit(&e, &now).await;
@@ -177,15 +177,15 @@ mod tests {
     #[tokio::test]
     async fn stale_epoch_rejected() {
         let rp = ReplayProtection::with_params(1024, 5);
-        let key = generate_keypair();
+        let signer = InProcessSigner::generate();
         let sender = AgentId::new();
 
-        let mut e_high = make_envelope(&key, vec![1u8; 16], 100, None);
+        let mut e_high = make_envelope(&signer, vec![1u8; 16], 100, None).await;
         e_high.from_agent = sender;
         rp.admit(&e_high, &Timestamp::now()).await.unwrap();
 
         // Now send something more than skew below.
-        let mut e_old = make_envelope(&key, vec![2u8; 16], 50, None);
+        let mut e_old = make_envelope(&signer, vec![2u8; 16], 50, None).await;
         e_old.from_agent = sender;
         let result = rp.admit(&e_old, &Timestamp::now()).await;
         assert!(matches!(

@@ -32,11 +32,11 @@ use yutha_cedar_plus::{
 };
 use yutha_core::{AgentId, Hash, HashAlgorithm, SpecVersion, SwarmId, Timestamp};
 use yutha_crypto::canonical::Canonical;
-use yutha_crypto::sign::generate_keypair;
 use yutha_passport::{
     ControlPlaneIdentity, MemoryPassportStore, Passport, PassportResolverAdapter, PassportStore,
     PassportTier,
 };
+use yutha_signer::{InProcessSigner, Signer};
 use yutha_receipt::{
     ActionKindQuery, AppendOptions, Evidence, MemoryStore as MemoryReceiptStore, PassportResolver,
     Query, Receipt, ReceiptStore, SignatureRole, SignedBy,
@@ -66,11 +66,14 @@ pub async fn run_s5() -> S5Outcome {
     let resolver: Arc<dyn PassportResolver> =
         Arc::new(PassportResolverAdapter::new(Arc::clone(&passports)));
 
-    let cp_key = generate_keypair();
+    let cp_signer = InProcessSigner::generate();
     let cp_agent_id = AgentId::new();
-    let cp_passport = signed_passport(swarm_id, cp_agent_id, &cp_key, "control plane");
+    let cp_passport = signed_passport(swarm_id, cp_agent_id, &cp_signer, "control plane").await;
     passports.register(cp_passport).await.unwrap();
-    let cp = Arc::new(ControlPlaneIdentity::new(cp_agent_id, cp_key));
+    let cp = Arc::new(ControlPlaneIdentity::new(
+        cp_agent_id,
+        Arc::new(cp_signer) as Arc<dyn Signer>,
+    ));
 
     // Constitution layer with the SupportQueue extension loaded.
     let schema = canonical_schema_v1_1_with_extensions(&[WORKLOAD_SUPPORT_QUEUE_V1_1])
@@ -197,22 +200,23 @@ pub async fn run_s5() -> S5Outcome {
 // Helpers
 // =============================================================================
 
-fn signed_passport(
+async fn signed_passport(
     swarm_id: SwarmId,
     agent_id: AgentId,
-    key: &yutha_crypto::sign::SigningKey,
+    signer: &dyn Signer,
     owner: &str,
 ) -> Passport {
     Passport::builder()
         .spec_version(SpecVersion::parse("1.0.0").unwrap())
         .agent_id(agent_id)
         .swarm_id(swarm_id)
-        .agent_public_key(key.public())
+        .agent_public_key(signer.public_key())
         .owner(owner)
         .accepted_constitution_version("1.0.0")
         .tier(PassportTier::Minimal)
         .issued_at(Timestamp::now())
-        .sign(key)
+        .sign(signer)
+        .await
         .expect("sign passport")
 }
 
@@ -389,7 +393,7 @@ async fn append_eval_receipt(
     }
     let mut receipt = builder.build().expect("build receipt");
     let bytes = receipt.canonical_bytes().expect("canonical");
-    let sig = cp.sign(&bytes);
+    let sig = cp.sign(&bytes).await.expect("cp signer");
     receipt
         .signatures
         .push(SignedBy::new(SignatureRole::Actor, sig, Timestamp::now()));

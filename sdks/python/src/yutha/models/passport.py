@@ -13,7 +13,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from yutha._proto import common_pb2
 from yutha._proto.passport import passport_v1_pb2 as proto
 from yutha.canonical import canonical_bytes as _canonical_bytes
-from yutha.crypto import SigningKey, VerificationFailed, verify
+from yutha.crypto import Signer, VerificationFailed, verify
 from yutha.identity import AgentId, PublicKey, Signature, SwarmId, Timestamp
 
 
@@ -97,7 +97,7 @@ class Passport(BaseModel):
     """A signed identity manifest — what an agent presents at swarm
     join.
 
-    Construct, then call ``.sign(signing_key)`` to attach
+    Construct, then ``await passport.sign(signer)`` to attach
     ``agent_signature`` over canonical bytes. The returned Passport is
     a new immutable instance; the original is unchanged.
     """
@@ -187,15 +187,18 @@ class Passport(BaseModel):
         p.ClearField("extensions")
         return _canonical_bytes(p)
 
-    def sign(self, signing_key: SigningKey) -> Passport:
+    async def sign(self, signer: Signer) -> Passport:
         """Return a copy of this Passport with ``agent_signature`` set.
 
-        The signing key's public counterpart MUST match
-        ``agent_public_key``; this is verified before signing.
+        The signer's public key MUST match ``agent_public_key``; this
+        is verified before signing. ``signer.sign_message`` is awaited
+        — for the default :class:`yutha.crypto.InProcessSigner` this
+        completes immediately, for cloud-KMS-backed signers it's one
+        network round-trip.
         """
-        if signing_key.public_key_bytes() != self.agent_public_key.value:
-            raise ValueError("signing key does not match agent_public_key")
-        sig = signing_key.sign_message(self.canonical_bytes())
+        if signer.public_key().value != self.agent_public_key.value:
+            raise ValueError("signer does not match agent_public_key")
+        sig = await signer.sign_message(self.canonical_bytes())
         return self.model_copy(update={"agent_signature": sig})
 
     def verify_self_signature(self) -> None:

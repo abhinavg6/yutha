@@ -75,14 +75,19 @@ impl CapabilityHandler {
     // un-box (Status is the canonical Err type for tonic), so we accept
     // the imbalance locally.
     #[allow(clippy::result_large_err)]
-    fn sign_with_cp(&self, cap: &mut Capability) -> Result<(), Status> {
+    async fn sign_with_cp(&self, cap: &mut Capability) -> Result<(), Status> {
         if cap.issuer_signature.is_some() {
             return Ok(());
         }
         let bytes = cap
             .canonical_bytes()
             .map_err(|e| Status::internal(format!("canonical bytes: {e}")))?;
-        let sig = self.state.control_plane_identity.sign(&bytes);
+        let sig = self
+            .state
+            .control_plane_identity
+            .sign(&bytes)
+            .await
+            .map_err(|e| Status::internal(format!("signer: {e}")))?;
         cap.issuer_signature = Some(sig);
         Ok(())
     }
@@ -102,7 +107,7 @@ impl CapabilityService for CapabilityHandler {
             .as_ref()
             .ok_or_else(|| missing_field("capability"))?;
         let mut cap = Capability::try_from(cap_proto).map_err(|e| e.to_status())?;
-        self.sign_with_cp(&mut cap)?;
+        self.sign_with_cp(&mut cap).await?;
 
         let outcome = self
             .state
@@ -198,7 +203,7 @@ impl CapabilityService for CapabilityHandler {
         let mut child = builder
             .build()
             .map_err(|e| Status::internal(format!("build child capability: {e}")))?;
-        self.sign_with_cp(&mut child)?;
+        self.sign_with_cp(&mut child).await?;
 
         let outcome = self
             .state

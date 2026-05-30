@@ -111,19 +111,20 @@ mod tests {
     use crate::passport::Passport;
     use crate::tier::PassportTier;
     use yutha_core::{SpecVersion, SwarmId, Timestamp};
-    use yutha_crypto::sign::generate_keypair;
+    use yutha_signer::InProcessSigner;
 
-    fn signed_passport(agent_id: AgentId) -> Passport {
-        let key = generate_keypair();
+    async fn signed_passport(agent_id: AgentId) -> Passport {
+        let signer = InProcessSigner::generate();
         Passport::builder()
             .spec_version(SpecVersion::parse("1.0.0").unwrap())
             .agent_id(agent_id)
             .swarm_id(SwarmId::new())
-            .agent_public_key(key.public())
+            .agent_public_key(signer.public_key())
             .accepted_constitution_version("1.0.0")
             .tier(PassportTier::Minimal)
             .issued_at(Timestamp::now())
-            .sign(&key)
+            .sign(&signer)
+            .await
             .unwrap()
     }
 
@@ -131,7 +132,7 @@ mod tests {
     async fn register_then_lookup() {
         let store = MemoryPassportStore::new();
         let agent_id = AgentId::new();
-        let p = signed_passport(agent_id);
+        let p = signed_passport(agent_id).await;
         let outcome = store.register(p.clone()).await.unwrap();
         assert!(outcome.is_accepted());
 
@@ -143,7 +144,7 @@ mod tests {
     async fn duplicate_register_fails() {
         let store = MemoryPassportStore::new();
         let agent_id = AgentId::new();
-        let p = signed_passport(agent_id);
+        let p = signed_passport(agent_id).await;
         store.register(p.clone()).await.unwrap();
         let result = store.register(p).await;
         assert!(matches!(result, Err(PassportError::AlreadyRegistered(_))));
@@ -153,7 +154,7 @@ mod tests {
     async fn revoke_makes_lookup_return_none() {
         let store = MemoryPassportStore::new();
         let agent_id = AgentId::new();
-        let p = signed_passport(agent_id);
+        let p = signed_passport(agent_id).await;
         store.register(p).await.unwrap();
 
         store.revoke(&agent_id, "test").await.unwrap();
@@ -172,10 +173,10 @@ mod tests {
     async fn rotate_key_replaces_live_passport() {
         let store = MemoryPassportStore::new();
         let agent_id = AgentId::new();
-        let p1 = signed_passport(agent_id);
+        let p1 = signed_passport(agent_id).await;
         store.register(p1.clone()).await.unwrap();
 
-        let p2 = signed_passport(agent_id);
+        let p2 = signed_passport(agent_id).await;
         // p2 has a fresh signing key — same agent_id, new public key.
         assert_ne!(p1.agent_public_key, p2.agent_public_key);
 
@@ -187,7 +188,7 @@ mod tests {
     #[tokio::test]
     async fn rotate_unknown_fails() {
         let store = MemoryPassportStore::new();
-        let p = signed_passport(AgentId::new());
+        let p = signed_passport(AgentId::new()).await;
         let result = store.rotate_key(p).await;
         assert!(matches!(result, Err(PassportError::NotFound(_))));
     }
@@ -196,7 +197,7 @@ mod tests {
     async fn register_rejects_tampered_passport() {
         let store = MemoryPassportStore::new();
         let agent_id = AgentId::new();
-        let mut p = signed_passport(agent_id);
+        let mut p = signed_passport(agent_id).await;
         p.owner = "tampered".into(); // breaks the self-signature
         let result = store.register(p).await;
         assert!(matches!(result, Err(PassportError::SelfSignatureInvalid)));
@@ -208,7 +209,7 @@ mod tests {
         assert_eq!(store.count().await.unwrap(), 0);
         for _ in 0..3 {
             store
-                .register(signed_passport(AgentId::new()))
+                .register(signed_passport(AgentId::new()).await)
                 .await
                 .unwrap();
         }

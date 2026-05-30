@@ -46,36 +46,36 @@ from yutha.crewai.agent import _default_task_factory
 # =============================================================================
 
 
-def _fake_identity() -> tuple[yutha.SigningKey, yutha.AgentId, yutha.SwarmId]:
+def _fake_identity() -> tuple[yutha.InProcessSigner, yutha.AgentId, yutha.SwarmId]:
     """Mint a deterministic passport identity locally.
 
     Mirrors the seed-derived approach used in the other test files,
     but uses random bytes since we're not coordinating with a server.
     """
     seed = secrets.token_bytes(32)
-    signing_key = yutha.SigningKey.from_seed_bytes(seed)
+    signer = yutha.InProcessSigner.from_seed_bytes(seed)
     agent_id = yutha.AgentId(value=secrets.token_bytes(16))
     swarm_id = yutha.SwarmId(value=secrets.token_bytes(16))
-    return signing_key, agent_id, swarm_id
+    return signer, agent_id, swarm_id
 
 
-def _build_passport(
-    signing_key: yutha.SigningKey,
+async def _build_passport(
+    signer: yutha.Signer,
     agent_id: yutha.AgentId,
     swarm_id: yutha.SwarmId,
 ) -> yutha.Passport:
-    return yutha.Passport(
+    return await yutha.Passport(
         spec_version="1.0.0",
         agent_id=agent_id,
         swarm_id=swarm_id,
-        agent_public_key=signing_key.public_key(),
+        agent_public_key=signer.public_key(),
         owner="yutha-test:crewai-unit",
         framework="crewai",
         framework_version="0.x",
         accepted_constitution_version="1.0.0",
         tier=yutha.PassportTier.MINIMAL,
         issued_at=yutha.Timestamp.now(),
-    ).sign(signing_key)
+    ).sign(signer)
 
 
 def _build_capability(
@@ -232,15 +232,16 @@ def test_capability_required_rejects_tool_without_run_methods() -> None:
 # =============================================================================
 
 
-def test_crew_agent_constructor_rejects_passport_signing_key_mismatch() -> None:
-    """Same invariant as YuthaAgent: the signing_key's public half
-    must match passport.agent_public_key, or the agent would fail
-    to sign envelopes the control plane accepts."""
+@pytest.mark.asyncio
+async def test_crew_agent_constructor_rejects_passport_signer_mismatch() -> None:
+    """Same invariant as YuthaAgent: the signer's public key must
+    match passport.agent_public_key, or the agent would fail to sign
+    envelopes the control plane accepts."""
     from crewai import Agent
 
-    signing_key, agent_id, swarm_id = _fake_identity()
-    other_signing_key = yutha.SigningKey.generate()
-    passport = _build_passport(signing_key, agent_id, swarm_id)
+    signer, agent_id, swarm_id = _fake_identity()
+    other_signer = yutha.InProcessSigner.generate()
+    passport = await _build_passport(signer, agent_id, swarm_id)
 
     crew_agent = Agent(role="Test", goal="Test", backstory="Test", allow_delegation=False)
 
@@ -248,11 +249,11 @@ def test_crew_agent_constructor_rejects_passport_signing_key_mismatch() -> None:
     # want to hit the constructor's validation path.
     fake_client = mock.MagicMock()
 
-    with pytest.raises(ValueError, match=r"signing_key does not match passport.agent_public_key"):
+    with pytest.raises(ValueError, match=r"signer does not match passport.agent_public_key"):
         YuthaCrewAgent(
             client=fake_client,
             passport=passport,
-            signing_key=other_signing_key,  # WRONG key
+            signer=other_signer,  # WRONG signer
             crew_agent=crew_agent,
         )
 
@@ -262,14 +263,15 @@ def test_crew_agent_constructor_rejects_passport_signing_key_mismatch() -> None:
 # =============================================================================
 
 
-def test_default_task_factory_uses_payload_as_description() -> None:
+@pytest.mark.asyncio
+async def test_default_task_factory_uses_payload_as_description() -> None:
     """The fallback factory decodes payload as UTF-8 and uses it as
     the task description, with the wrapped CrewAI Agent as the
     executor."""
     from crewai import Agent
 
-    signing_key, agent_id, swarm_id = _fake_identity()
-    passport = _build_passport(signing_key, agent_id, swarm_id)
+    signer, agent_id, swarm_id = _fake_identity()
+    passport = await _build_passport(signer, agent_id, swarm_id)
     crew_agent = Agent(
         role="Greeter", goal="Say hello.", backstory="Polite.", allow_delegation=False
     )
@@ -278,11 +280,11 @@ def test_default_task_factory_uses_payload_as_description() -> None:
     crew_wrapper = YuthaCrewAgent(
         client=fake_client,
         passport=passport,
-        signing_key=signing_key,
+        signer=signer,
         crew_agent=crew_agent,
     )
 
-    envelope = yutha.Envelope(
+    envelope = await yutha.Envelope(
         spec_version="1.0.0",
         swarm_id=swarm_id,
         envelope_id=secrets.token_bytes(16),
@@ -293,7 +295,7 @@ def test_default_task_factory_uses_payload_as_description() -> None:
         nonce=secrets.token_bytes(16),
         epoch=1,
         sent_at=yutha.Timestamp.now(),
-    ).sign(signing_key)
+    ).sign(signer)
     fake_deliver_receipt = yutha.Hash(algorithm=yutha.HashAlgorithm.SHA256, digest=b"\x00" * 32)
 
     task = _default_task_factory(crew_wrapper, envelope, fake_deliver_receipt)

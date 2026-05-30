@@ -230,16 +230,27 @@ impl PassportBuilder {
         })
     }
 
-    /// Build and sign with the supplied signing key. The signing key's
-    /// public counterpart MUST match the `agent_public_key` field — this is
-    /// re-checked here.
-    pub fn sign(self, signing_key: &yutha_crypto::SigningKey) -> Result<Passport> {
+    /// Build and sign with the supplied [`yutha_signer::Signer`].
+    ///
+    /// The signer's public counterpart (`signer.public_key()`) MUST match
+    /// the builder's `agent_public_key` field — this is re-checked here.
+    /// Without that check, a caller could embed one public key in the
+    /// passport but sign with a different one's private half, producing
+    /// a passport that fails self-verification later.
+    ///
+    /// Async because the [`yutha_signer::Signer`] trait is async — for
+    /// `InProcessSigner` this completes immediately; for cloud-KMS-backed
+    /// signers it makes one network call to the KMS backend.
+    pub async fn sign(self, signer: &dyn yutha_signer::Signer) -> Result<Passport> {
         let mut p = self.build_unsigned()?;
-        if p.agent_public_key != signing_key.public() {
+        if p.agent_public_key != signer.public_key() {
             return Err(PassportError::SelfSignatureInvalid);
         }
         let bytes = p.canonical_bytes().map_err(PassportError::Crypto)?;
-        let sig = signing_key.sign_message(&bytes);
+        let sig = signer
+            .sign_message(&bytes)
+            .await
+            .map_err(|e| PassportError::Signer(e.to_string()))?;
         p.agent_signature = Some(sig);
         Ok(p)
     }
@@ -269,24 +280,25 @@ impl Passport {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use yutha_crypto::sign::generate_keypair;
+    use yutha_signer::InProcessSigner;
 
-    fn fixture() -> (yutha_crypto::SigningKey, AgentId) {
-        (generate_keypair(), AgentId::new())
+    fn fixture() -> (InProcessSigner, AgentId) {
+        (InProcessSigner::generate(), AgentId::new())
     }
 
-    fn build_signed(key: &yutha_crypto::SigningKey, agent_id: AgentId) -> Passport {
+    async fn build_signed(signer: &InProcessSigner, agent_id: AgentId) -> Passport {
         Passport::builder()
             .spec_version(SpecVersion::parse("1.0.0").unwrap())
             .agent_id(agent_id)
             .swarm_id(SwarmId::new())
-            .agent_public_key(key.public())
+            .agent_public_key(signer.public_key())
             .owner("test")
             .framework("test-framework", "0.1.0")
             .accepted_constitution_version("1.0.0")
             .tier(PassportTier::Minimal)
             .issued_at(Timestamp::now())
-            .sign(key)
+            .sign(signer)
+            .await
             .unwrap()
     }
 
@@ -296,32 +308,33 @@ mod tests {
         assert!(result.is_err());
     }
 
-    #[test]
-    fn signed_passport_verifies() {
-        let (key, agent_id) = fixture();
-        let p = build_signed(&key, agent_id);
+    #[tokio::test]
+    async fn signed_passport_verifies() {
+        let (signer, agent_id) = fixture();
+        let p = build_signed(&signer, agent_id).await;
         assert!(p.verify_self_signature().is_ok());
     }
 
-    #[test]
-    fn passport_with_mismatched_public_key_rejects_at_sign() {
-        let (key1, agent_id) = fixture();
-        let key2 = generate_keypair();
+    #[tokio::test]
+    async fn passport_with_mismatched_public_key_rejects_at_sign() {
+        let (signer1, agent_id) = fixture();
+        let signer2 = InProcessSigner::generate();
         let result = Passport::builder()
             .spec_version(SpecVersion::parse("1.0.0").unwrap())
             .agent_id(agent_id)
             .swarm_id(SwarmId::new())
-            .agent_public_key(key2.public()) // mismatch with signing key
+            .agent_public_key(signer2.public_key()) // mismatch with signing key
             .accepted_constitution_version("1.0.0")
             .issued_at(Timestamp::now())
-            .sign(&key1);
+            .sign(&signer1)
+            .await;
         assert!(matches!(result, Err(PassportError::SelfSignatureInvalid)));
     }
 
-    #[test]
-    fn tampered_passport_fails_verification() {
-        let (key, agent_id) = fixture();
-        let mut p = build_signed(&key, agent_id);
+    #[tokio::test]
+    async fn tampered_passport_fails_verification() {
+        let (signer, agent_id) = fixture();
+        let mut p = build_signed(&signer, agent_id).await;
         p.owner = "tampered".into();
         assert!(matches!(
             p.verify_self_signature(),
@@ -329,10 +342,10 @@ mod tests {
         ));
     }
 
-    #[test]
-    fn unsigned_passport_fails_verification() {
-        let (key, agent_id) = fixture();
-        let mut p = build_signed(&key, agent_id);
+    #[tokio::test]
+    async fn unsigned_passport_fails_verification() {
+        let (signer, agent_id) = fixture();
+        let mut p = build_signed(&signer, agent_id).await;
         p.agent_signature = None;
         assert!(matches!(
             p.verify_self_signature(),
@@ -340,10 +353,10 @@ mod tests {
         ));
     }
 
-    #[test]
-    fn is_expired_when_past_monotonic() {
-        let (key, agent_id) = fixture();
-        let mut p = build_signed(&key, agent_id);
+    #[tokio::test]
+    async fn is_expired_when_past_monotonic() {
+        let (signer, agent_id) = fixture();
+        let mut p = build_signed(&signer, agent_id).await;
         // Force an expires_at strictly less than the issued_at monotonic.
         p.expires_at = Some(
             Timestamp::new(
@@ -356,10 +369,10 @@ mod tests {
         assert!(p.is_expired_at(&now));
     }
 
-    #[test]
-    fn passport_without_expires_at_never_expires() {
-        let (key, agent_id) = fixture();
-        let p = build_signed(&key, agent_id);
+    #[tokio::test]
+    async fn passport_without_expires_at_never_expires() {
+        let (signer, agent_id) = fixture();
+        let p = build_signed(&signer, agent_id).await;
         let far_future = Timestamp::new("3030-01-01T00:00:00Z".into(), u64::MAX).unwrap();
         assert!(!p.is_expired_at(&far_future));
     }

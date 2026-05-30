@@ -10,8 +10,10 @@ types with:
   - ``.canonical_bytes()`` — content-addressable bytes with
     signature / extensions / seal cleared per the Rust
     ``to_canonical_proto()`` convention.
-  - ``.sign(signing_key)`` / ``.verify_signature(public_key)`` for the
-    three actor-signed types (Passport, Envelope, Capability).
+  - ``await .sign(signer)`` / ``.verify_signature(public_key)`` for the
+    three actor-signed types (Passport, Envelope, Capability). ``sign``
+    takes a :class:`~yutha.crypto.Signer` and is async so cloud-KMS-
+    backed signers slot in unchanged.
 
 The Receipt model is read-only on the SDK side — clients query receipts,
 they don't construct them. (The control plane is the only writer.) It

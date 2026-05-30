@@ -1,8 +1,32 @@
 # Workstream A Status — Spec Drafts
 
-> **As of:** 2026-05-15 (Phase 2 entry; original Phase 1 entry below dated 2026-05-10)
+> **As of:** 2026-05-27 (Phase A — identity-keys workstream — entry; prior entries below)
 > **Author:** background work session, autonomous
 > **Audience:** Abhinav (returning to the project), incoming Workstream A reviewers
+
+## Phase A — identity-keys (RFCs 0015 + 0016), in flight 2026-05-27
+
+Enterprise-readiness workstream opened. Paper-only Phase A drafts the two pluggable interfaces that need to land before Yutha is adoptable inside large enterprises or by SaaS platforms building on it: `Signer` (key custody — where signing keys live, who may use them) and `Attestor` (identity verification — chaining Yutha agent_ids back to enterprise IdPs).
+
+| Artifact | Status |
+|----------|--------|
+| [`/spec/identity-keys/README.md`](./identity-keys/README.md) | Draft. Shared design memo both RFCs refer back to. Frames the two-seams decomposition, native-default + reference-enterprise pattern, explicit deferrals (authorization seam, lifecycle seam, multi-tenancy), phasing A–G. |
+| [`/spec/rfcs/0015-signer-interface.md`](./rfcs/0015-signer-interface.md) | Draft. Async `Signer` trait in new `yutha-signer` crate. Breaking change at five sign call sites (passport / envelope / capability / bearer-token-mint / control-plane self-signed receipts) — all become async, all accept `&dyn Signer`. `InProcessSigner` is the zero-dependency default. Phase C ships three production-grade implementations: `yutha-signer-gcp-kms`, `yutha-signer-azure-kv`, and `yutha-signer-vault-transit` (the AWS-friendly path, since AWS KMS doesn't yet support Ed25519). Native AWS KMS deferred until AWS adds Ed25519. |
+| [`/spec/rfcs/0016-attestor-interface.md`](./rfcs/0016-attestor-interface.md) | Draft. Async `Attestor` trait in new `yutha-attestor` crate. `RegisterRequest` proto gains optional `external_credential` bytes field; admission handler calls `Attestor.verify` between policy check and registry insert. `NativeAttestor` is the zero-dependency default. SPIFFE/SPIRE (Phase E) and OIDC (Phase F) are the reference enterprise implementations. New canonical action-kind `agent.register.deny`; `agent.register` evidence gains `attested_external_identity` + `attestor_id` keys. Multi-tenancy deliberately deferred; §5.4 documents the extension shape that keeps it easy to add later. |
+
+Five design decisions locked before drafting:
+
+1. **Multi-tenancy deferred.** Single global Attestor per control plane in v1. Trait shape (context struct, not bare credential) keeps the door open for `(swarm_id, tenant_id) → Attestor` resolver later without trait-signature change.
+2. **Signer goes async-all-the-way.** Phase B fold-in refactors `Passport::sign` / `Envelope::sign` / `Capability::sign` / `BearerSession::_mint_token` / control-plane receipt signing to async. Estimated 1–2 weeks of mechanical refactor + test-suite chase for a solo dev working full-time.
+3. **Separate `yutha-signer` and `yutha-attestor` crates** in core workspace. Cloud KMS / SPIRE / OIDC impls live in feature-gated workspace crates — matches `yutha-anchor-sui` shape from RFC 0014.
+4. **Two RFCs.** Filed as a pair, landing together. Shared framing memo above them. Detail specs (`/spec/identity-keys/signer.md` byte-exact, `attestor-spiffe.md`, `attestor-oidc.md`) land alongside each implementation phase, not in Phase A.
+5. **No backcompat.** Pre-public; breaking change in place. Demos / tests / examples update once at Phase B and again at Phase D.
+
+Phasing checkpoint: Phase A ends at "drafts reviewed + reviewer-approved." Phase B (Signer trait + async refactor) is the next consequential step; do not roll into Phase B without explicit go-ahead.
+
+---
+
+## Phase 2 in flight (added 2026-05-15)
 
 ## Phase 2 in flight (added 2026-05-15)
 

@@ -9,8 +9,9 @@ Public surface:
   - Pydantic models for every signed message: :class:`Passport`,
     :class:`Envelope`, :class:`Capability`, :class:`Receipt`, plus all
     their nested types.
-  - Crypto + identity primitives: :class:`SigningKey`, :class:`AgentId`,
-    :class:`SwarmId`, :class:`Hash`, :class:`Timestamp`, etc.
+  - Crypto + identity primitives: :class:`Signer`, :class:`InProcessSigner`,
+    :class:`SigningKey`, :class:`AgentId`, :class:`SwarmId`,
+    :class:`Hash`, :class:`Timestamp`, etc.
 """
 
 from __future__ import annotations
@@ -36,6 +37,8 @@ from yutha.client import (
 )
 from yutha.crypto import (
     CryptoError,
+    InProcessSigner,
+    Signer,
     SigningKey,
     VerificationFailed,
     content_address,
@@ -105,6 +108,8 @@ __all__ = [
     "make_channel",
     "skip_auth_metadata",
     # Crypto.
+    "Signer",
+    "InProcessSigner",
     "SigningKey",
     "verify",
     "sha256",

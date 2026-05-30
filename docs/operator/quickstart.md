@@ -340,18 +340,18 @@ async def main():
     # walkthrough for the full registration flow.
     #
     # Here we assume two agents already registered named "sender"
-    # and "recipient", with their signing keys + agent ids loaded.
-    sender_key, sender_id = load_agent("sender")
-    recipient_key, recipient_id = load_agent("recipient")
+    # and "recipient", with their signers + agent ids loaded.
+    sender_signer, sender_id = load_agent("sender")
+    recipient_signer, recipient_id = load_agent("recipient")
 
     async with yutha.YuthaClient.connect(
         "127.0.0.1:50051",
         agent_id=sender_id,
         swarm_id=swarm_id,
-        signing_key=sender_key,
+        signer=sender_signer,
     ) as client:
         for i in range(3):
-            env = yutha.Envelope(
+            env = await yutha.Envelope(
                 spec_version="1.0.0",
                 swarm_id=swarm_id,
                 envelope_id=secrets.token_bytes(16),
@@ -365,7 +365,7 @@ async def main():
                 nonce=secrets.token_bytes(16),
                 epoch=i + 1,
                 sent_at=yutha.Timestamp.now(),
-            ).sign(sender_key)
+            ).sign(sender_signer)
 
             # The SDK translates the server-side
             # `PERMISSION_DENIED: constitution check denied: ...`

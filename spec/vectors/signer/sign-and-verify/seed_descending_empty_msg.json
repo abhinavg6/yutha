@@ -1,0 +1,12 @@
+{
+  "name": "seed_descending_empty_msg",
+  "description": "Seed 0xff 0xfe 0xfd ... 0xe0 (descending bytes), empty message.",
+  "kind": "signer-sign-and-verify",
+  "inputs": {
+    "message_hex": "",
+    "seed_hex": "fffefdfcfbfaf9f8f7f6f5f4f3f2f1f0efeeedecebeae9e8e7e6e5e4e3e2e1e0"
+  },
+  "expected_public_key_hex": "bafc71bead3ac5e4b63e9c8216ee71a34aaec65722eedbca728b4e9b3ccce396",
+  "expected_key_fingerprint_hex": "2642177f804d1ab6c7fd3d7678399a81c802d8018419eb5851c26c3aa30cde48",
+  "expected_signature_hex": "a4dc675555c27f8644dbbe54d392f4ab063ea87282c57b405ebc0f1dcd0d74643f807dbe796300568d0a603d758ef3dfdc857d1a76fc10a347f7b43b4478880d"
+}

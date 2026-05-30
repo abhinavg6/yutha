@@ -77,7 +77,7 @@ async def test_yuthaclient_exposes_five_service_apis() -> None:
         session = yutha.BearerSession(
             agent_id=yutha.AgentId.new(),
             swarm_id=yutha.SwarmId.new(),
-            signing_key=yutha.SigningKey.generate(),
+            signer=yutha.InProcessSigner.generate(),
         )
         client = yutha.YuthaClient(channel, session)
         assert isinstance(client.admission, yutha.AdmissionAPI)

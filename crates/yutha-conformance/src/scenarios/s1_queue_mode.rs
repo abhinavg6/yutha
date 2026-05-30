@@ -24,11 +24,11 @@ use yutha_capability::{
     Scope,
 };
 use yutha_core::{AgentId, CausalRef, SpecVersion, SwarmId, Timestamp};
-use yutha_crypto::sign::generate_keypair;
 use yutha_passport::{
     ControlPlaneIdentity, MemoryPassportStore, Passport, PassportResolverAdapter, PassportStore,
     PassportTier,
 };
+use yutha_signer::{InProcessSigner, Signer};
 use yutha_receipt::{
     ActionKindQuery, MemoryStore as MemoryReceiptStore, PassportResolver, Query, ReceiptStore,
 };
@@ -63,7 +63,7 @@ struct SupportAgent {
     name: &'static str,
     framework: &'static str,
     agent_id: AgentId,
-    key: yutha_crypto::SigningKey,
+    signer: InProcessSigner,
 }
 
 /// Run the S1 scenario end-to-end.
@@ -75,17 +75,21 @@ pub async fn run_s1() -> S1Outcome {
         Arc::new(PassportResolverAdapter::new(Arc::clone(&passports)));
 
     // Control plane bootstrap.
-    let cp_key = generate_keypair();
+    let cp_signer = InProcessSigner::generate();
     let cp_agent_id = AgentId::new();
     let cp_passport = signed_passport(
         swarm_id,
         cp_agent_id,
-        &cp_key,
+        &cp_signer,
         "framework_a",
         "control plane",
-    );
+    )
+    .await;
     passports.register(cp_passport).await.unwrap();
-    let cp = Arc::new(ControlPlaneIdentity::new(cp_agent_id, cp_key));
+    let cp = Arc::new(ControlPlaneIdentity::new(
+        cp_agent_id,
+        Arc::new(cp_signer) as Arc<dyn Signer>,
+    ));
 
     // Wire the substrate stack with the cp identity.
     let transport = Arc::new(MemoryTransport::new(
@@ -112,14 +116,11 @@ pub async fn run_s1() -> S1Outcome {
         ("supervisor", "framework_b"),
     ]
     .into_iter()
-    .map(|(name, framework)| {
-        let key = generate_keypair();
-        SupportAgent {
-            name,
-            framework,
-            agent_id: AgentId::new(),
-            key,
-        }
+    .map(|(name, framework)| SupportAgent {
+        name,
+        framework,
+        agent_id: AgentId::new(),
+        signer: InProcessSigner::generate(),
     })
     .collect();
 
@@ -161,10 +162,11 @@ pub async fn run_s1() -> S1Outcome {
         let passport = signed_passport(
             swarm_id,
             agent.agent_id,
-            &agent.key,
+            &agent.signer,
             agent.framework,
             agent.name,
-        );
+        )
+        .await;
         let outcome = registry
             .register(passport)
             .await
@@ -195,14 +197,15 @@ pub async fn run_s1() -> S1Outcome {
             CausalRef::empty(),
             &mut nonce_seed,
             (i as u64) + 1,
-        );
+        )
+        .await;
         transport.send(env).await.expect("send to handler");
         let delivered = transport
             .receive(&handler.agent_id)
             .await
             .expect("receive at handler");
         delivered
-            .verify_signature(&router.key.public())
+            .verify_signature(&router.signer.public_key())
             .expect("envelope signature verifies");
         envelopes_delivered += 1;
     }
@@ -217,7 +220,8 @@ pub async fn run_s1() -> S1Outcome {
             CausalRef::empty(),
             &mut nonce_seed,
             10,
-        );
+        )
+        .await;
         transport.send(env).await.expect("send escalation");
         let _ = transport
             .receive(&supervisor.agent_id)
@@ -227,7 +231,7 @@ pub async fn run_s1() -> S1Outcome {
     }
 
     // Issue a capability to the router and exercise check.pass.
-    let key = generate_keypair();
+    let issuer_signer = InProcessSigner::generate();
     let capability = Capability::builder()
         .spec_version(SpecVersion::parse("1.0.0").unwrap())
         .capability_id(vec![1u8; 16])
@@ -237,7 +241,8 @@ pub async fn run_s1() -> S1Outcome {
         .scope(Scope::for_action("send_message"))
         .valid_from(Timestamp::now())
         .valid_until(Timestamp::new("2099-01-01T00:00:00Z".into(), u64::MAX / 2).unwrap())
-        .sign(&key)
+        .sign(&issuer_signer)
+        .await
         .unwrap();
     let issued = capability_store.issue(capability).await.unwrap();
     let evaluation = capability_store
@@ -292,10 +297,10 @@ async fn count_action(receipts: &Arc<dyn ReceiptStore>, kind: &str) -> u64 {
     page.receipts.len() as u64
 }
 
-fn signed_passport(
+async fn signed_passport(
     swarm_id: SwarmId,
     agent_id: AgentId,
-    key: &yutha_crypto::SigningKey,
+    signer: &dyn Signer,
     framework: &str,
     owner: &str,
 ) -> Passport {
@@ -303,18 +308,19 @@ fn signed_passport(
         .spec_version(SpecVersion::parse("1.0.0").unwrap())
         .agent_id(agent_id)
         .swarm_id(swarm_id)
-        .agent_public_key(key.public())
+        .agent_public_key(signer.public_key())
         .owner(owner)
         .framework(framework, "1.0.0")
         .accepted_constitution_version("1.0.0")
         .tier(PassportTier::Minimal)
         .issued_at(Timestamp::now())
-        .sign(key)
+        .sign(signer)
+        .await
         .expect("sign passport")
 }
 
 #[allow(clippy::too_many_arguments)]
-fn build_envelope(
+async fn build_envelope(
     swarm_id: SwarmId,
     sender: &SupportAgent,
     recipient: Recipient,
@@ -339,7 +345,8 @@ fn build_envelope(
         .nonce(nonce)
         .epoch(epoch)
         .sent_at(Timestamp::now())
-        .sign(&sender.key)
+        .sign(&sender.signer)
+        .await
         .expect("sign envelope")
 }
 

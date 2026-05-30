@@ -1,0 +1,12 @@
+{
+  "name": "seed_zero_empty_msg",
+  "description": "All-zero seed, empty message. Boundary case — both inputs at minimum permitted size/value. RFC 8032 §7.1 test vector 1 derivation.",
+  "kind": "signer-sign-and-verify",
+  "inputs": {
+    "message_hex": "",
+    "seed_hex": "0000000000000000000000000000000000000000000000000000000000000000"
+  },
+  "expected_public_key_hex": "3b6a27bcceb6a42d62a3a8d02a6f0d73653215771de243a63ac048a18b59da29",
+  "expected_key_fingerprint_hex": "139e3940e64b5491722088d9a0d741628fc826e09475d341a780acde3c4b8070",
+  "expected_signature_hex": "8f895b3cafe2c9506039d0e2a66382568004674fe8d237785092e40d6aaf483e4fc60168705f31f101596138ce21aa357c0d32a064f423dc3ee4aa3abf53f803"
+}

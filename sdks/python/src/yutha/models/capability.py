@@ -13,7 +13,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from yutha._proto import common_pb2
 from yutha._proto.capability import capability_v1_pb2 as proto
 from yutha.canonical import canonical_bytes as _canonical_bytes
-from yutha.crypto import SigningKey, VerificationFailed, verify
+from yutha.crypto import Signer, VerificationFailed, verify
 from yutha.identity import AgentId, Hash, PublicKey, Signature, SwarmId, Timestamp
 
 # =============================================================================
@@ -367,8 +367,8 @@ class CheckOutcome(BaseModel):
 
 
 class Capability(BaseModel):
-    """A signed authority token. Construct, then ``.sign(key)`` to attach
-    ``issuer_signature``."""
+    """A signed authority token. Construct, then ``await
+    capability.sign(signer)`` to attach ``issuer_signature``."""
 
     model_config = ConfigDict(frozen=True)
 
@@ -443,9 +443,14 @@ class Capability(BaseModel):
         p.ClearField("extensions")
         return _canonical_bytes(p)
 
-    def sign(self, signing_key: SigningKey) -> Capability:
-        """Return a copy with ``issuer_signature`` attached."""
-        sig = signing_key.sign_message(self.canonical_bytes())
+    async def sign(self, signer: Signer) -> Capability:
+        """Return a copy with ``issuer_signature`` attached.
+
+        ``signer.sign_message`` is awaited — see :meth:`Passport.sign`
+        for the rationale (cloud-KMS-backed signers are async; the
+        in-process default's overhead is negligible).
+        """
+        sig = await signer.sign_message(self.canonical_bytes())
         return self.model_copy(update={"issuer_signature": sig})
 
     def verify_signature(self, issuer_public_key: PublicKey) -> None:

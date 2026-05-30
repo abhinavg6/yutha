@@ -1,0 +1,24 @@
+[package]
+name = "yutha-signer"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+authors.workspace = true
+description = "Pluggable signing-key custody for Yutha. The `Signer` trait mediates every Ed25519 signing operation in the substrate; `InProcessSigner` is the zero-dependency default (what hobby swarms run). Reference enterprise implementations (cloud KMS, Vault transit) ship as separate optional crates."
+readme = "README.md"
+
+[dependencies]
+yutha-core.workspace = true
+yutha-crypto.workspace = true
+
+async-trait.workspace = true
+thiserror.workspace = true
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
+proptest.workspace = true
+serde = { workspace = true }
+serde_json.workspace = true

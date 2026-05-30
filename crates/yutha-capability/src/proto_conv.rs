@@ -441,11 +441,11 @@ mod tests {
     use super::*;
     use crate::{Capability, Caveat, Issuer, Scope};
     use yutha_core::{AgentId, SpecVersion, SwarmId, Timestamp};
-    use yutha_crypto::sign::generate_keypair;
     use yutha_proto::Message;
+    use yutha_signer::InProcessSigner;
 
-    fn signed_fixture() -> Capability {
-        let key = generate_keypair();
+    async fn signed_fixture() -> Capability {
+        let signer = InProcessSigner::generate();
         Capability::builder()
             .spec_version(SpecVersion::parse("1.0.0").unwrap())
             .capability_id(vec![0u8; 16])
@@ -462,13 +462,14 @@ mod tests {
             .caveat(Caveat::NeverIfTagged {
                 forbidden_tags: vec!["external".into()],
             })
-            .sign(&key)
+            .sign(&signer)
+            .await
             .unwrap()
     }
 
-    #[test]
-    fn capability_round_trips_to_proto() {
-        let c = signed_fixture();
+    #[tokio::test]
+    async fn capability_round_trips_to_proto() {
+        let c = signed_fixture().await;
         let p: proto::Capability = (&c).into();
         assert_eq!(p.capability_id, vec![0u8; 16]);
         assert_eq!(p.signatures.len(), 1, "issuer signature in vec");
@@ -480,18 +481,18 @@ mod tests {
         assert_eq!(p.caveats.len(), 1);
     }
 
-    #[test]
-    fn canonical_proto_clears_signatures_and_extensions() {
-        let c = signed_fixture();
+    #[tokio::test]
+    async fn canonical_proto_clears_signatures_and_extensions() {
+        let c = signed_fixture().await;
         let cp = c.to_canonical_proto();
         assert!(cp.signatures.is_empty(), "signatures cleared");
         assert!(cp.extensions.is_none(), "extensions cleared");
         assert_eq!(cp.capability_id, vec![0u8; 16], "other fields survive");
     }
 
-    #[test]
-    fn canonical_encoding_is_bytewise_deterministic() {
-        let c = signed_fixture();
+    #[tokio::test]
+    async fn canonical_encoding_is_bytewise_deterministic() {
+        let c = signed_fixture().await;
         let a = c.to_canonical_proto().encode_to_vec();
         let b = c.to_canonical_proto().encode_to_vec();
         let d = c.clone().to_canonical_proto().encode_to_vec();
@@ -548,9 +549,9 @@ mod tests {
     // Reverse conversion tests (proto → ergonomic)
     // -------------------------------------------------------------------------
 
-    #[test]
-    fn capability_round_trips_proto_to_ergonomic() {
-        let original = signed_fixture();
+    #[tokio::test]
+    async fn capability_round_trips_proto_to_ergonomic() {
+        let original = signed_fixture().await;
         let p: proto::Capability = (&original).into();
         let back = Capability::try_from(&p).expect("reverse should succeed");
 
@@ -569,9 +570,9 @@ mod tests {
         );
     }
 
-    #[test]
-    fn capability_missing_issuer_rejected() {
-        let c = signed_fixture();
+    #[tokio::test]
+    async fn capability_missing_issuer_rejected() {
+        let c = signed_fixture().await;
         let mut p: proto::Capability = (&c).into();
         p.issuer = None;
         let err = Capability::try_from(&p).unwrap_err();

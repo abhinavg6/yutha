@@ -1,0 +1,12 @@
+{
+  "name": "seed_zero_hello_world",
+  "description": "All-zero seed with the canonical 'hello world' message bytes (11 bytes ASCII).",
+  "kind": "signer-sign-and-verify",
+  "inputs": {
+    "message_hex": "68656c6c6f20776f726c64",
+    "seed_hex": "0000000000000000000000000000000000000000000000000000000000000000"
+  },
+  "expected_public_key_hex": "3b6a27bcceb6a42d62a3a8d02a6f0d73653215771de243a63ac048a18b59da29",
+  "expected_key_fingerprint_hex": "139e3940e64b5491722088d9a0d741628fc826e09475d341a780acde3c4b8070",
+  "expected_signature_hex": "b0b47780f096ae60bfff8d8e7b19c36b321ae6e69cca972f2ff987ef30f20d29774b53bae404485c4391ddf1b3f37aaa8a9747f984eb0884e8aa533386e73305"
+}

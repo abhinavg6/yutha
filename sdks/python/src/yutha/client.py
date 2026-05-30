@@ -10,7 +10,7 @@ Typical usage::
         address="127.0.0.1:50051",
         agent_id=my_agent_id,
         swarm_id=my_swarm_id,
-        signing_key=my_signing_key,
+        signer=my_signer,
     ) as client:
         outcome = await client.admission.register(my_passport)
         async for env, deliver_receipt in await client.envelope.subscribe():
@@ -38,7 +38,7 @@ from yutha._proto.control_plane import v1_pb2 as cp_pb2
 from yutha._proto.control_plane import v1_pb2_grpc as cp_grpc
 from yutha.auth import BearerSession, OperatorBearerSession, skip_auth_metadata
 from yutha.channel import make_channel
-from yutha.crypto import SigningKey
+from yutha.crypto import Signer
 from yutha.identity import AgentId, Hash, SwarmId
 from yutha.models import (
     Capability,
@@ -657,7 +657,7 @@ class YuthaClient:
         *,
         agent_id: AgentId,
         swarm_id: SwarmId,
-        signing_key: SigningKey,
+        signer: Signer,
         token_lifetime_seconds: int = 300,
         refresh_lead_seconds: int = 30,
         tls_root_ca: str | Path | bytes | None = None,
@@ -666,6 +666,12 @@ class YuthaClient:
     ) -> Self:
         """Build a client connected to ``address``.
 
+        ``signer`` is the custody handle for the agent's Ed25519 key
+        — typically a :class:`~yutha.crypto.InProcessSigner` for
+        hobby swarms and development; cloud-KMS-backed implementations
+        are drop-in compatible. ``signer.public_key()`` MUST match the
+        public key on the agent's registered passport.
+
         See :func:`yutha.channel.make_channel` for TLS knob semantics.
         The returned client is an async context manager — entering /
         exiting handles channel teardown.
@@ -673,7 +679,7 @@ class YuthaClient:
         session = BearerSession(
             agent_id=agent_id,
             swarm_id=swarm_id,
-            signing_key=signing_key,
+            signer=signer,
             token_lifetime_seconds=token_lifetime_seconds,
             refresh_lead_seconds=refresh_lead_seconds,
         )
@@ -693,7 +699,7 @@ class YuthaClient:
         *,
         operator_id: str,
         swarm_id: SwarmId,
-        operator_signing_key: SigningKey,
+        operator_signer: Signer,
         token_lifetime_seconds: int = 300,
         refresh_lead_seconds: int = 30,
         tls_root_ca: str | Path | bytes | None = None,
@@ -704,9 +710,10 @@ class YuthaClient:
         ``OperatorBearerToken`` headers (RFC 0009).
 
         The control plane must have been started with
-        ``--operator-public-key`` matching ``operator_signing_key``'s
-        public counterpart, otherwise every operator RPC returns
-        ``FAILED_PRECONDITION: operator credentials not enabled``.
+        ``--operator-public-key`` matching
+        ``operator_signer.public_key()``, otherwise every operator
+        RPC returns ``FAILED_PRECONDITION: operator credentials not
+        enabled``.
 
         The returned client carries the same four service surfaces
         agent clients do, but most RPCs reject operator tokens with
@@ -727,14 +734,15 @@ class YuthaClient:
         swarm_id
             The swarm this operator manages. Must match the running
             control plane's swarm.
-        operator_signing_key
-            Ed25519 private key. The control plane is configured
-            with its public counterpart at startup.
+        operator_signer
+            Custody handle for the operator's Ed25519 key. Typically
+            an :class:`~yutha.crypto.InProcessSigner`; cloud-KMS-backed
+            implementations are drop-in compatible.
         """
         session = OperatorBearerSession(
             operator_id=operator_id,
             swarm_id=swarm_id,
-            operator_signing_key=operator_signing_key,
+            operator_signer=operator_signer,
             token_lifetime_seconds=token_lifetime_seconds,
             refresh_lead_seconds=refresh_lead_seconds,
         )

@@ -223,14 +223,21 @@ impl EnvelopeBuilder {
         })
     }
 
-    /// Build and sign with the sender's signing key.
-    pub fn sign(
+    /// Build and sign with the sender's [`yutha_signer::Signer`].
+    ///
+    /// Async because the [`yutha_signer::Signer`] trait is async — for
+    /// `InProcessSigner` this completes immediately; for cloud-KMS-backed
+    /// signers it makes one network call to the KMS backend.
+    pub async fn sign(
         self,
-        signing_key: &yutha_crypto::SigningKey,
+        signer: &dyn yutha_signer::Signer,
     ) -> std::result::Result<Envelope, &'static str> {
         let mut e = self.build()?;
         let bytes = e.canonical_bytes().map_err(|_| "canonical bytes failed")?;
-        let sig = signing_key.sign_message(&bytes);
+        let sig = signer
+            .sign_message(&bytes)
+            .await
+            .map_err(|_| "signer failed")?;
         e.agent_signature = Some(sig);
         Ok(e)
     }
@@ -240,9 +247,9 @@ impl EnvelopeBuilder {
 mod tests {
     use super::*;
     use crate::recipient::Recipient;
-    use yutha_crypto::sign::generate_keypair;
+    use yutha_signer::InProcessSigner;
 
-    fn sample_envelope(key: &yutha_crypto::SigningKey) -> Envelope {
+    async fn sample_envelope(signer: &InProcessSigner) -> Envelope {
         Envelope::builder()
             .spec_version(SpecVersion::parse("1.0.0").unwrap())
             .swarm_id(SwarmId::new())
@@ -256,30 +263,31 @@ mod tests {
             .nonce(vec![1u8; 16])
             .epoch(1)
             .sent_at(Timestamp::now())
-            .sign(key)
+            .sign(signer)
+            .await
             .unwrap()
     }
 
-    #[test]
-    fn signed_envelope_verifies() {
-        let key = generate_keypair();
-        let e = sample_envelope(&key);
-        assert!(e.verify_signature(&key.public()).is_ok());
+    #[tokio::test]
+    async fn signed_envelope_verifies() {
+        let signer = InProcessSigner::generate();
+        let e = sample_envelope(&signer).await;
+        assert!(e.verify_signature(&signer.public_key()).is_ok());
     }
 
-    #[test]
-    fn tampered_envelope_fails_verification() {
-        let key = generate_keypair();
-        let mut e = sample_envelope(&key);
+    #[tokio::test]
+    async fn tampered_envelope_fails_verification() {
+        let signer = InProcessSigner::generate();
+        let mut e = sample_envelope(&signer).await;
         e.payload = b"tampered".to_vec();
-        assert!(e.verify_signature(&key.public()).is_err());
+        assert!(e.verify_signature(&signer.public_key()).is_err());
     }
 
-    #[test]
-    fn envelope_with_wrong_key_fails() {
-        let key1 = generate_keypair();
-        let key2 = generate_keypair();
-        let e = sample_envelope(&key1);
-        assert!(e.verify_signature(&key2.public()).is_err());
+    #[tokio::test]
+    async fn envelope_with_wrong_key_fails() {
+        let signer1 = InProcessSigner::generate();
+        let signer2 = InProcessSigner::generate();
+        let e = sample_envelope(&signer1).await;
+        assert!(e.verify_signature(&signer2.public_key()).is_err());
     }
 }

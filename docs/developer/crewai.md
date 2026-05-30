@@ -104,14 +104,14 @@ async def main():
     swarm_id = yutha.SwarmId(value=hashlib.sha256(seed + b"\x02").digest()[:16])
 
     # Mint a fresh identity for this CrewAI agent.
-    signing_key = yutha.SigningKey.generate()
+    signer = yutha.InProcessSigner.generate()
     agent_id = yutha.AgentId(value=secrets.token_bytes(16))
 
-    passport = yutha.Passport(
+    passport = await yutha.Passport(
         spec_version="1.0.0",
         agent_id=agent_id,
         swarm_id=swarm_id,
-        agent_public_key=signing_key.public_key(),
+        agent_public_key=signer.public_key(),
         owner="hello-yutha-crewai",
         framework="crewai",
         framework_version="0.x",
@@ -121,7 +121,7 @@ async def main():
         expires_at=yutha.Timestamp(
             wall_clock="2099-01-01T00:00:00Z", monotonic_ns=2**62
         ),
-    ).sign(signing_key)
+    ).sign(signer)
 
     # Construct a CrewAI Agent. Role/goal/backstory drive the LLM
     # reasoning; for the substrate-level integration these are
@@ -140,7 +140,7 @@ async def main():
     async with YuthaCrewAgent.connect(
         "127.0.0.1:50051",
         passport=passport,
-        signing_key=signing_key,
+        signer=signer,
         crew_agent=crew_agent,
     ) as agent:
         await agent.register()
@@ -170,9 +170,12 @@ A few things to note:
 - **The passport's `framework` field is `"crewai"`.** Useful for
   audit-log filtering and for analytics later on; doesn't affect
   any wire semantics.
-- **The signing key never leaves your process.** The Yutha control
-  plane verifies every envelope's signature against the public key
-  on the passport.
+- **The agent's Signer is the custody handle.** The `Signer`
+  Protocol only exposes `public_key()` and `sign_message()`; for
+  the in-process default the private bytes live in process memory,
+  but cloud-KMS-backed signers are drop-in compatible. The Yutha
+  control plane verifies every envelope's signature against the
+  public key on the passport.
 - **`YuthaCrewAgent` is *not* itself a CrewAI Agent.** It wraps
   one. The wrapping is deliberate: the wrapper owns the gRPC
   channel, the registration, the subscribe stream, and the

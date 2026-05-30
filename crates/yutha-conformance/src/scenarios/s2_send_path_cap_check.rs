@@ -28,11 +28,11 @@ use yutha_capability::{
     Scope,
 };
 use yutha_core::{AgentId, CausalRef, SpecVersion, SwarmId, Timestamp};
-use yutha_crypto::sign::generate_keypair;
 use yutha_passport::{
     ControlPlaneIdentity, MemoryPassportStore, Passport, PassportResolverAdapter, PassportStore,
     PassportTier,
 };
+use yutha_signer::{InProcessSigner, Signer};
 use yutha_receipt::{
     ActionKindQuery, MemoryStore as MemoryReceiptStore, PassportResolver, Query, ReceiptStore,
 };
@@ -108,11 +108,14 @@ pub async fn run_s2() -> S2Outcome {
         Arc::new(PassportResolverAdapter::new(Arc::clone(&passports)));
 
     // Control-plane bootstrap.
-    let cp_key = generate_keypair();
+    let cp_signer = InProcessSigner::generate();
     let cp_agent_id = AgentId::new();
-    let cp_passport = signed_passport(swarm_id, cp_agent_id, &cp_key, "control plane");
+    let cp_passport = signed_passport(swarm_id, cp_agent_id, &cp_signer, "control plane").await;
     passports.register(cp_passport).await.unwrap();
-    let cp = Arc::new(ControlPlaneIdentity::new(cp_agent_id, cp_key));
+    let cp = Arc::new(ControlPlaneIdentity::new(
+        cp_agent_id,
+        Arc::new(cp_signer) as Arc<dyn Signer>,
+    ));
 
     let transport = Arc::new(MemoryTransport::new(
         Arc::clone(&receipts),
@@ -131,9 +134,9 @@ pub async fn run_s2() -> S2Outcome {
     ));
 
     // Two demo agents — alice (sender) and bob (recipient).
-    let alice_key = generate_keypair();
+    let alice_signer = InProcessSigner::generate();
     let alice_id = AgentId::new();
-    let bob_key = generate_keypair();
+    let bob_signer = InProcessSigner::generate();
     let bob_id = AgentId::new();
 
     let topology = Topology {
@@ -171,8 +174,11 @@ pub async fn run_s2() -> S2Outcome {
 
     // Register both agents.
     let mut agents_registered = 0u64;
-    for (key, agent_id, owner) in [(&alice_key, alice_id, "alice"), (&bob_key, bob_id, "bob")] {
-        let passport = signed_passport(swarm_id, agent_id, key, owner);
+    for (signer, agent_id, owner) in [
+        (&alice_signer, alice_id, "alice"),
+        (&bob_signer, bob_id, "bob"),
+    ] {
+        let passport = signed_passport(swarm_id, agent_id, signer, owner).await;
         let outcome = registry.register(passport).await.unwrap();
         assert!(outcome.is_accepted(), "{owner} not admitted");
         transport.register_recipient(agent_id).await;
@@ -189,7 +195,8 @@ pub async fn run_s2() -> S2Outcome {
         .scope(Scope::for_action("envelope.send"))
         .valid_from(Timestamp::now())
         .valid_until(Timestamp::new("2099-01-01T00:00:00Z".into(), u64::MAX / 2).unwrap())
-        .sign(&alice_key)
+        .sign(&alice_signer)
+        .await
         .unwrap();
     let issued = capability_store.issue(alice_send_cap).await.unwrap();
 
@@ -206,7 +213,8 @@ pub async fn run_s2() -> S2Outcome {
         .nonce(vec![2u8; 16])
         .epoch(1)
         .sent_at(Timestamp::now())
-        .sign(&alice_key)
+        .sign(&alice_signer)
+        .await
         .expect("sign envelope");
 
     let descriptor = descriptor_for_send(&envelope);
@@ -252,7 +260,8 @@ pub async fn run_s2() -> S2Outcome {
         .scope(Scope::for_action("issue_refund"))
         .valid_from(Timestamp::now())
         .valid_until(Timestamp::new("2099-01-01T00:00:00Z".into(), u64::MAX / 2).unwrap())
-        .sign(&alice_key)
+        .sign(&alice_signer)
+        .await
         .unwrap();
     let other_issued = capability_store.issue(alice_other_cap).await.unwrap();
 
@@ -292,23 +301,24 @@ async fn count_action(receipts: &Arc<dyn ReceiptStore>, kind: &str) -> u64 {
     page.receipts.len() as u64
 }
 
-fn signed_passport(
+async fn signed_passport(
     swarm_id: SwarmId,
     agent_id: AgentId,
-    key: &yutha_crypto::SigningKey,
+    signer: &dyn Signer,
     owner: &str,
 ) -> Passport {
     Passport::builder()
         .spec_version(SpecVersion::parse("1.0.0").unwrap())
         .agent_id(agent_id)
         .swarm_id(swarm_id)
-        .agent_public_key(key.public())
+        .agent_public_key(signer.public_key())
         .owner(owner)
         .framework("conformance-s2", "1.0.0")
         .accepted_constitution_version("1.0.0")
         .tier(PassportTier::Minimal)
         .issued_at(Timestamp::now())
-        .sign(key)
+        .sign(signer)
+        .await
         .expect("sign passport")
 }
 

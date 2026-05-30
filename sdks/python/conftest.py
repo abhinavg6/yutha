@@ -119,15 +119,15 @@ def _derive_swarm_id_from_seed(seed: bytes) -> yutha.SwarmId:
 
 def _derive_operator_keypair_from_seed(
     seed: bytes,
-) -> tuple[yutha.SigningKey, yutha.PublicKey]:
+) -> tuple[yutha.InProcessSigner, yutha.PublicKey]:
     """Same derivation as
     ``tests/test_operator_revoke._derive_operator_keypair``. Returns
-    (SigningKey, PublicKey)."""
+    (InProcessSigner, PublicKey)."""
     import yutha
 
     op_seed = hashlib.sha256(seed + b"\x03").digest()
-    signing = yutha.SigningKey.from_seed_bytes(op_seed)
-    return signing, signing.public_key()
+    signer = yutha.InProcessSigner.from_seed_bytes(op_seed)
+    return signer, signer.public_key()
 
 
 async def _activate_permissive_constitution(addr: str, seed: bytes) -> ActivatedConstitutionFixture:
@@ -144,14 +144,14 @@ async def _activate_permissive_constitution(addr: str, seed: bytes) -> Activated
     from yutha.testing import permissive_constitution
 
     swarm_id = _derive_swarm_id_from_seed(seed)
-    operator_signing_key, _ = _derive_operator_keypair_from_seed(seed)
+    operator_signer, _ = _derive_operator_keypair_from_seed(seed)
     constitution = permissive_constitution(swarm_id)
 
     client = yutha.YuthaClient.connect_as_operator(
         addr,
         operator_id="yutha-test:permissive-constitution-fixture",
         swarm_id=swarm_id,
-        operator_signing_key=operator_signing_key,
+        operator_signer=operator_signer,
     )
     try:
         try:

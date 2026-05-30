@@ -119,17 +119,17 @@ EXPECTED_AUDIT_DELTA: dict[str, int] = {
 
 def derive_bootstrap_identity(
     seed: bytes,
-) -> tuple[yutha.SigningKey, yutha.AgentId, yutha.SwarmId]:
+) -> tuple[yutha.InProcessSigner, yutha.AgentId, yutha.SwarmId]:
     if len(seed) != 32:
         raise ValueError(f"seed must be exactly 32 bytes, got {len(seed)}")
-    signing_key = yutha.SigningKey.from_seed_bytes(seed)
+    signer = yutha.InProcessSigner.from_seed_bytes(seed)
     agent_id = yutha.AgentId(value=hashlib.sha256(seed + b"\x01").digest()[:16])
     swarm_id = yutha.SwarmId(value=hashlib.sha256(seed + b"\x02").digest()[:16])
-    return signing_key, agent_id, swarm_id
+    return signer, agent_id, swarm_id
 
 
 def load_bootstrap_identity_from_env() -> tuple[
-    yutha.SigningKey, yutha.AgentId, yutha.SwarmId, bytes
+    yutha.InProcessSigner, yutha.AgentId, yutha.SwarmId, bytes
 ]:
     seed_hex = os.environ.get("YUTHA_BOOTSTRAP_SEED")
     if not seed_hex:
@@ -139,22 +139,22 @@ def load_bootstrap_identity_from_env() -> tuple[
         raise RuntimeError(
             f"YUTHA_BOOTSTRAP_SEED must be 64 hex chars (32 bytes); got {len(seed)} bytes"
         )
-    signing_key, agent_id, swarm_id = derive_bootstrap_identity(seed)
-    return signing_key, agent_id, swarm_id, seed
+    signer, agent_id, swarm_id = derive_bootstrap_identity(seed)
+    return signer, agent_id, swarm_id, seed
 
 
-def make_passport(
+async def make_passport(
     name: str,
     framework: str,
     swarm_id: yutha.SwarmId,
-    signing_key: yutha.SigningKey,
+    signer: yutha.Signer,
     agent_id: yutha.AgentId,
 ) -> yutha.Passport:
-    return yutha.Passport(
+    return await yutha.Passport(
         spec_version="1.0.0",
         agent_id=agent_id,
         swarm_id=swarm_id,
-        agent_public_key=signing_key.public_key(),
+        agent_public_key=signer.public_key(),
         owner=f"yutha-demo:s1-crewai:{name}",
         framework=framework,
         framework_version="1.0.0",
@@ -162,7 +162,7 @@ def make_passport(
         tier=yutha.PassportTier.MINIMAL,
         issued_at=yutha.Timestamp.now(),
         expires_at=FAR_FUTURE,
-    ).sign(signing_key)
+    ).sign(signer)
 
 
 # -----------------------------------------------------------------------------
@@ -191,7 +191,7 @@ def make_dispatch_tool(
     variable."""
     from crewai.tools import BaseTool
 
-    class DispatchTicketTool(BaseTool):
+    class DispatchTicketTool(BaseTool):  # type: ignore[misc]  # crewai BaseTool is dynamically typed
         name: str = "dispatch_ticket"
         description: str = (
             "Send a customer-support ticket to the correct specialist agent. "
@@ -331,11 +331,13 @@ async def snapshot_audit_trail(client: yutha.YuthaClient) -> dict[str, int]:
         page_token = b""
         seen = 0
         while True:
-            page = await client.receipt.query_by_action_kind(kind, limit=100, page_token=page_token)
-            seen += len(page.receipts)
-            if not page.next_page_token:
+            receipts, next_token = await client.receipt.query_by_action_kind(
+                kind, limit=100, page_token=page_token
+            )
+            seen += len(receipts)
+            if not next_token:
                 break
-            page_token = page.next_page_token
+            page_token = next_token
         counts[kind] = seen
     return counts
 
@@ -381,34 +383,33 @@ async def run_s1_crewai() -> dict[str, int]:
         )
         return {}
 
-    bootstrap_signing_key, bootstrap_agent_id, swarm_id, _seed = load_bootstrap_identity_from_env()
+    bootstrap_signer, bootstrap_agent_id, swarm_id, _seed = load_bootstrap_identity_from_env()
 
     # Per-agent fresh identity.
-    identities: dict[str, tuple[yutha.SigningKey, yutha.AgentId]] = {}
+    identities: dict[str, tuple[yutha.InProcessSigner, yutha.AgentId]] = {}
     passports: dict[str, yutha.Passport] = {}
     for name, framework in CAST:
-        sk = yutha.SigningKey.generate()
+        agent_signer = yutha.InProcessSigner.generate()
         agent_id = yutha.AgentId(value=secrets.token_bytes(16))
-        identities[name] = (sk, agent_id)
-        passports[name] = make_passport(name, framework, swarm_id, sk, agent_id)
+        identities[name] = (agent_signer, agent_id)
+        passports[name] = await make_passport(name, framework, swarm_id, agent_signer, agent_id)
 
     # Bootstrap client for audit snapshots + cap revocation.
     async with yutha.YuthaClient.connect(
         SERVER_ADDR,
         agent_id=bootstrap_agent_id,
         swarm_id=swarm_id,
-        signing_key=bootstrap_signing_key,
+        signer=bootstrap_signer,
     ) as bootstrap_client:
         pre = await snapshot_audit_trail(bootstrap_client)
         # Register each demo agent.
         for name, _ in CAST:
-            sk, _ = identities[name]
             await bootstrap_client.admission.register(passports[name])
 
         # Build the router's send-cap. Self-issued (issuer == subject)
         # for demo simplicity; a real integration would have an
         # operator issue the root cap.
-        router_sk, router_id = identities["router"]
+        router_signer, router_id = identities["router"]
         refund_clerk_id = identities["refund_clerk"][1]
         supervisor_id = identities["supervisor"][1]
 
@@ -428,7 +429,7 @@ async def run_s1_crewai() -> dict[str, int]:
 
         async with AsyncExitStack() as stack:
             # Refund clerk
-            rc_sk, _ = identities["refund_clerk"]
+            rc_signer, _ = identities["refund_clerk"]
             rc_agent = Agent(
                 role="Refund Clerk",
                 goal="Acknowledge inbound refund requests.",
@@ -438,14 +439,14 @@ async def run_s1_crewai() -> dict[str, int]:
             rc_wrapper = YuthaCrewAgent.connect(
                 SERVER_ADDR,
                 passport=passports["refund_clerk"],
-                signing_key=rc_sk,
+                signer=rc_signer,
                 crew_agent=rc_agent,
                 task_factory=refund_clerk_task_factory(supervisor_id),
             )
             await stack.enter_async_context(rc_wrapper)
 
             # Supervisor
-            sup_sk, _ = identities["supervisor"]
+            sup_signer, _ = identities["supervisor"]
             sup_agent = Agent(
                 role="Supervisor",
                 goal="Observe escalations.",
@@ -455,7 +456,7 @@ async def run_s1_crewai() -> dict[str, int]:
             sup_wrapper = YuthaCrewAgent.connect(
                 SERVER_ADDR,
                 passport=passports["supervisor"],
-                signing_key=sup_sk,
+                signer=sup_signer,
                 crew_agent=sup_agent,
                 task_factory=supervisor_task_factory,
             )
@@ -472,7 +473,7 @@ async def run_s1_crewai() -> dict[str, int]:
             router_wrapper = YuthaCrewAgent.connect(
                 SERVER_ADDR,
                 passport=passports["router"],
-                signing_key=router_sk,
+                signer=router_signer,
                 crew_agent=router_agent,
             )
             await stack.enter_async_context(router_wrapper)
@@ -507,7 +508,7 @@ async def run_s1_crewai() -> dict[str, int]:
             # more dispatch, confirm a deny surfaces. Capability
             # denials raise CapabilityDenied (translated from the
             # server's PERMISSION_DENIED).
-            await router_wrapper.client.capability.revoke(cap_id)
+            await router_wrapper.client.capability.revoke(cap_id, "s1 demo cleanup")
             try:
                 dispatch_tool._run(ticket_text="post-revoke attempt", category="refund_clerk")
             except CapabilityDenied as exc:

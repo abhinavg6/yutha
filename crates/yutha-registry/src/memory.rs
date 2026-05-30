@@ -74,7 +74,16 @@ impl MemoryRegistry {
     /// by the control plane. Used for `agent.register`, `agent.revoke`, and
     /// `agent.rotate_key`. Evidence is passed in by the caller; this helper
     /// handles the framing + signing.
-    fn build_signed_receipt(&self, action_kind: &str, evidence: Vec<Evidence>) -> Result<Receipt> {
+    ///
+    /// Async because `ControlPlaneIdentity::sign` is async (RFC 0015 Phase
+    /// B refactor) — for `InProcessSigner` this completes immediately;
+    /// for cloud-KMS-backed signers it makes one network round-trip per
+    /// receipt.
+    async fn build_signed_receipt(
+        &self,
+        action_kind: &str,
+        evidence: Vec<Evidence>,
+    ) -> Result<Receipt> {
         let mut iter = evidence.into_iter();
         let first = iter.next().ok_or_else(|| {
             RegistryError::Backend("registry receipts require at least one evidence entry".into())
@@ -100,7 +109,11 @@ impl MemoryRegistry {
         let bytes = receipt
             .canonical_bytes()
             .map_err(yutha_receipt::ReceiptError::from)?;
-        let sig = self.control_plane.sign(&bytes);
+        let sig = self
+            .control_plane
+            .sign(&bytes)
+            .await
+            .map_err(|e| RegistryError::Backend(format!("signer: {e}")))?;
         receipt
             .signatures
             .push(SignedBy::new(SignatureRole::Actor, sig, Timestamp::now()));
@@ -109,7 +122,7 @@ impl MemoryRegistry {
     }
 
     /// Build the registration receipt.
-    fn build_registration_receipt(&self, passport: &Passport) -> Result<Receipt> {
+    async fn build_registration_receipt(&self, passport: &Passport) -> Result<Receipt> {
         let passport_hash = content_address(passport).map_err(yutha_receipt::ReceiptError::from)?;
         self.build_signed_receipt(
             "agent.register",
@@ -126,6 +139,7 @@ impl MemoryRegistry {
                 ),
             ],
         )
+        .await
     }
 }
 
@@ -155,7 +169,7 @@ impl Registry for MemoryRegistry {
         let mut outcome = self.passports.register(passport.clone()).await?;
 
         // Build the registration receipt, signed by the control plane.
-        let receipt = self.build_registration_receipt(&passport)?;
+        let receipt = self.build_registration_receipt(&passport).await?;
         let append_out = self
             .receipts
             .append(receipt, AppendOptions::default(), self.resolver.as_ref())
@@ -171,21 +185,23 @@ impl Registry for MemoryRegistry {
         // produced.
         self.passports.revoke(agent_id, reason).await?;
 
-        let receipt = self.build_signed_receipt(
-            "agent.revoke",
-            vec![
-                Evidence::new(
-                    "agent_id",
-                    "type.yutha.dev/v1/AgentId",
-                    agent_id.as_bytes().to_vec(),
-                ),
-                Evidence::new(
-                    "reason",
-                    "type.yutha.dev/v1/String",
-                    reason.as_bytes().to_vec(),
-                ),
-            ],
-        )?;
+        let receipt = self
+            .build_signed_receipt(
+                "agent.revoke",
+                vec![
+                    Evidence::new(
+                        "agent_id",
+                        "type.yutha.dev/v1/AgentId",
+                        agent_id.as_bytes().to_vec(),
+                    ),
+                    Evidence::new(
+                        "reason",
+                        "type.yutha.dev/v1/String",
+                        reason.as_bytes().to_vec(),
+                    ),
+                ],
+            )
+            .await?;
         let outcome = self
             .receipts
             .append(receipt, AppendOptions::default(), self.resolver.as_ref())
@@ -206,26 +222,28 @@ impl Registry for MemoryRegistry {
         // See RFC 0009 §3.5 for the receipt-kind rationale.
         self.passports.revoke(target, reason).await?;
 
-        let receipt = self.build_signed_receipt(
-            "agent.operator_revoke",
-            vec![
-                Evidence::new(
-                    "target_agent_id",
-                    "type.yutha.dev/v1/AgentId",
-                    target.as_bytes().to_vec(),
-                ),
-                Evidence::new(
-                    "operator_id",
-                    "type.yutha.dev/v1/String",
-                    operator_id.as_bytes().to_vec(),
-                ),
-                Evidence::new(
-                    "reason",
-                    "type.yutha.dev/v1/String",
-                    reason.as_bytes().to_vec(),
-                ),
-            ],
-        )?;
+        let receipt = self
+            .build_signed_receipt(
+                "agent.operator_revoke",
+                vec![
+                    Evidence::new(
+                        "target_agent_id",
+                        "type.yutha.dev/v1/AgentId",
+                        target.as_bytes().to_vec(),
+                    ),
+                    Evidence::new(
+                        "operator_id",
+                        "type.yutha.dev/v1/String",
+                        operator_id.as_bytes().to_vec(),
+                    ),
+                    Evidence::new(
+                        "reason",
+                        "type.yutha.dev/v1/String",
+                        reason.as_bytes().to_vec(),
+                    ),
+                ],
+            )
+            .await?;
         let outcome = self
             .receipts
             .append(receipt, AppendOptions::default(), self.resolver.as_ref())
@@ -264,26 +282,28 @@ impl Registry for MemoryRegistry {
 
         let mut outcome = self.passports.rotate_key(new_passport.clone()).await?;
 
-        let receipt = self.build_signed_receipt(
-            "agent.rotate_key",
-            vec![
-                Evidence::new(
-                    "agent_id",
-                    "type.yutha.dev/v1/AgentId",
-                    new_passport.agent_id.as_bytes().to_vec(),
-                ),
-                Evidence::new(
-                    "old_key_fingerprint",
-                    "type.yutha.dev/v1/Hash",
-                    old_fingerprint,
-                ),
-                Evidence::new(
-                    "new_key_fingerprint",
-                    "type.yutha.dev/v1/Hash",
-                    new_fingerprint,
-                ),
-            ],
-        )?;
+        let receipt = self
+            .build_signed_receipt(
+                "agent.rotate_key",
+                vec![
+                    Evidence::new(
+                        "agent_id",
+                        "type.yutha.dev/v1/AgentId",
+                        new_passport.agent_id.as_bytes().to_vec(),
+                    ),
+                    Evidence::new(
+                        "old_key_fingerprint",
+                        "type.yutha.dev/v1/Hash",
+                        old_fingerprint,
+                    ),
+                    Evidence::new(
+                        "new_key_fingerprint",
+                        "type.yutha.dev/v1/Hash",
+                        new_fingerprint,
+                    ),
+                ],
+            )
+            .await?;
         let append_out = self
             .receipts
             .append(receipt, AppendOptions::default(), self.resolver.as_ref())
@@ -347,10 +367,10 @@ fn check_hybrid(policy: &HybridPolicy, passport: &Passport) -> Result<()> {
 mod tests {
     use super::*;
     use yutha_core::{SpecVersion, SwarmId, Timestamp};
-    use yutha_crypto::sign::generate_keypair;
     use yutha_passport::{
         MemoryPassportStore, PassportResolverAdapter, PassportTier, RegistrationStatus,
     };
+    use yutha_signer::InProcessSigner;
 
     /// Build a fully-wired test harness: receipt store, passport store with
     /// the control-plane passport pre-registered, resolver adapter, registry.
@@ -383,46 +403,49 @@ mod tests {
         // Bootstrap control plane: fresh identity, passport registered into
         // the passport store so the resolver can later verify the cp's
         // signature on registration receipts.
-        let cp_key = generate_keypair();
+        let cp_signer = InProcessSigner::generate();
+        let cp_public_key = cp_signer.public_key();
+        let cp_signer: Arc<dyn yutha_signer::Signer> = Arc::new(cp_signer);
         let cp_agent_id = AgentId::new();
         let cp_passport = Passport::builder()
             .spec_version(SpecVersion::parse("1.0.0").unwrap())
             .agent_id(cp_agent_id)
             .swarm_id(swarm_id)
-            .agent_public_key(cp_key.public())
+            .agent_public_key(cp_public_key)
             .owner("control plane")
             .accepted_constitution_version("1.0.0")
             .tier(PassportTier::Minimal)
             .issued_at(Timestamp::now())
-            .sign(&cp_key)
+            .sign(cp_signer.as_ref())
+            .await
             .unwrap();
         passports.register(cp_passport).await.unwrap();
 
-        let cp = Arc::new(ControlPlaneIdentity::new(cp_agent_id, cp_key));
+        let cp = Arc::new(ControlPlaneIdentity::new(cp_agent_id, cp_signer));
 
         let registry =
             MemoryRegistry::new(topology, passports, Arc::clone(&receipts), resolver, cp).unwrap();
         (registry, receipts, swarm_id)
     }
 
-    fn signed_passport_for_swarm(
+    async fn signed_passport_for_swarm(
         swarm_id: SwarmId,
         tier: PassportTier,
         with_expiry: bool,
     ) -> Passport {
-        let key = generate_keypair();
+        let signer = InProcessSigner::generate();
         let mut b = Passport::builder()
             .spec_version(SpecVersion::parse("1.0.0").unwrap())
             .agent_id(AgentId::new())
             .swarm_id(swarm_id)
-            .agent_public_key(key.public())
+            .agent_public_key(signer.public_key())
             .accepted_constitution_version("1.0.0")
             .tier(tier)
             .issued_at(Timestamp::now());
         if with_expiry {
             b = b.expires_at(Timestamp::new("2099-01-01T00:00:00Z".into(), u64::MAX / 2).unwrap());
         }
-        b.sign(&key).unwrap()
+        b.sign(&signer).await.unwrap()
     }
 
     #[tokio::test]
@@ -436,16 +459,17 @@ mod tests {
         )
         .await;
 
-        let key = generate_keypair();
+        let signer = InProcessSigner::generate();
         let p = Passport::builder()
             .spec_version(SpecVersion::parse("1.0.0").unwrap())
             .agent_id(agent_id)
             .swarm_id(swarm)
-            .agent_public_key(key.public())
+            .agent_public_key(signer.public_key())
             .accepted_constitution_version("1.0.0")
             .tier(PassportTier::Minimal)
             .issued_at(Timestamp::now())
-            .sign(&key)
+            .sign(&signer)
+            .await
             .unwrap();
 
         let outcome = registry.register(p).await.unwrap();
@@ -477,7 +501,7 @@ mod tests {
             AdmissionPolicy::Closed(ClosedPolicy::default()),
         )
         .await;
-        let p = signed_passport_for_swarm(swarm, PassportTier::Minimal, false);
+        let p = signed_passport_for_swarm(swarm, PassportTier::Minimal, false).await;
         let result = registry.register(p).await;
         assert!(matches!(result, Err(RegistryError::AdmissionDenied(_))));
         assert_eq!(receipts.count().await.unwrap(), 0);
@@ -490,7 +514,7 @@ mod tests {
             AdmissionPolicy::Open(OpenPolicy::default()),
         )
         .await;
-        let p = signed_passport_for_swarm(swarm, PassportTier::Standard, false);
+        let p = signed_passport_for_swarm(swarm, PassportTier::Standard, false).await;
         let result = registry.register(p).await;
         assert!(matches!(result, Err(RegistryError::AdmissionDenied(_))));
     }
@@ -502,7 +526,7 @@ mod tests {
             AdmissionPolicy::Open(OpenPolicy::default()),
         )
         .await;
-        let p = signed_passport_for_swarm(swarm, PassportTier::Minimal, true);
+        let p = signed_passport_for_swarm(swarm, PassportTier::Minimal, true).await;
         let result = registry.register(p).await;
         assert!(matches!(result, Err(RegistryError::AdmissionDenied(_))));
     }
@@ -514,7 +538,7 @@ mod tests {
             AdmissionPolicy::Open(OpenPolicy::default()),
         )
         .await;
-        let p = signed_passport_for_swarm(swarm, PassportTier::Standard, true);
+        let p = signed_passport_for_swarm(swarm, PassportTier::Standard, true).await;
         let outcome = registry.register(p).await.unwrap();
         assert!(matches!(outcome.status, RegistrationStatus::Accepted));
         assert_eq!(receipts.count().await.unwrap(), 1);
@@ -529,7 +553,7 @@ mod tests {
         .await;
 
         let other_swarm = SwarmId::new();
-        let p = signed_passport_for_swarm(other_swarm, PassportTier::Minimal, false);
+        let p = signed_passport_for_swarm(other_swarm, PassportTier::Minimal, false).await;
         let result = registry.register(p).await;
         assert!(matches!(result, Err(RegistryError::SwarmMismatch { .. })));
         assert_eq!(receipts.count().await.unwrap(), 0);
@@ -546,16 +570,17 @@ mod tests {
         )
         .await;
 
-        let key = generate_keypair();
+        let signer = InProcessSigner::generate();
         let p = Passport::builder()
             .spec_version(SpecVersion::parse("1.0.0").unwrap())
             .agent_id(agent_id)
             .swarm_id(swarm)
-            .agent_public_key(key.public())
+            .agent_public_key(signer.public_key())
             .accepted_constitution_version("1.0.0")
             .tier(PassportTier::Minimal)
             .issued_at(Timestamp::now())
-            .sign(&key)
+            .sign(&signer)
+            .await
             .unwrap();
         registry.register(p).await.unwrap();
 
@@ -585,30 +610,32 @@ mod tests {
         .await;
 
         // Initial registration.
-        let key1 = generate_keypair();
+        let signer1 = InProcessSigner::generate();
         let p1 = Passport::builder()
             .spec_version(SpecVersion::parse("1.0.0").unwrap())
             .agent_id(agent_id)
             .swarm_id(swarm)
-            .agent_public_key(key1.public())
+            .agent_public_key(signer1.public_key())
             .accepted_constitution_version("1.0.0")
             .tier(PassportTier::Minimal)
             .issued_at(Timestamp::now())
-            .sign(&key1)
+            .sign(&signer1)
+            .await
             .unwrap();
         registry.register(p1).await.unwrap();
 
         // New passport with rotated key.
-        let key2 = generate_keypair();
+        let signer2 = InProcessSigner::generate();
         let p2 = Passport::builder()
             .spec_version(SpecVersion::parse("1.0.0").unwrap())
             .agent_id(agent_id)
             .swarm_id(swarm)
-            .agent_public_key(key2.public())
+            .agent_public_key(signer2.public_key())
             .accepted_constitution_version("1.0.0")
             .tier(PassportTier::Minimal)
             .issued_at(Timestamp::now())
-            .sign(&key2)
+            .sign(&signer2)
+            .await
             .unwrap();
         let outcome = registry.rotate_key(p2).await.unwrap();
         assert!(outcome.registration_receipt.is_some());

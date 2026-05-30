@@ -187,7 +187,11 @@ impl MemoryTransport {
             .map_err(|e| TransportError::Backend(format!("build receipt: {e}")))?;
 
         let bytes = receipt.canonical_bytes()?;
-        let sig = self.control_plane.sign(&bytes);
+        let sig = self
+            .control_plane
+            .sign(&bytes)
+            .await
+            .map_err(|e| TransportError::Backend(format!("signer: {e}")))?;
         receipt
             .signatures
             .push(SignedBy::new(SignatureRole::Actor, sig, Timestamp::now()));
@@ -568,10 +572,10 @@ mod tests {
     use super::*;
     use crate::performative::Performative;
     use yutha_core::{CausalRef, SpecVersion, SwarmId};
-    use yutha_crypto::sign::generate_keypair;
     use yutha_passport::{
         MemoryPassportStore, Passport, PassportResolverAdapter, PassportStore, PassportTier,
     };
+    use yutha_signer::InProcessSigner;
 
     /// Build a test harness: receipt store, passport store with cp passport
     /// pre-registered, resolver, transport.
@@ -582,21 +586,28 @@ mod tests {
         let resolver: Arc<dyn PassportResolver> =
             Arc::new(PassportResolverAdapter::new(Arc::clone(&passports)));
 
-        let cp_key = generate_keypair();
+        // Construct as concrete `InProcessSigner` first so we can use its
+        // inherent `public_key()` accessor without `use yutha_signer::Signer;`
+        // in scope; then wrap in `Arc<dyn Signer>` for handoff to
+        // `ControlPlaneIdentity::new`.
+        let cp_signer = InProcessSigner::generate();
+        let cp_public_key = cp_signer.public_key();
+        let cp_signer: Arc<dyn yutha_signer::Signer> = Arc::new(cp_signer);
         let cp_agent_id = AgentId::new();
         let cp_passport = Passport::builder()
             .spec_version(SpecVersion::parse("1.0.0").unwrap())
             .agent_id(cp_agent_id)
             .swarm_id(swarm_id)
-            .agent_public_key(cp_key.public())
+            .agent_public_key(cp_public_key)
             .owner("control plane")
             .accepted_constitution_version("1.0.0")
             .tier(PassportTier::Minimal)
             .issued_at(Timestamp::now())
-            .sign(&cp_key)
+            .sign(cp_signer.as_ref())
+            .await
             .unwrap();
         passports.register(cp_passport).await.unwrap();
-        let cp = Arc::new(ControlPlaneIdentity::new(cp_agent_id, cp_key));
+        let cp = Arc::new(ControlPlaneIdentity::new(cp_agent_id, cp_signer));
 
         let transport = MemoryTransport::new(Arc::clone(&receipts), resolver, cp);
         (transport, receipts, swarm_id)
@@ -615,7 +626,7 @@ mod tests {
         to: AgentId,
     ) -> Envelope {
         transport.register_recipient(to).await;
-        let key = generate_keypair();
+        let signer = InProcessSigner::generate();
         let envelope = Envelope::builder()
             .spec_version(SpecVersion::parse("1.0.0").unwrap())
             .swarm_id(swarm_id)
@@ -628,7 +639,8 @@ mod tests {
             .nonce(vec![rand_nonce(); 16])
             .epoch(1)
             .sent_at(Timestamp::now())
-            .sign(&key)
+            .sign(&signer)
+            .await
             .unwrap();
         transport.send(envelope.clone()).await.unwrap();
         transport.receive(&to).await.unwrap()
@@ -669,7 +681,7 @@ mod tests {
     #[tokio::test]
     async fn send_to_unregistered_recipient_errors_and_emits_no_receipt() {
         let (transport, receipts, swarm_id) = harness().await;
-        let key = generate_keypair();
+        let signer = InProcessSigner::generate();
         let alice = AgentId::new();
         let bob = AgentId::new();
         let envelope = Envelope::builder()
@@ -683,15 +695,20 @@ mod tests {
             .nonce(vec![rand_nonce(); 16])
             .epoch(1)
             .sent_at(Timestamp::now())
-            .sign(&key)
+            .sign(&signer)
+            .await
             .unwrap();
         let result = transport.send(envelope).await;
         assert!(matches!(result, Err(TransportError::Delivery(_))));
         assert_eq!(receipts.count().await.unwrap(), 0);
     }
 
-    fn broadcast_envelope(swarm_id: SwarmId, from: AgentId, recipient: Recipient) -> Envelope {
-        let key = generate_keypair();
+    async fn broadcast_envelope(
+        swarm_id: SwarmId,
+        from: AgentId,
+        recipient: Recipient,
+    ) -> Envelope {
+        let signer = InProcessSigner::generate();
         Envelope::builder()
             .spec_version(SpecVersion::parse("1.0.0").unwrap())
             .swarm_id(swarm_id)
@@ -704,7 +721,8 @@ mod tests {
             .nonce(vec![rand_nonce(); 16])
             .epoch(1)
             .sent_at(Timestamp::now())
-            .sign(&key)
+            .sign(&signer)
+            .await
             .unwrap()
     }
 
@@ -737,7 +755,8 @@ mod tests {
         transport.register_role_member("shipping", carol).await;
 
         let sender = AgentId::new();
-        let envelope = broadcast_envelope(swarm_id, sender, Recipient::Role("billing".to_string()));
+        let envelope =
+            broadcast_envelope(swarm_id, sender, Recipient::Role("billing".to_string())).await;
         transport.send(envelope).await.unwrap();
 
         // Both billing members got an envelope; carol's inbox stays empty.
@@ -776,11 +795,9 @@ mod tests {
         let (transport, receipts, swarm_id) = harness().await;
         let sender = AgentId::new();
         transport
-            .send(broadcast_envelope(
-                swarm_id,
-                sender,
-                Recipient::Role("nobody".to_string()),
-            ))
+            .send(
+                broadcast_envelope(swarm_id, sender, Recipient::Role("nobody".to_string())).await,
+            )
             .await
             .unwrap();
 
@@ -807,13 +824,16 @@ mod tests {
         }
         let sender = AgentId::new();
         transport
-            .send(broadcast_envelope(
-                swarm_id,
-                sender,
-                Recipient::Swarm(crate::SwarmBroadcast {
-                    filter_tags: vec![],
-                }),
-            ))
+            .send(
+                broadcast_envelope(
+                    swarm_id,
+                    sender,
+                    Recipient::Swarm(crate::SwarmBroadcast {
+                        filter_tags: vec![],
+                    }),
+                )
+                .await,
+            )
             .await
             .unwrap();
         // Both subscribed agents got it.
@@ -840,13 +860,16 @@ mod tests {
 
         let sender = AgentId::new();
         transport
-            .send(broadcast_envelope(
-                swarm_id,
-                sender,
-                Recipient::Swarm(crate::SwarmBroadcast {
-                    filter_tags: vec!["finance".to_string(), "pii".to_string()],
-                }),
-            ))
+            .send(
+                broadcast_envelope(
+                    swarm_id,
+                    sender,
+                    Recipient::Swarm(crate::SwarmBroadcast {
+                        filter_tags: vec!["finance".to_string(), "pii".to_string()],
+                    }),
+                )
+                .await,
+            )
             .await
             .unwrap();
 
@@ -872,7 +895,7 @@ mod tests {
         let alice = AgentId::new();
         let bob = AgentId::new();
         transport.register_recipient(bob).await;
-        let key = generate_keypair();
+        let signer = InProcessSigner::generate();
 
         let nonce = vec![rand_nonce(); 16];
         let envelope = Envelope::builder()
@@ -886,7 +909,8 @@ mod tests {
             .nonce(nonce)
             .epoch(1)
             .sent_at(Timestamp::now())
-            .sign(&key)
+            .sign(&signer)
+            .await
             .unwrap();
 
         transport.send(envelope.clone()).await.unwrap();

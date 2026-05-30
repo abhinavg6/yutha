@@ -184,7 +184,7 @@ async with yutha.YuthaClient.connect_as_operator(
     server_addr,
     operator_id="yutha-demo:code-review:operator",
     swarm_id=swarm_id,
-    operator_signing_key=op_signing_key,
+    operator_signer=op_signer,
 ) as op_client:
     activated = await op_client.constitution.activate(constitution)
 ```

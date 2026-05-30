@@ -39,12 +39,12 @@ pytestmark = pytest.mark.integration
 
 def _derive_identity(
     seed: bytes,
-) -> tuple[yutha.SigningKey, yutha.AgentId, yutha.SwarmId]:
-    signing_key = yutha.SigningKey.from_seed_bytes(seed)
+) -> tuple[yutha.InProcessSigner, yutha.AgentId, yutha.SwarmId]:
+    signer = yutha.InProcessSigner.from_seed_bytes(seed)
     agent_id_bytes = hashlib.sha256(seed + b"\x01").digest()[:16]
     swarm_id_bytes = hashlib.sha256(seed + b"\x02").digest()[:16]
     return (
-        signing_key,
+        signer,
         yutha.AgentId(value=agent_id_bytes),
         yutha.SwarmId(value=swarm_id_bytes),
     )
@@ -52,14 +52,14 @@ def _derive_identity(
 
 def _derive_operator_keypair(
     seed: bytes,
-) -> tuple[yutha.SigningKey, yutha.PublicKey]:
+) -> tuple[yutha.InProcessSigner, yutha.PublicKey]:
     op_seed = hashlib.sha256(seed + b"\x03").digest()
-    signing = yutha.SigningKey.from_seed_bytes(op_seed)
-    return signing, signing.public_key()
+    signer = yutha.InProcessSigner.from_seed_bytes(op_seed)
+    return signer, signer.public_key()
 
 
 @pytest.fixture
-def bootstrap_identity() -> tuple[yutha.SigningKey, yutha.AgentId, yutha.SwarmId]:
+def bootstrap_identity() -> tuple[yutha.InProcessSigner, yutha.AgentId, yutha.SwarmId]:
     seed_hex = os.environ.get("YUTHA_BOOTSTRAP_SEED")
     if not seed_hex:
         pytest.skip("set YUTHA_BOOTSTRAP_SEED")
@@ -85,7 +85,7 @@ def address() -> str:
 
 @pytest.mark.asyncio
 async def test_support_queue_workload_constitution_activates_via_grpc(
-    bootstrap_identity: tuple[yutha.SigningKey, yutha.AgentId, yutha.SwarmId],
+    bootstrap_identity: tuple[yutha.InProcessSigner, yutha.AgentId, yutha.SwarmId],
     seed_bytes: bytes,
     address: str,
 ) -> None:
@@ -94,7 +94,7 @@ async def test_support_queue_workload_constitution_activates_via_grpc(
     survives proto round-trip and that the server returned a valid
     activate-receipt id."""
     _, _, swarm_id = bootstrap_identity
-    operator_signing_key, _ = _derive_operator_keypair(seed_bytes)
+    operator_signer, _ = _derive_operator_keypair(seed_bytes)
     constitution = support_queue_refund_cap_constitution(swarm_id)
 
     # --- Activate via operator-bearer client ---
@@ -102,7 +102,7 @@ async def test_support_queue_workload_constitution_activates_via_grpc(
         address,
         operator_id="yutha-test:workload-constitution",
         swarm_id=swarm_id,
-        operator_signing_key=operator_signing_key,
+        operator_signer=operator_signer,
     )
     try:
         try:
@@ -134,12 +134,12 @@ async def test_support_queue_workload_constitution_activates_via_grpc(
         await op_client.close()
 
     # --- Read back via agent-bearer client ---
-    signing_key, agent_id, _ = bootstrap_identity
+    signer, agent_id, _ = bootstrap_identity
     async with yutha.YuthaClient.connect(
         address,
         agent_id=agent_id,
         swarm_id=swarm_id,
-        signing_key=signing_key,
+        signer=signer,
     ) as client:
         active = await client.constitution.get_active()
     assert active is not None

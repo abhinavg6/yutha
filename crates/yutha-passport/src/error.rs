@@ -47,4 +47,11 @@ pub enum PassportError {
     /// Core-layer error.
     #[error(transparent)]
     Core(#[from] CoreError),
+
+    /// The injected [`yutha_signer::Signer`] failed to produce a signature.
+    /// String-wrapped so this error type does not take a hard dependency
+    /// on the signer error type's variants — useful because every
+    /// `Signer` impl can return its own backend-specific failure detail.
+    #[error("signer failed: {0}")]
+    Signer(String),
 }

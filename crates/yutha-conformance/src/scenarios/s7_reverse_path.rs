@@ -44,11 +44,11 @@ use yutha_cedar_plus::{
 };
 use yutha_core::{AgentId, Hash, HashAlgorithm, SpecVersion, SwarmId, Timestamp};
 use yutha_crypto::canonical::Canonical;
-use yutha_crypto::sign::generate_keypair;
 use yutha_passport::{
     ControlPlaneIdentity, MemoryPassportStore, Passport, PassportResolverAdapter, PassportStore,
     PassportTier,
 };
+use yutha_signer::{InProcessSigner, Signer};
 use yutha_receipt::{
     ActionKindQuery, AppendOptions, Evidence, MemoryStore as MemoryReceiptStore, PassportResolver,
     Query, Receipt, ReceiptStore, SignatureRole, SignedBy,
@@ -149,16 +149,19 @@ pub async fn run_s7() -> S7Outcome {
     let resolver: Arc<dyn PassportResolver> =
         Arc::new(PassportResolverAdapter::new(Arc::clone(&passports)));
 
-    let cp_key = generate_keypair();
+    let cp_signer = InProcessSigner::generate();
     let cp_agent_id = AgentId::new();
-    let cp_passport = signed_passport(swarm_id, cp_agent_id, &cp_key, "control plane");
+    let cp_passport = signed_passport(swarm_id, cp_agent_id, &cp_signer, "control plane").await;
     passports.register(cp_passport).await.unwrap();
-    let cp = Arc::new(ControlPlaneIdentity::new(cp_agent_id, cp_key));
+    let cp = Arc::new(ControlPlaneIdentity::new(
+        cp_agent_id,
+        Arc::new(cp_signer) as Arc<dyn Signer>,
+    ));
 
-    let alice_key = generate_keypair();
+    let alice_signer = InProcessSigner::generate();
     let alice_id = AgentId::new();
     passports
-        .register(signed_passport(swarm_id, alice_id, &alice_key, "alice"))
+        .register(signed_passport(swarm_id, alice_id, &alice_signer, "alice").await)
         .await
         .unwrap();
 
@@ -187,7 +190,7 @@ pub async fn run_s7() -> S7Outcome {
         }),
     );
     let issued = cap_store
-        .issue(build_alice_cap(swarm_id, alice_id, &alice_key))
+        .issue(build_alice_cap(swarm_id, alice_id, &alice_signer).await)
         .await
         .expect("pre-quarantine cap issues");
 
@@ -362,22 +365,23 @@ pub async fn run_s7() -> S7Outcome {
 // extracted because the scenarios are independent of each other.
 // =============================================================================
 
-fn signed_passport(
+async fn signed_passport(
     swarm_id: SwarmId,
     agent_id: AgentId,
-    key: &yutha_crypto::sign::SigningKey,
+    signer: &dyn Signer,
     owner: &str,
 ) -> Passport {
     Passport::builder()
         .spec_version(SpecVersion::parse("1.0.0").unwrap())
         .agent_id(agent_id)
         .swarm_id(swarm_id)
-        .agent_public_key(key.public())
+        .agent_public_key(signer.public_key())
         .owner(owner)
         .accepted_constitution_version("1.0.0")
         .tier(PassportTier::Minimal)
         .issued_at(Timestamp::now())
-        .sign(key)
+        .sign(signer)
+        .await
         .expect("sign passport")
 }
 
@@ -537,7 +541,7 @@ async fn append_receipt(
     }
     let mut receipt = builder.build().expect("build receipt");
     let bytes = receipt.canonical_bytes().expect("canonical bytes");
-    let sig = cp.sign(&bytes);
+    let sig = cp.sign(&bytes).await.expect("cp signer");
     receipt
         .signatures
         .push(SignedBy::new(SignatureRole::Actor, sig, Timestamp::now()));
@@ -646,10 +650,10 @@ fn view_from(receipt: &Receipt, target: AgentId) -> ReceiptView<'_> {
     }
 }
 
-fn build_alice_cap(
+async fn build_alice_cap(
     swarm_id: SwarmId,
     alice_id: AgentId,
-    alice_key: &yutha_crypto::sign::SigningKey,
+    alice_signer: &dyn Signer,
 ) -> Capability {
     Capability::builder()
         .spec_version(SpecVersion::parse("1.0.0").unwrap())
@@ -660,7 +664,8 @@ fn build_alice_cap(
         .scope(Scope::for_action("envelope.send"))
         .valid_from(Timestamp::now())
         .valid_until(Timestamp::new("2099-01-01T00:00:00Z".into(), u64::MAX / 2).unwrap())
-        .sign(alice_key)
+        .sign(alice_signer)
+        .await
         .expect("sign cap")
 }
 

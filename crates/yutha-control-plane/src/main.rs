@@ -48,7 +48,7 @@ use tracing::{info, warn};
 use yutha_capability::{CapabilityStore, MemoryCapabilityStore};
 use yutha_core::{AgentId, SpecVersion, SwarmId, Timestamp};
 use yutha_crypto::hash::sha256;
-use yutha_crypto::sign::{generate_keypair, SigningKey};
+use yutha_signer::{InProcessSigner, Signer};
 use yutha_passport::{
     ControlPlaneIdentity, MemoryPassportStore, Passport, PassportResolverAdapter, PassportStore,
     PassportTier,
@@ -715,7 +715,11 @@ async fn emit_effects(
 /// client that holds the seed can reconstruct them without any
 /// out-of-band coordination with the running server.
 struct BootstrapIdentity {
-    signing_key: SigningKey,
+    /// Wrapped in `InProcessSigner` so the bootstrap-signing path is the
+    /// same shape as every other signing path (RFC 0015). For
+    /// development / integration-test use; production deployments would
+    /// front the bootstrap identity with a KMS-backed `Signer` impl.
+    signer: InProcessSigner,
     agent_id: AgentId,
     swarm_id: SwarmId,
 }
@@ -730,8 +734,9 @@ impl BootstrapIdentity {
                 v.len()
             )
         })?;
-        // Ed25519 takes the seed directly.
-        let signing_key = SigningKey::from_bytes(&seed);
+        // Ed25519 takes the seed directly; wrap in InProcessSigner so the
+        // downstream construction code can pass `&dyn Signer` uniformly.
+        let signer = InProcessSigner::from_bytes(&seed);
         // Domain-separated derivations: a one-byte tag distinguishes
         // the two identifier streams so they can't ever collide.
         let mut agent_input = Vec::with_capacity(33);
@@ -753,7 +758,7 @@ impl BootstrapIdentity {
         );
 
         Ok(Self {
-            signing_key,
+            signer,
             agent_id,
             swarm_id,
         })
@@ -814,18 +819,26 @@ async fn bootstrap_backends(
         Arc::new(PassportResolverAdapter::new(Arc::clone(&passport_store)));
     info!("resolver adapter wired (passport → receipt)");
 
-    let cp_key = generate_keypair();
+    // Construct as concrete `InProcessSigner` first so we can capture the
+    // public key via the inherent `public_key()` accessor (no need to
+    // bring the `Signer` trait into scope), then wrap in
+    // `Arc<dyn Signer>` for the downstream `ControlPlaneIdentity::new` +
+    // passport signing.
+    let cp_signer = InProcessSigner::generate();
+    let cp_public_key = cp_signer.public_key();
+    let cp_signer: Arc<dyn Signer> = Arc::new(cp_signer);
     let cp_agent_id = AgentId::new();
     let cp_passport = Passport::builder()
         .spec_version(SpecVersion::parse("1.0.0").context("parse spec version")?)
         .agent_id(cp_agent_id)
         .swarm_id(swarm_id)
-        .agent_public_key(cp_key.public())
+        .agent_public_key(cp_public_key)
         .owner("yutha control plane")
         .accepted_constitution_version("1.0.0")
         .tier(PassportTier::Minimal)
         .issued_at(Timestamp::now())
-        .sign(&cp_key)
+        .sign(cp_signer.as_ref())
+        .await
         .map_err(|e| anyhow::anyhow!("build cp passport: {e}"))?;
     passport_store
         .register(cp_passport)
@@ -835,7 +848,7 @@ async fn bootstrap_backends(
         cp_agent_id = %cp_agent_id,
         "control-plane identity registered (genesis; no receipt)"
     );
-    let cp = Arc::new(ControlPlaneIdentity::new(cp_agent_id, cp_key));
+    let cp = Arc::new(ControlPlaneIdentity::new(cp_agent_id, cp_signer));
 
     // F10g: the cap layer consults the enforcement engine to refuse
     // checks / issuances against quarantined subjects. Construct the
@@ -858,9 +871,9 @@ async fn bootstrap_backends(
         Arc::clone(&cp),
     ));
 
-    let (bootstrap_key, bootstrap_agent_id) = match bootstrap_identity {
-        Some(b) => (b.signing_key, b.agent_id),
-        None => (generate_keypair(), AgentId::new()),
+    let (bootstrap_signer, bootstrap_agent_id) = match bootstrap_identity {
+        Some(b) => (b.signer, b.agent_id),
+        None => (InProcessSigner::generate(), AgentId::new()),
     };
     // expires_at is required by open-mode admission and ignored by
     // closed-mode, so we set it unconditionally. Use a far-future
@@ -872,14 +885,15 @@ async fn bootstrap_backends(
         .spec_version(SpecVersion::parse("1.0.0").context("parse spec version")?)
         .agent_id(bootstrap_agent_id)
         .swarm_id(swarm_id)
-        .agent_public_key(bootstrap_key.public())
+        .agent_public_key(bootstrap_signer.public_key())
         .owner("yutha-control-plane bootstrap")
         .framework("none", "n/a")
         .accepted_constitution_version("1.0.0")
         .tier(PassportTier::Minimal)
         .issued_at(Timestamp::now())
         .expires_at(bootstrap_expires_at)
-        .sign(&bootstrap_key)
+        .sign(&bootstrap_signer)
+        .await
         .map_err(|e| anyhow::anyhow!("build bootstrap passport: {e}"))?;
 
     let (admission, topology_mode) = match admission_mode {

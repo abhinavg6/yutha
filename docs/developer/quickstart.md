@@ -112,14 +112,14 @@ The `swarm_id` is how the control plane decides which agents are "in" the same s
 A **passport** is the agent's verifiable identity — an Ed25519 public key plus operator/owner metadata, signed by the agent's matching private key.
 
 ```python
-def mint_identity(name: str) -> tuple[yutha.SigningKey, yutha.AgentId, yutha.Passport]:
-    signing_key = yutha.SigningKey.generate()
+async def mint_identity(name: str) -> tuple[yutha.InProcessSigner, yutha.AgentId, yutha.Passport]:
+    signer = yutha.InProcessSigner.generate()
     agent_id = yutha.AgentId(value=secrets.token_bytes(16))
-    passport = yutha.Passport(
+    passport = await yutha.Passport(
         spec_version="1.0.0",
         agent_id=agent_id,
         swarm_id=SWARM_ID,
-        agent_public_key=signing_key.public_key(),
+        agent_public_key=signer.public_key(),
         owner=f"quickstart/{name}",
         framework="bare",                        # no framework adapter here
         framework_version="0.0.0",
@@ -127,12 +127,11 @@ def mint_identity(name: str) -> tuple[yutha.SigningKey, yutha.AgentId, yutha.Pas
         tier=yutha.PassportTier.MINIMAL,
         issued_at=yutha.Timestamp.now(),
         expires_at=FAR_FUTURE,
-    ).sign(signing_key)
-    return signing_key, agent_id, passport
+    ).sign(signer)
+    return signer, agent_id, passport
 
 
-sender_key, sender_id, sender_pp = mint_identity("sender")
-receiver_key, receiver_id, receiver_pp = mint_identity("receiver")
+# Minted inside `main()` below — `.sign(...)` is async.
 ```
 
 Three things to notice:
@@ -147,12 +146,15 @@ This is the body of the demo. Comments inline:
 
 ```python
 async def main() -> None:
+    sender_signer, sender_id, sender_pp = await mint_identity("sender")
+    receiver_signer, receiver_id, receiver_pp = await mint_identity("receiver")
+
     # ---- Sender side: connect, register, issue a self-capability ------
     async with yutha.YuthaClient.connect(
         SERVER_ADDR,
         agent_id=sender_id,
         swarm_id=SWARM_ID,
-        signing_key=sender_key,
+        signer=sender_signer,
     ) as sender:
         # Registering returns a `register` receipt; we ignore it here.
         await sender.admission.register(sender_pp)
@@ -180,7 +182,7 @@ async def main() -> None:
             SERVER_ADDR,
             agent_id=receiver_id,
             swarm_id=SWARM_ID,
-            signing_key=receiver_key,
+            signer=receiver_signer,
         ) as receiver:
             await receiver.admission.register(receiver_pp)
 
@@ -198,7 +200,7 @@ async def main() -> None:
             await asyncio.sleep(0.1)  # let the subscribe land server-side
 
             # ---- Now send a single envelope, cap-gated --------------
-            envelope = yutha.Envelope(
+            envelope = await yutha.Envelope(
                 spec_version="1.0.0",
                 envelope_id=secrets.token_bytes(16),
                 swarm_id=SWARM_ID,
@@ -209,7 +211,7 @@ async def main() -> None:
                 payload_schema_id="type.yutha.dev/v1/Text",
                 tags=["quickstart"],
                 sent_at=yutha.Timestamp.now(),
-            ).sign(sender_key)
+            ).sign(sender_signer)
 
             send_receipt = await sender.envelope.send(envelope, capability_id=cap_id)
             print(f"sender envelope.send receipt={send_receipt.digest.hex()[:16]}…")
@@ -243,7 +245,7 @@ async with yutha.YuthaClient.connect(
     SERVER_ADDR,
     agent_id=sender_id,           # any registered identity works
     swarm_id=SWARM_ID,
-    signing_key=sender_key,
+    signer=sender_signer,
 ) as client:
     receipts = await client.receipt.query_by_action_kind("envelope.send", limit=10)
     for r in receipts:

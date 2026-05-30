@@ -37,21 +37,21 @@ pytestmark = pytest.mark.integration
 
 def _derive_identity_from_seed(
     seed: bytes,
-) -> tuple[yutha.SigningKey, yutha.AgentId, yutha.SwarmId]:
+) -> tuple[yutha.InProcessSigner, yutha.AgentId, yutha.SwarmId]:
     if len(seed) != 32:
         raise ValueError(f"seed must be exactly 32 bytes, got {len(seed)}")
-    signing_key = yutha.SigningKey.from_seed_bytes(seed)
+    signer = yutha.InProcessSigner.from_seed_bytes(seed)
     agent_id_bytes = hashlib.sha256(seed + b"\x01").digest()[:16]
     swarm_id_bytes = hashlib.sha256(seed + b"\x02").digest()[:16]
     return (
-        signing_key,
+        signer,
         yutha.AgentId(value=agent_id_bytes),
         yutha.SwarmId(value=swarm_id_bytes),
     )
 
 
 @pytest.fixture
-def bootstrap_identity() -> tuple[yutha.SigningKey, yutha.AgentId, yutha.SwarmId]:
+def bootstrap_identity() -> tuple[yutha.InProcessSigner, yutha.AgentId, yutha.SwarmId]:
     seed_hex = os.environ.get(INTEGRATION_SEED_VAR)
     if not seed_hex:
         pytest.skip(f"set {INTEGRATION_SEED_VAR}=<64 hex chars> to run integration tests")
@@ -69,8 +69,8 @@ def address() -> str:
     return os.environ.get(INTEGRATION_ADDR_VAR, "127.0.0.1:50051")
 
 
-def _build_passport(
-    signing_key: yutha.SigningKey,
+async def _build_passport(
+    signer: yutha.Signer,
     agent_id: yutha.AgentId,
     swarm_id: yutha.SwarmId,
 ) -> yutha.Passport:
@@ -80,18 +80,18 @@ def _build_passport(
     the same (agent_id, public_key) pair, and that's what bearer-token
     auth uses. The local passport object is just so YuthaAgent's
     constructor has something to bind to."""
-    return yutha.Passport(
+    return await yutha.Passport(
         spec_version="1.0.0",
         agent_id=agent_id,
         swarm_id=swarm_id,
-        agent_public_key=signing_key.public_key(),
+        agent_public_key=signer.public_key(),
         owner="yutha-langgraph integration test",
         framework="langgraph",
         framework_version="test",
         accepted_constitution_version="1.0.0",
         tier=yutha.PassportTier.MINIMAL,
         issued_at=yutha.Timestamp.now(),
-    ).sign(signing_key)
+    ).sign(signer)
 
 
 async def _issue_self_send_cap(
@@ -137,7 +137,7 @@ async def _issue_self_send_cap(
 
 @pytest.mark.asyncio
 async def test_agent_receives_envelopes_via_dispatch_loop(
-    bootstrap_identity: tuple[yutha.SigningKey, yutha.AgentId, yutha.SwarmId],
+    bootstrap_identity: tuple[yutha.InProcessSigner, yutha.AgentId, yutha.SwarmId],
     address: str,
     activated_permissive_constitution: object,  # fixture has side-effects only
 ) -> None:
@@ -148,8 +148,8 @@ async def test_agent_receives_envelopes_via_dispatch_loop(
     Depends on ``activated_permissive_constitution`` (F11d) — F10's
     SendEnvelope gate refuses every call until an operator activates
     a constitution."""
-    signing_key, agent_id, swarm_id = bootstrap_identity
-    passport = _build_passport(signing_key, agent_id, swarm_id)
+    signer, agent_id, swarm_id = bootstrap_identity
+    passport = await _build_passport(signer, agent_id, swarm_id)
     received: list[tuple[yutha.Envelope, yutha.Hash]] = []
 
     async def handler(agent: YuthaAgent, env: yutha.Envelope, deliver_id: yutha.Hash) -> None:
@@ -158,7 +158,7 @@ async def test_agent_receives_envelopes_via_dispatch_loop(
     agent = YuthaAgent.connect(
         address,
         passport=passport,
-        signing_key=signing_key,
+        signer=signer,
         handler=handler,
     )
 
@@ -199,7 +199,7 @@ async def test_agent_receives_envelopes_via_dispatch_loop(
 
 @pytest.mark.asyncio
 async def test_agent_send_auto_increments_epoch(
-    bootstrap_identity: tuple[yutha.SigningKey, yutha.AgentId, yutha.SwarmId],
+    bootstrap_identity: tuple[yutha.InProcessSigner, yutha.AgentId, yutha.SwarmId],
     address: str,
     activated_permissive_constitution: object,  # fixture has side-effects only
 ) -> None:
@@ -209,8 +209,8 @@ async def test_agent_send_auto_increments_epoch(
     break replay-protection acceptance.
 
     Depends on ``activated_permissive_constitution`` (F11d)."""
-    signing_key, agent_id, swarm_id = bootstrap_identity
-    passport = _build_passport(signing_key, agent_id, swarm_id)
+    signer, agent_id, swarm_id = bootstrap_identity
+    passport = await _build_passport(signer, agent_id, swarm_id)
     received: list[yutha.Envelope] = []
 
     async def handler(agent: YuthaAgent, env: yutha.Envelope, _: yutha.Hash) -> None:
@@ -219,7 +219,7 @@ async def test_agent_send_auto_increments_epoch(
     agent = YuthaAgent.connect(
         address,
         passport=passport,
-        signing_key=signing_key,
+        signer=signer,
         handler=handler,
     )
 
@@ -255,26 +255,26 @@ async def test_agent_send_auto_increments_epoch(
 
 
 @pytest.mark.asyncio
-async def test_agent_rejects_signing_key_mismatch(
-    bootstrap_identity: tuple[yutha.SigningKey, yutha.AgentId, yutha.SwarmId],
+async def test_agent_rejects_signer_mismatch(
+    bootstrap_identity: tuple[yutha.InProcessSigner, yutha.AgentId, yutha.SwarmId],
     address: str,
 ) -> None:
     """Constructing an agent with a passport that doesn't match the
-    signing key would silently fail later (envelope signatures would
-    not verify server-side). Catch it at construction with a clean
+    signer would silently fail later (envelope signatures would not
+    verify server-side). Catch it at construction with a clean
     ValueError."""
-    _signing_key, agent_id, swarm_id = bootstrap_identity
-    wrong_key = yutha.SigningKey.generate()
-    passport = _build_passport(wrong_key, agent_id, swarm_id)
+    _signer, agent_id, swarm_id = bootstrap_identity
+    wrong_signer = yutha.InProcessSigner.generate()
+    passport = await _build_passport(wrong_signer, agent_id, swarm_id)
 
     async def noop(*_args: object) -> None:
         return None
 
-    with pytest.raises(ValueError, match="signing_key does not match"):
+    with pytest.raises(ValueError, match="signer does not match"):
         YuthaAgent.connect(
             address,
             passport=passport,
-            signing_key=yutha.SigningKey.generate(),  # third unrelated key
+            signer=yutha.InProcessSigner.generate(),  # third unrelated signer
             handler=noop,
         )
 
@@ -286,19 +286,19 @@ async def test_agent_rejects_signing_key_mismatch(
 
 @pytest.mark.asyncio
 async def test_capability_required_permits_in_scope_action(
-    bootstrap_identity: tuple[yutha.SigningKey, yutha.AgentId, yutha.SwarmId],
+    bootstrap_identity: tuple[yutha.InProcessSigner, yutha.AgentId, yutha.SwarmId],
     address: str,
 ) -> None:
     """Issue a capability scoped to "send_message", wire the decorator
     onto a node that gates on the same action_kind, invoke it. The
     wrapped function runs; its return value flows through."""
-    signing_key, agent_id, swarm_id = bootstrap_identity
-    passport = _build_passport(signing_key, agent_id, swarm_id)
+    signer, agent_id, swarm_id = bootstrap_identity
+    passport = await _build_passport(signer, agent_id, swarm_id)
 
     async def noop(*_args: object) -> None:
         return None
 
-    agent = YuthaAgent.connect(address, passport=passport, signing_key=signing_key, handler=noop)
+    agent = YuthaAgent.connect(address, passport=passport, signer=signer, handler=noop)
     try:
         cap = yutha.Capability(
             spec_version="1.0.0",
@@ -324,19 +324,19 @@ async def test_capability_required_permits_in_scope_action(
 
 @pytest.mark.asyncio
 async def test_capability_required_denies_out_of_scope_action(
-    bootstrap_identity: tuple[yutha.SigningKey, yutha.AgentId, yutha.SwarmId],
+    bootstrap_identity: tuple[yutha.InProcessSigner, yutha.AgentId, yutha.SwarmId],
     address: str,
 ) -> None:
     """Same capability, different action_kind on the decorator: the
     server's check returns ``permitted=False`` and the decorator
     raises :class:`CapabilityDenied` without invoking the wrapped fn."""
-    signing_key, agent_id, swarm_id = bootstrap_identity
-    passport = _build_passport(signing_key, agent_id, swarm_id)
+    signer, agent_id, swarm_id = bootstrap_identity
+    passport = await _build_passport(signer, agent_id, swarm_id)
 
     async def noop(*_args: object) -> None:
         return None
 
-    agent = YuthaAgent.connect(address, passport=passport, signing_key=signing_key, handler=noop)
+    agent = YuthaAgent.connect(address, passport=passport, signer=signer, handler=noop)
     try:
         cap = yutha.Capability(
             spec_version="1.0.0",

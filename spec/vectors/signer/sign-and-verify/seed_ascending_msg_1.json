@@ -1,0 +1,12 @@
+{
+  "name": "seed_ascending_msg_1",
+  "description": "Seed 0x00 0x01 0x02 ... 0x1f (ascending bytes), single-byte message (0x7f).",
+  "kind": "signer-sign-and-verify",
+  "inputs": {
+    "message_hex": "7f",
+    "seed_hex": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f"
+  },
+  "expected_public_key_hex": "03a107bff3ce10be1d70dd18e74bc09967e4d6309ba50d5f1ddc8664125531b8",
+  "expected_key_fingerprint_hex": "56475aa75463474c0285df5dbf2bcab73da651358839e9b77481b2eab107708c",
+  "expected_signature_hex": "eb2ccb474565b3677016c902d5c92145d397dbc19c0214b911940408b7e833fbd62483eb7c973e8340a1e02e4571b5c4d2048e5912b1ddb2a82871f8c954ae02"
+}

@@ -2,8 +2,8 @@
 
 The headline export is :class:`YuthaCrewAgent`. Each instance wraps:
 
-  - **a Yutha-registered passport + signing key** (cryptographic
-    identity on every envelope this agent emits),
+  - **a Yutha-registered passport + :class:`~yutha.crypto.Signer`**
+    (cryptographic identity on every envelope this agent emits),
   - **a CrewAI ``Agent`` instance** (the LLM-backed reasoning loop,
     its role/goal/tools/backstory), and
   - **a task-factory callable** that converts an inbound Yutha
@@ -50,7 +50,7 @@ from types import TracebackType
 from typing import TYPE_CHECKING, Any, Self
 
 from yutha.client import YuthaClient
-from yutha.crypto import SigningKey
+from yutha.crypto import Signer
 from yutha.identity import AgentId, Hash, SwarmId, Timestamp
 from yutha.models import (
     Envelope,
@@ -120,10 +120,10 @@ class YuthaCrewAgent:
         Connected :class:`YuthaClient`.
     passport
         The agent's registered passport.
-    signing_key
-        The Ed25519 signing key whose public counterpart is on
-        the passport. The constructor enforces the mismatch
-        check that the langgraph adapter does.
+    signer
+        The :class:`~yutha.crypto.Signer` whose public counterpart is
+        on the passport. The constructor enforces the mismatch check
+        that the langgraph adapter does.
     crew_agent
         The CrewAI ``Agent`` instance the dispatch loop will
         execute tasks against. Its ``tools`` list may include
@@ -147,7 +147,7 @@ class YuthaCrewAgent:
         self,
         client: YuthaClient,
         passport: Passport,
-        signing_key: SigningKey,
+        signer: Signer,
         crew_agent: CrewAgentT,
         *,
         task_factory: TaskFactory | None = None,
@@ -161,14 +161,14 @@ class YuthaCrewAgent:
 
         _require_crewai()
 
-        if signing_key.public_key_bytes() != passport.agent_public_key.value:
+        if signer.public_key().value != passport.agent_public_key.value:
             raise ValueError(
-                "signing_key does not match passport.agent_public_key — "
+                "signer does not match passport.agent_public_key — "
                 "the agent would fail to sign envelopes the control plane accepts"
             )
         self._client = client
         self._passport = passport
-        self._signing_key = signing_key
+        self._signer = signer
         self._crew_agent = crew_agent
         self._task_factory: TaskFactory = task_factory or _default_task_factory
         self._on_output = on_output
@@ -192,7 +192,7 @@ class YuthaCrewAgent:
         address: str,
         *,
         passport: Passport,
-        signing_key: SigningKey,
+        signer: Signer,
         crew_agent: CrewAgentT,
         task_factory: TaskFactory | None = None,
         on_output: OutputCallback | None = None,
@@ -216,7 +216,7 @@ class YuthaCrewAgent:
             address,
             agent_id=passport.agent_id,
             swarm_id=passport.swarm_id,
-            signing_key=signing_key,
+            signer=signer,
             token_lifetime_seconds=token_lifetime_seconds,
             refresh_lead_seconds=refresh_lead_seconds,
             tls_root_ca=tls_root_ca,
@@ -226,7 +226,7 @@ class YuthaCrewAgent:
         return cls(
             client=client,
             passport=passport,
-            signing_key=signing_key,
+            signer=signer,
             crew_agent=crew_agent,
             task_factory=task_factory,
             on_output=on_output,
@@ -406,7 +406,7 @@ class YuthaCrewAgent:
             epoch = self._epoch
             self._epoch += 1
 
-        envelope = Envelope(
+        envelope = await Envelope(
             spec_version="1.0.0",
             swarm_id=self.swarm_id,
             envelope_id=secrets.token_bytes(16),
@@ -420,7 +420,7 @@ class YuthaCrewAgent:
             epoch=epoch,
             sent_at=Timestamp.now(),
             in_reply_to=in_reply_to,
-        ).sign(self._signing_key)
+        ).sign(self._signer)
 
         if capability_id is None:
             from yutha._capability_context import ACTIVE_CAPABILITY_ID

@@ -310,16 +310,16 @@ mod tests {
     use super::*;
     use crate::{CapabilityDeclaration, Passport, PassportTier};
     use yutha_core::{AgentId, SpecVersion, SwarmId, Timestamp};
-    use yutha_crypto::sign::generate_keypair;
     use yutha_proto::Message;
+    use yutha_signer::InProcessSigner;
 
-    fn signed_fixture() -> Passport {
-        let key = generate_keypair();
+    async fn signed_fixture() -> Passport {
+        let signer = InProcessSigner::generate();
         Passport::builder()
             .spec_version(SpecVersion::parse("1.0.0").unwrap())
             .agent_id(AgentId::new())
             .swarm_id(SwarmId::new())
-            .agent_public_key(key.public())
+            .agent_public_key(signer.public_key())
             .owner("test-owner")
             .framework("test-framework", "0.1.0")
             .declares(
@@ -330,13 +330,14 @@ mod tests {
             .accepted_constitution_version("1.0.0")
             .tier(PassportTier::Minimal)
             .issued_at(Timestamp::now())
-            .sign(&key)
+            .sign(&signer)
+            .await
             .unwrap()
     }
 
-    #[test]
-    fn passport_round_trips_to_proto() {
-        let p = signed_fixture();
+    #[tokio::test]
+    async fn passport_round_trips_to_proto() {
+        let p = signed_fixture().await;
         let proto: proto::Passport = (&p).into();
         assert_eq!(proto.owner, "test-owner");
         assert_eq!(proto.tier, proto::PassportTier::Minimal as i32);
@@ -345,18 +346,18 @@ mod tests {
         assert!(proto.agent_signature.is_some());
     }
 
-    #[test]
-    fn canonical_proto_clears_signature_and_extensions() {
-        let p = signed_fixture();
+    #[tokio::test]
+    async fn canonical_proto_clears_signature_and_extensions() {
+        let p = signed_fixture().await;
         let cp = p.to_canonical_proto();
         assert!(cp.agent_signature.is_none(), "signature must be cleared");
         assert!(cp.extensions.is_none(), "extensions must be cleared");
         assert_eq!(cp.owner, "test-owner", "other fields survive");
     }
 
-    #[test]
-    fn canonical_encoding_is_bytewise_deterministic() {
-        let p = signed_fixture();
+    #[tokio::test]
+    async fn canonical_encoding_is_bytewise_deterministic() {
+        let p = signed_fixture().await;
         let a = p.to_canonical_proto().encode_to_vec();
         let b = p.to_canonical_proto().encode_to_vec();
         let c = p.clone().to_canonical_proto().encode_to_vec();
@@ -380,9 +381,9 @@ mod tests {
     // Reverse conversion tests (proto → ergonomic)
     // -------------------------------------------------------------------------
 
-    #[test]
-    fn passport_round_trips_proto_to_ergonomic() {
-        let original = signed_fixture();
+    #[tokio::test]
+    async fn passport_round_trips_proto_to_ergonomic() {
+        let original = signed_fixture().await;
         let p: proto::Passport = (&original).into();
         let back = Passport::try_from(&p).expect("reverse conversion succeeds");
 
@@ -400,9 +401,9 @@ mod tests {
             .expect("reverse-decoded passport must verify");
     }
 
-    #[test]
-    fn passport_missing_agent_id_rejected() {
-        let p = signed_fixture();
+    #[tokio::test]
+    async fn passport_missing_agent_id_rejected() {
+        let p = signed_fixture().await;
         let mut wire: proto::Passport = (&p).into();
         wire.agent_id = None;
         let err = Passport::try_from(&wire).unwrap_err();

@@ -13,6 +13,7 @@ readme = "README.md"
 [dependencies]
 yutha-core.workspace = true
 yutha-crypto.workspace = true
+yutha-signer.workspace = true
 yutha-proto.workspace = true
 yutha-receipt.workspace = true
 

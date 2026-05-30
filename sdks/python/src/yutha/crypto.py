@@ -1,5 +1,5 @@
 """Ed25519 + SHA-256 wrappers — Python mirror of the Rust
-``yutha-crypto`` crate.
+``yutha-crypto`` + ``yutha-signer`` crates.
 
 The substrate uses Ed25519 for every signature path (passports,
 envelopes, receipts, capabilities, bearer tokens) and SHA-256 for every
@@ -7,11 +7,18 @@ content-address. This module wraps
 ``cryptography.hazmat.primitives.asymmetric.ed25519`` and ``hashlib`` to
 give the SDK an API surface that matches the Rust side:
 
-  - ``SigningKey.generate()`` — fresh keypair.
-  - ``SigningKey.from_bytes(b)`` — load from 32 raw seed bytes.
-  - ``signing_key.public_key()`` → ``PublicKey`` (the ergonomic Yutha
-    type from ``yutha.identity``).
-  - ``signing_key.sign(message)`` → ``Signature``.
+  - :class:`Signer` — the *async* signing Protocol every higher-level
+    Yutha API takes. Mirrors the Rust ``yutha_signer::Signer`` trait
+    (RFC 0015): two methods, ``public_key()`` and ``sign_message()``,
+    nothing else. Implementations may hold the private bytes in process
+    (:class:`InProcessSigner`) or behind a network boundary (cloud KMS,
+    Vault transit — those live in separate optional packages).
+  - :class:`InProcessSigner` — the zero-dependency default. Wraps a
+    :class:`SigningKey` and presents the async Signer surface.
+  - :class:`SigningKey` — raw Ed25519 keypair. Lives at a lower layer:
+    operator tooling that needs to mint bearer tokens offline (without
+    spinning up a custody backend) still constructs one of these
+    directly, and ``InProcessSigner`` wraps one internally.
   - ``verify(public_key, message, signature)`` — raises
     ``InvalidSignature`` on mismatch.
   - ``sha256(b)`` / ``content_address(canonical_bytes)`` — Hash helpers.
@@ -20,15 +27,27 @@ give the SDK an API surface that matches the Rust side:
     used for ``Signature.key_fingerprint``.
 
 The deliberate naming overlap with the Rust crate (``SigningKey``,
-``PublicKey``, ``sign_message``) is so cross-referencing between the
-two implementations stays obvious.
+``Signer``, ``InProcessSigner``, ``PublicKey``, ``sign_message``) is so
+cross-referencing between the two implementations stays obvious.
+
+Two invariants the :class:`Signer` Protocol enforces (mirroring RFC
+0015 §3.1):
+
+1. **No raw-key export.** The Protocol exposes ``public_key`` and
+   ``sign_message``; nothing else. Implementations may not return
+   private bytes. (``InProcessSigner.signing_key`` does exist as an
+   inherent attribute for callers that *do* hold the in-process
+   variant — e.g. operator tooling — but the Protocol shape forbids
+   reaching for it through a polymorphic ``Signer`` reference.)
+2. **Algorithm pinned to Ed25519.** The returned :class:`Signature`
+   MUST verify under :meth:`Signer.public_key` per RFC 8032.
 """
 
 from __future__ import annotations
 
 import hashlib
 import os
-from typing import ClassVar
+from typing import ClassVar, Protocol, runtime_checkable
 
 from cryptography.exceptions import InvalidSignature
 from cryptography.hazmat.primitives.asymmetric import ed25519
@@ -159,6 +178,139 @@ class SigningKey:
 
 
 # =============================================================================
+# Signer Protocol + in-process default
+# =============================================================================
+
+
+@runtime_checkable
+class Signer(Protocol):
+    """The signing-key custody Protocol every Yutha API takes.
+
+    Mirrors the Rust ``yutha_signer::Signer`` trait (RFC 0015).
+    Implementations may hold the private bytes in process
+    (:class:`InProcessSigner`) or expose only a handle to an external
+    custody backend (cloud KMS, Vault transit — those live in separate
+    optional packages, not here).
+
+    The two methods are deliberately the *entire* surface:
+
+      * :meth:`public_key` is sync and infallible by contract. Callers
+        may invoke it freely (the Pydantic models call it during
+        ``sign(...)`` to cross-check that the signer matches the
+        passport's ``agent_public_key`` field).
+      * :meth:`sign_message` is ``async`` because cloud-KMS-backed
+        signers are network-bound. For the in-process default the
+        future is immediately ready and the overhead is well under
+        100 µs per call.
+
+    Both methods MUST be implemented; ``@runtime_checkable`` so callers
+    can ``isinstance(x, Signer)`` to validate adapter inputs.
+    """
+
+    def public_key(self) -> PublicKey:
+        """Return the public counterpart of the signing capability.
+
+        Sync and infallible. Must return the same :class:`PublicKey`
+        across calls (no key rotation through this interface; rotation
+        happens via :meth:`AdmissionAPI.rotate_key` and re-binding a
+        fresh signer)."""
+        ...
+
+    async def sign_message(self, message: bytes) -> Signature:
+        """Produce an Ed25519 signature over ``message``.
+
+        The returned :class:`Signature` MUST verify under
+        :meth:`public_key` per RFC 8032. The
+        ``Signature.key_fingerprint`` field carries the SHA-256 of the
+        public-key bytes so receivers can correlate without re-shipping
+        the full public key inline."""
+        ...
+
+
+class InProcessSigner:
+    """The zero-dependency default :class:`Signer` implementation.
+
+    Wraps a :class:`SigningKey` byte-for-byte. What hobby swarms and
+    development workflows run today; the SDK's signing path looks
+    identical in shape to what it would with a cloud-KMS-backed signer,
+    just with the private key bytes living in process memory rather than
+    behind a network boundary.
+
+    Construct via :meth:`from_seed_bytes` (deterministic from a 32-byte
+    seed — vector tests + fixed-key fixtures use this) or
+    :meth:`generate` (fresh from the OS CSPRNG).
+    """
+
+    ALGORITHM: ClassVar[SignatureAlgorithm] = SignatureAlgorithm.ED25519
+
+    def __init__(self, signing_key: SigningKey) -> None:
+        self._signing_key = signing_key
+        self._public_key = signing_key.public_key()
+
+    # -------------------------------------------------------------------------
+    # Constructors
+    # -------------------------------------------------------------------------
+
+    @classmethod
+    def from_seed_bytes(cls, seed: bytes) -> InProcessSigner:
+        """Construct from a 32-byte Ed25519 seed. Mirrors Rust's
+        ``InProcessSigner::from_bytes``."""
+        return cls(SigningKey.from_seed_bytes(seed))
+
+    @classmethod
+    def generate(cls) -> InProcessSigner:
+        """Generate a fresh keypair from the OS CSPRNG. Test / demo
+        convenience."""
+        return cls(SigningKey.generate())
+
+    @classmethod
+    def from_signing_key(cls, signing_key: SigningKey) -> InProcessSigner:
+        """Wrap an existing :class:`SigningKey`.
+
+        Used by operator tooling that has already constructed a raw
+        ``SigningKey`` (e.g. ``yutha-ops`` shells out to derive the
+        operator seed) and needs to lift it into the Signer Protocol
+        for ``BearerSession`` / ``OperatorBearerSession``. Long-term
+        callers should prefer :meth:`from_seed_bytes` directly."""
+        return cls(signing_key)
+
+    # -------------------------------------------------------------------------
+    # Signer Protocol
+    # -------------------------------------------------------------------------
+
+    def public_key(self) -> PublicKey:
+        """Cached public key of this signing capability."""
+        return self._public_key
+
+    async def sign_message(self, message: bytes) -> Signature:
+        """Produce a Yutha :class:`Signature` over ``message``.
+
+        Ed25519 signing is CPU-bound and fast (~50 µs); we sign on the
+        calling task's worker rather than ``run_in_executor``. The
+        ``async`` shape matches the cloud-KMS path so the call site
+        looks the same regardless of where the key lives."""
+        return self._signing_key.sign_message(message)
+
+    # -------------------------------------------------------------------------
+    # Escape hatch — exposed for InProcessSigner specifically, NOT for
+    # the polymorphic Signer Protocol.
+    # -------------------------------------------------------------------------
+
+    @property
+    def signing_key(self) -> SigningKey:
+        """The wrapped :class:`SigningKey`. Available for tooling that
+        needs raw seed access (e.g. exporting a key for an offline
+        backup, computing the seed bytes for a CLI flag). NOT part of
+        the :class:`Signer` Protocol — polymorphic ``Signer`` references
+        cannot reach this; callers must hold the concrete
+        ``InProcessSigner`` type."""
+        return self._signing_key
+
+    def __repr__(self) -> str:
+        return "InProcessSigner(<redacted>)"
+
+
+# =============================================================================
 # Verify
 # =============================================================================
 
@@ -198,6 +350,8 @@ def deterministic_signing_key(label: bytes) -> SigningKey:
 
 
 __all__ = [
+    "Signer",
+    "InProcessSigner",
     "SigningKey",
     "verify",
     "sha256",

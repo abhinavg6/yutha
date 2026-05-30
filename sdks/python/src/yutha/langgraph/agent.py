@@ -1,7 +1,7 @@
 """YuthaAgent — the high-level wrapper LangGraph nodes interact with.
 
-A ``YuthaAgent`` couples a registered passport + signing key to a
-:class:`yutha.YuthaClient` channel and exposes three things a typical
+A ``YuthaAgent`` couples a registered passport + :class:`~yutha.crypto.Signer`
+to a :class:`yutha.YuthaClient` channel and exposes three things a typical
 LangGraph workflow needs:
 
   - **A background subscribe-and-dispatch loop.** Calls
@@ -30,7 +30,7 @@ from types import TracebackType
 from typing import Self
 
 from yutha.client import YuthaClient
-from yutha.crypto import SigningKey
+from yutha.crypto import Signer
 from yutha.identity import AgentId, Hash, SwarmId, Timestamp
 from yutha.models import (
     Envelope,
@@ -64,19 +64,19 @@ class YuthaAgent:
         self,
         client: YuthaClient,
         passport: Passport,
-        signing_key: SigningKey,
+        signer: Signer,
         handler: EnvelopeHandler,
         *,
         epoch_start: int = 1,
     ) -> None:
-        if signing_key.public_key_bytes() != passport.agent_public_key.value:
+        if signer.public_key().value != passport.agent_public_key.value:
             raise ValueError(
-                "signing_key does not match passport.agent_public_key — "
+                "signer does not match passport.agent_public_key — "
                 "the agent would fail to sign envelopes the control plane accepts"
             )
         self._client = client
         self._passport = passport
-        self._signing_key = signing_key
+        self._signer = signer
         self._handler = handler
         self._epoch = epoch_start
         self._epoch_lock = asyncio.Lock()
@@ -103,7 +103,7 @@ class YuthaAgent:
         address: str,
         *,
         passport: Passport,
-        signing_key: SigningKey,
+        signer: Signer,
         handler: EnvelopeHandler,
         token_lifetime_seconds: int = 300,
         refresh_lead_seconds: int = 30,
@@ -123,7 +123,7 @@ class YuthaAgent:
             address,
             agent_id=passport.agent_id,
             swarm_id=passport.swarm_id,
-            signing_key=signing_key,
+            signer=signer,
             token_lifetime_seconds=token_lifetime_seconds,
             refresh_lead_seconds=refresh_lead_seconds,
             tls_root_ca=tls_root_ca,
@@ -133,7 +133,7 @@ class YuthaAgent:
         return cls(
             client=client,
             passport=passport,
-            signing_key=signing_key,
+            signer=signer,
             handler=handler,
             epoch_start=epoch_start,
         )
@@ -333,7 +333,7 @@ class YuthaAgent:
             epoch = self._epoch
             self._epoch += 1
 
-        envelope = Envelope(
+        envelope = await Envelope(
             spec_version="1.0.0",
             swarm_id=self.swarm_id,
             envelope_id=secrets.token_bytes(16),
@@ -347,7 +347,7 @@ class YuthaAgent:
             epoch=epoch,
             sent_at=Timestamp.now(),
             in_reply_to=in_reply_to,
-        ).sign(self._signing_key)
+        ).sign(self._signer)
 
         # Resolve cap_id: explicit kwarg wins; otherwise pick up the
         # decorator-supplied context-local id; otherwise None.

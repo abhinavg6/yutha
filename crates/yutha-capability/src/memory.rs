@@ -138,7 +138,11 @@ impl MemoryCapabilityStore {
             .map_err(|e| CapabilityError::Backend(format!("build receipt: {e}")))?;
 
         let bytes = receipt.canonical_bytes().map_err(CapabilityError::Crypto)?;
-        let sig = self.control_plane.sign(&bytes);
+        let sig = self
+            .control_plane
+            .sign(&bytes)
+            .await
+            .map_err(|e| CapabilityError::Signer(e.to_string()))?;
         receipt
             .signatures
             .push(SignedBy::new(SignatureRole::Actor, sig, Timestamp::now()));
@@ -583,10 +587,10 @@ mod tests {
     use crate::issuer::Issuer;
     use crate::scope::Scope;
     use yutha_core::{AgentId, SpecVersion, SwarmId, Timestamp};
-    use yutha_crypto::sign::generate_keypair;
     use yutha_passport::{
         MemoryPassportStore, Passport, PassportResolverAdapter, PassportStore, PassportTier,
     };
+    use yutha_signer::InProcessSigner;
 
     async fn harness() -> (MemoryCapabilityStore, Arc<dyn ReceiptStore>, SwarmId) {
         let swarm_id = SwarmId::new();
@@ -595,21 +599,24 @@ mod tests {
         let resolver: Arc<dyn PassportResolver> =
             Arc::new(PassportResolverAdapter::new(Arc::clone(&passports)));
 
-        let cp_key = generate_keypair();
+        let cp_signer = InProcessSigner::generate();
+        let cp_public_key = cp_signer.public_key();
+        let cp_signer: Arc<dyn yutha_signer::Signer> = Arc::new(cp_signer);
         let cp_agent_id = AgentId::new();
         let cp_passport = Passport::builder()
             .spec_version(SpecVersion::parse("1.0.0").unwrap())
             .agent_id(cp_agent_id)
             .swarm_id(swarm_id)
-            .agent_public_key(cp_key.public())
+            .agent_public_key(cp_public_key)
             .owner("cp")
             .accepted_constitution_version("1.0.0")
             .tier(PassportTier::Minimal)
             .issued_at(Timestamp::now())
-            .sign(&cp_key)
+            .sign(cp_signer.as_ref())
+            .await
             .unwrap();
         passports.register(cp_passport).await.unwrap();
-        let cp = Arc::new(ControlPlaneIdentity::new(cp_agent_id, cp_key));
+        let cp = Arc::new(ControlPlaneIdentity::new(cp_agent_id, cp_signer));
 
         let store = MemoryCapabilityStore::new(
             Arc::clone(&receipts),
@@ -624,8 +631,8 @@ mod tests {
         Timestamp::new("2099-01-01T00:00:00Z".into(), u64::MAX / 2).unwrap()
     }
 
-    fn root_cap(scope: Scope, swarm_id: SwarmId) -> Capability {
-        root_cap_for(AgentId::new(), scope, swarm_id)
+    async fn root_cap(scope: Scope, swarm_id: SwarmId) -> Capability {
+        root_cap_for(AgentId::new(), scope, swarm_id).await
     }
 
     /// Variant of [`root_cap`] that lets the caller pin the subject —
@@ -634,8 +641,8 @@ mod tests {
     /// behaviour. `root_cap` picks a random `AgentId` which is fine for
     /// single-cap flows but useless when the test logic depends on the
     /// subject value.
-    fn root_cap_for(subject: AgentId, scope: Scope, swarm_id: SwarmId) -> Capability {
-        let key = generate_keypair();
+    async fn root_cap_for(subject: AgentId, scope: Scope, swarm_id: SwarmId) -> Capability {
+        let signer = InProcessSigner::generate();
         Capability::builder()
             .spec_version(SpecVersion::parse("1.0.0").unwrap())
             .capability_id(vec![1u8; 16])
@@ -645,14 +652,15 @@ mod tests {
             .scope(scope)
             .valid_from(Timestamp::now())
             .valid_until(far_future())
-            .sign(&key)
+            .sign(&signer)
+            .await
             .unwrap()
     }
 
     #[tokio::test]
     async fn issue_then_check_pass_emits_receipt() {
         let (store, receipts, swarm) = harness().await;
-        let cap = root_cap(Scope::for_action("send_message"), swarm);
+        let cap = root_cap(Scope::for_action("send_message"), swarm).await;
         let issued = store.issue(cap).await.unwrap();
         let eval = store
             .check(
@@ -693,7 +701,7 @@ mod tests {
     #[tokio::test]
     async fn deny_emits_check_deny_receipt() {
         let (store, receipts, swarm) = harness().await;
-        let cap = root_cap(Scope::for_action("send_message"), swarm);
+        let cap = root_cap(Scope::for_action("send_message"), swarm).await;
         let issued = store.issue(cap).await.unwrap();
         let eval = store
             .check(
@@ -735,9 +743,9 @@ mod tests {
         let target = AgentId::new();
         let other = AgentId::new();
 
-        let cap_a = root_cap_for(target, Scope::for_action("send_message"), swarm);
-        let cap_b = root_cap_for(target, Scope::for_action("envelope.send"), swarm);
-        let cap_c = root_cap_for(other, Scope::for_action("send_message"), swarm);
+        let cap_a = root_cap_for(target, Scope::for_action("send_message"), swarm).await;
+        let cap_b = root_cap_for(target, Scope::for_action("envelope.send"), swarm).await;
+        let cap_c = root_cap_for(other, Scope::for_action("send_message"), swarm).await;
 
         let id_a = store.issue(cap_a).await.unwrap().capability_id;
         let id_b = store.issue(cap_b).await.unwrap().capability_id;
@@ -764,8 +772,8 @@ mod tests {
         let (store, _receipts, swarm) = harness().await;
         let target = AgentId::new();
 
-        let cap_live = root_cap_for(target, Scope::for_action("send_message"), swarm);
-        let cap_dead = root_cap_for(target, Scope::for_action("envelope.send"), swarm);
+        let cap_live = root_cap_for(target, Scope::for_action("send_message"), swarm).await;
+        let cap_dead = root_cap_for(target, Scope::for_action("envelope.send"), swarm).await;
         let id_live = store.issue(cap_live).await.unwrap().capability_id;
         let id_dead = store.issue(cap_dead).await.unwrap().capability_id;
 
@@ -812,21 +820,24 @@ mod tests {
         let resolver: Arc<dyn PassportResolver> =
             Arc::new(PassportResolverAdapter::new(Arc::clone(&passports)));
 
-        let cp_key = generate_keypair();
+        let cp_signer = InProcessSigner::generate();
+        let cp_public_key = cp_signer.public_key();
+        let cp_signer: Arc<dyn yutha_signer::Signer> = Arc::new(cp_signer);
         let cp_agent_id = AgentId::new();
         let cp_passport = Passport::builder()
             .spec_version(SpecVersion::parse("1.0.0").unwrap())
             .agent_id(cp_agent_id)
             .swarm_id(swarm_id)
-            .agent_public_key(cp_key.public())
+            .agent_public_key(cp_public_key)
             .owner("cp")
             .accepted_constitution_version("1.0.0")
             .tier(PassportTier::Minimal)
             .issued_at(Timestamp::now())
-            .sign(&cp_key)
+            .sign(cp_signer.as_ref())
+            .await
             .unwrap();
         passports.register(cp_passport).await.unwrap();
-        let cp = Arc::new(ControlPlaneIdentity::new(cp_agent_id, cp_key));
+        let cp = Arc::new(ControlPlaneIdentity::new(cp_agent_id, cp_signer));
 
         let store = MemoryCapabilityStore::new(Arc::clone(&receipts), resolver, cp, q);
         (store, receipts, swarm_id)
@@ -843,7 +854,7 @@ mod tests {
         let q = Arc::new(TestQuarantine::default());
         let (store, receipts, swarm) = harness_with_quarantine(Arc::clone(&q)).await;
         let target = AgentId::new();
-        let cap = root_cap_for(target, Scope::for_action("send_message"), swarm);
+        let cap = root_cap_for(target, Scope::for_action("send_message"), swarm).await;
         let issued = store.issue(cap).await.unwrap();
 
         // Quarantine the subject *after* issuance — issuance happened
@@ -887,7 +898,7 @@ mod tests {
         let target = AgentId::new();
         q.quarantine(target).await;
 
-        let cap = root_cap_for(target, Scope::for_action("send_message"), swarm);
+        let cap = root_cap_for(target, Scope::for_action("send_message"), swarm).await;
         let err = store.issue(cap).await.unwrap_err();
         assert!(
             matches!(err, CapabilityError::SubjectQuarantined(a) if a == target),
@@ -898,7 +909,7 @@ mod tests {
     #[tokio::test]
     async fn revoke_emits_capability_revoke_receipt() {
         let (store, receipts, swarm) = harness().await;
-        let cap = root_cap(Scope::for_action("send_message"), swarm);
+        let cap = root_cap(Scope::for_action("send_message"), swarm).await;
         let issued = store.issue(cap).await.unwrap();
         let receipt_id = store
             .revoke(&issued.capability_id, "scaffolding test")

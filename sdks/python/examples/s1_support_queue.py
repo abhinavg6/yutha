@@ -83,7 +83,7 @@ FAR_FUTURE = yutha.Timestamp(wall_clock="2099-01-01T00:00:00Z", monotonic_ns=2**
 
 def derive_bootstrap_identity(
     seed: bytes,
-) -> tuple[yutha.SigningKey, yutha.AgentId, yutha.SwarmId]:
+) -> tuple[yutha.InProcessSigner, yutha.AgentId, yutha.SwarmId]:
     """Reproduce the Rust ``BootstrapIdentity::from_seed_hex``
     derivation: the seed itself is the Ed25519 private key,
     ``sha256(seed || 0x01)[:16]`` is the agent_id, and
@@ -96,13 +96,13 @@ def derive_bootstrap_identity(
     five demo registrations rather than zero."""
     if len(seed) != 32:
         raise ValueError(f"seed must be exactly 32 bytes, got {len(seed)}")
-    signing_key = yutha.SigningKey.from_seed_bytes(seed)
+    signer = yutha.InProcessSigner.from_seed_bytes(seed)
     agent_id = yutha.AgentId(value=hashlib.sha256(seed + b"\x01").digest()[:16])
     swarm_id = yutha.SwarmId(value=hashlib.sha256(seed + b"\x02").digest()[:16])
-    return signing_key, agent_id, swarm_id
+    return signer, agent_id, swarm_id
 
 
-def derive_operator_identity(seed: bytes) -> tuple[yutha.SigningKey, yutha.PublicKey]:
+def derive_operator_identity(seed: bytes) -> tuple[yutha.InProcessSigner, yutha.PublicKey]:
     """Domain-separated derivation of an Ed25519 operator keypair
     from the same bootstrap seed (RFC 0009 §3.4 — operator key is
     configured server-side; this is the demo's "matching pair"
@@ -116,12 +116,12 @@ def derive_operator_identity(seed: bytes) -> tuple[yutha.SigningKey, yutha.Publi
     if len(seed) != 32:
         raise ValueError(f"seed must be exactly 32 bytes, got {len(seed)}")
     op_seed = hashlib.sha256(seed + b"\x03").digest()
-    op_signing = yutha.SigningKey.from_seed_bytes(op_seed)
-    return op_signing, op_signing.public_key()
+    op_signer = yutha.InProcessSigner.from_seed_bytes(op_seed)
+    return op_signer, op_signer.public_key()
 
 
 def load_bootstrap_identity_from_env() -> tuple[
-    yutha.SigningKey, yutha.AgentId, yutha.SwarmId, bytes
+    yutha.InProcessSigner, yutha.AgentId, yutha.SwarmId, bytes
 ]:
     """Read ``YUTHA_BOOTSTRAP_SEED`` and derive the full bootstrap
     identity from it. Returns the raw seed bytes too so callers can
@@ -150,8 +150,8 @@ def load_bootstrap_identity_from_env() -> tuple[
         raise RuntimeError(
             f"YUTHA_BOOTSTRAP_SEED must be exactly 64 hex chars (32 bytes); got {len(seed)} bytes"
         )
-    signing_key, agent_id, swarm_id = derive_bootstrap_identity(seed)
-    return signing_key, agent_id, swarm_id, seed
+    signer, agent_id, swarm_id = derive_bootstrap_identity(seed)
+    return signer, agent_id, swarm_id, seed
 
 
 # Expected receipt-count delta for one demo run. The test wrapper
@@ -192,11 +192,11 @@ TICKETS: list[str] = [
 # -----------------------------------------------------------------------------
 
 
-def make_passport(
+async def make_passport(
     name: str,
     framework: str,
     swarm_id: yutha.SwarmId,
-    signing_key: yutha.SigningKey,
+    signer: yutha.Signer,
     agent_id: yutha.AgentId,
 ) -> yutha.Passport:
     """Build a signed passport for one demo agent.
@@ -205,11 +205,11 @@ def make_passport(
     We set both unconditionally so the same passport shape would also
     pass a closed-mode allowlist check if the operator chose to
     pre-register these IDs."""
-    return yutha.Passport(
+    return await yutha.Passport(
         spec_version="1.0.0",
         agent_id=agent_id,
         swarm_id=swarm_id,
-        agent_public_key=signing_key.public_key(),
+        agent_public_key=signer.public_key(),
         owner=f"yutha-demo:s1:{name}",
         framework=framework,
         framework_version="1.0.0",
@@ -217,7 +217,7 @@ def make_passport(
         tier=yutha.PassportTier.MINIMAL,
         issued_at=yutha.Timestamp.now(),
         expires_at=FAR_FUTURE,
-    ).sign(signing_key)
+    ).sign(signer)
 
 
 # -----------------------------------------------------------------------------
@@ -366,7 +366,7 @@ async def run_s1(server_addr: str = SERVER_ADDR) -> dict[str, int]:
     print(f"# S1 customer-support queue demo · server={server_addr}")
 
     # --- bootstrap identity (used for swarm_id binding + pre-snapshot) ---
-    bootstrap_key, bootstrap_agent_id, swarm_id, seed = load_bootstrap_identity_from_env()
+    bootstrap_signer, bootstrap_agent_id, swarm_id, seed = load_bootstrap_identity_from_env()
     print(f"# swarm_id={swarm_id.value.hex()} (from YUTHA_BOOTSTRAP_SEED)")
 
     # Operator pubkey for Phase 7.5 — derived from the same seed.
@@ -375,7 +375,7 @@ async def run_s1(server_addr: str = SERVER_ADDR) -> dict[str, int]:
     # operator-revoke RPC to be enabled. Printing it here so the
     # operator running the demo can copy-paste into the server
     # invocation. Mismatched key → FAILED_PRECONDITION on phase 7.5.
-    _op_signing_key_preview, _op_public_key_preview = derive_operator_identity(seed)
+    _op_signer_preview, _op_public_key_preview = derive_operator_identity(seed)
     print(
         f"# operator pubkey (pass as --operator-public-key): {_op_public_key_preview.value.hex()}"
     )
@@ -390,18 +390,18 @@ async def run_s1(server_addr: str = SERVER_ADDR) -> dict[str, int]:
         server_addr,
         agent_id=bootstrap_agent_id,
         swarm_id=swarm_id,
-        signing_key=bootstrap_key,
+        signer=bootstrap_signer,
     ) as bootstrap_client:
         before = await query_audit(bootstrap_client, kinds)
     print(f"# pre-flow snapshot taken via bootstrap agent {bootstrap_agent_id.value.hex()[:16]}…")
 
     # --- identities ----------------------------------------------------
-    identities: dict[str, tuple[yutha.SigningKey, yutha.AgentId, yutha.Passport]] = {}
+    identities: dict[str, tuple[yutha.InProcessSigner, yutha.AgentId, yutha.Passport]] = {}
     for name, framework in CAST:
-        key = yutha.SigningKey.generate()
+        signer = yutha.InProcessSigner.generate()
         agent_id = yutha.AgentId(value=secrets.token_bytes(16))
-        passport = make_passport(name, framework, swarm_id, key, agent_id)
-        identities[name] = (key, agent_id, passport)
+        passport = await make_passport(name, framework, swarm_id, signer, agent_id)
+        identities[name] = (signer, agent_id, passport)
 
     # --- handlers ------------------------------------------------------
     received: dict[str, list[yutha.Envelope]] = {n: [] for n in identities}
@@ -449,11 +449,11 @@ async def run_s1(server_addr: str = SERVER_ADDR) -> dict[str, int]:
     agent_handles: dict[str, YuthaAgent] = {}
     try:
         print("\n# Phase 1 — connect + register")
-        for name, (key, _agent_id, passport) in identities.items():
+        for name, (signer, _agent_id, passport) in identities.items():
             ag = YuthaAgent.connect(
                 server_addr,
                 passport=passport,
-                signing_key=key,
+                signer=signer,
                 handler=handlers[name],
             )
             agent_handles[name] = ag
@@ -563,14 +563,14 @@ async def run_s1(server_addr: str = SERVER_ADDR) -> dict[str, int]:
             # control plane must have been started with the matching
             # public key as `--operator-public-key <hex>`.
             print("\n# Phase 7.5 — operator evicts billing")
-            op_signing_key, op_public_key = derive_operator_identity(seed)
+            op_signer, op_public_key = derive_operator_identity(seed)
             print(f"  operator pubkey: {op_public_key.value.hex()}")
             billing_id = identities["billing"][1]
             async with yutha.YuthaClient.connect_as_operator(
                 server_addr,
                 operator_id="s1-demo-operator",
                 swarm_id=swarm_id,
-                operator_signing_key=op_signing_key,
+                operator_signer=op_signer,
             ) as op_client:
                 op_outcome = await op_client.admission.operator_revoke(
                     billing_id,

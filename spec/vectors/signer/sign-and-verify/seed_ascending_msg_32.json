@@ -1,0 +1,12 @@
+{
+  "name": "seed_ascending_msg_32",
+  "description": "Seed 0x00..0x1f (ascending bytes), 32-byte ascending message (0x20..0x3f).",
+  "kind": "signer-sign-and-verify",
+  "inputs": {
+    "message_hex": "202122232425262728292a2b2c2d2e2f303132333435363738393a3b3c3d3e3f",
+    "seed_hex": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f"
+  },
+  "expected_public_key_hex": "03a107bff3ce10be1d70dd18e74bc09967e4d6309ba50d5f1ddc8664125531b8",
+  "expected_key_fingerprint_hex": "56475aa75463474c0285df5dbf2bcab73da651358839e9b77481b2eab107708c",
+  "expected_signature_hex": "46fc09cc6f1d97d241e1b7a6fd1e46f788e6841d25eabbf3b5a9a44590086187e42bedd04abff976d21e0387600b49f2552012e4a9bc4b15966a82b444db3001"
+}

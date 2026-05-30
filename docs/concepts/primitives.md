@@ -117,9 +117,9 @@ In practice, the four primitives compose along a single throughline. An agent ge
 In code, the bootstrap looks roughly like this — adapted from the [S1 customer-support demo](https://github.com/abhinavg6/yutha/blob/main/sdks/python/examples/s1_support_queue.py):
 
 ```python
-key = yutha.SigningKey.generate()
-passport = yutha.Passport(...).sign(key)             # primitive 1
-agent = YuthaAgent.connect(server, passport=passport, signing_key=key)
+signer = yutha.InProcessSigner.generate()
+passport = await yutha.Passport(...).sign(signer)    # primitive 1
+agent = YuthaAgent.connect(server, passport=passport, signer=signer)
 await agent.register()                               # writes agent.register receipt
 cap = yutha.Capability(scope=yutha.Scope.for_action("envelope.send"), ...)
 cap_id, _ = await agent.client.capability.issue(cap) # primitive 4 + capability.issue receipt

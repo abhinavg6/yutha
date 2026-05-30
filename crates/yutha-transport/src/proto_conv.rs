@@ -258,11 +258,11 @@ mod tests {
     use super::*;
     use crate::{Performative, Recipient};
     use yutha_core::{AgentId, CausalRef, SpecVersion, SwarmId, Timestamp};
-    use yutha_crypto::sign::generate_keypair;
     use yutha_proto::Message;
+    use yutha_signer::InProcessSigner;
 
-    fn signed_fixture() -> Envelope {
-        let key = generate_keypair();
+    async fn signed_fixture() -> Envelope {
+        let signer = InProcessSigner::generate();
         Envelope::builder()
             .spec_version(SpecVersion::parse("1.0.0").unwrap())
             .swarm_id(SwarmId::new())
@@ -277,13 +277,14 @@ mod tests {
             .nonce(vec![1u8; 16])
             .epoch(1)
             .sent_at(Timestamp::now())
-            .sign(&key)
+            .sign(&signer)
+            .await
             .unwrap()
     }
 
-    #[test]
-    fn envelope_round_trips_to_proto() {
-        let e = signed_fixture();
+    #[tokio::test]
+    async fn envelope_round_trips_to_proto() {
+        let e = signed_fixture().await;
         let p: proto::Envelope = (&e).into();
         assert_eq!(p.performative, proto::Performative::Inform as i32);
         assert_eq!(p.payload, b"hello".to_vec());
@@ -292,18 +293,18 @@ mod tests {
         assert!(p.agent_signature.is_some());
     }
 
-    #[test]
-    fn canonical_proto_clears_signature_and_extensions() {
-        let e = signed_fixture();
+    #[tokio::test]
+    async fn canonical_proto_clears_signature_and_extensions() {
+        let e = signed_fixture().await;
         let cp = e.to_canonical_proto();
         assert!(cp.agent_signature.is_none(), "signature must be cleared");
         assert!(cp.extensions.is_none(), "extensions must be cleared");
         assert_eq!(cp.payload, b"hello".to_vec(), "payload survives");
     }
 
-    #[test]
-    fn canonical_encoding_is_bytewise_deterministic() {
-        let e = signed_fixture();
+    #[tokio::test]
+    async fn canonical_encoding_is_bytewise_deterministic() {
+        let e = signed_fixture().await;
         let a = e.to_canonical_proto().encode_to_vec();
         let b = e.to_canonical_proto().encode_to_vec();
         let c = e.clone().to_canonical_proto().encode_to_vec();
@@ -347,9 +348,9 @@ mod tests {
     // Reverse conversion tests (proto → ergonomic)
     // -------------------------------------------------------------------------
 
-    #[test]
-    fn envelope_round_trips_proto_to_ergonomic() {
-        let original = signed_fixture();
+    #[tokio::test]
+    async fn envelope_round_trips_proto_to_ergonomic() {
+        let original = signed_fixture().await;
         let p: proto::Envelope = (&original).into();
         let back = Envelope::try_from(&p).expect("reverse should succeed");
 
@@ -368,9 +369,9 @@ mod tests {
         // exist elsewhere.
     }
 
-    #[test]
-    fn envelope_missing_from_agent_rejected() {
-        let e = signed_fixture();
+    #[tokio::test]
+    async fn envelope_missing_from_agent_rejected() {
+        let e = signed_fixture().await;
         let mut p: proto::Envelope = (&e).into();
         p.from_agent = None;
         let err = Envelope::try_from(&p).unwrap_err();
@@ -378,9 +379,9 @@ mod tests {
         assert!(err.to_string().contains("from_agent"));
     }
 
-    #[test]
-    fn envelope_unknown_performative_rejected() {
-        let e = signed_fixture();
+    #[tokio::test]
+    async fn envelope_unknown_performative_rejected() {
+        let e = signed_fixture().await;
         let mut p: proto::Envelope = (&e).into();
         p.performative = 0; // UNKNOWN
         let err = Envelope::try_from(&p).unwrap_err();

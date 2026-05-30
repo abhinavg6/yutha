@@ -144,7 +144,7 @@ import secrets
 import sys
 from collections.abc import Awaitable, Callable
 from contextlib import AsyncExitStack
-from typing import Any
+from typing import Any, cast
 
 import yutha
 from yutha.langgraph.tools import CapabilityDenied
@@ -340,27 +340,27 @@ ALL_KINDS: list[str] = sorted(
 
 def derive_bootstrap_identity(
     seed: bytes,
-) -> tuple[yutha.SigningKey, yutha.AgentId, yutha.SwarmId]:
+) -> tuple[yutha.InProcessSigner, yutha.AgentId, yutha.SwarmId]:
     """Reproduce ``BootstrapIdentity::from_seed_hex``."""
     if len(seed) != 32:
         raise ValueError(f"seed must be exactly 32 bytes, got {len(seed)}")
-    signing_key = yutha.SigningKey.from_seed_bytes(seed)
+    signer = yutha.InProcessSigner.from_seed_bytes(seed)
     agent_id = yutha.AgentId(value=hashlib.sha256(seed + b"\x01").digest()[:16])
     swarm_id = yutha.SwarmId(value=hashlib.sha256(seed + b"\x02").digest()[:16])
-    return signing_key, agent_id, swarm_id
+    return signer, agent_id, swarm_id
 
 
-def derive_operator_identity(seed: bytes) -> tuple[yutha.SigningKey, yutha.PublicKey]:
+def derive_operator_identity(seed: bytes) -> tuple[yutha.InProcessSigner, yutha.PublicKey]:
     """Domain-separated derivation of the operator keypair."""
     if len(seed) != 32:
         raise ValueError(f"seed must be exactly 32 bytes, got {len(seed)}")
     op_seed = hashlib.sha256(seed + b"\x03").digest()
-    op_signing = yutha.SigningKey.from_seed_bytes(op_seed)
-    return op_signing, op_signing.public_key()
+    op_signer = yutha.InProcessSigner.from_seed_bytes(op_seed)
+    return op_signer, op_signer.public_key()
 
 
 def load_bootstrap_identity_from_env() -> tuple[
-    yutha.SigningKey, yutha.AgentId, yutha.SwarmId, bytes
+    yutha.InProcessSigner, yutha.AgentId, yutha.SwarmId, bytes
 ]:
     """Read ``YUTHA_BOOTSTRAP_SEED`` and derive the full identity."""
     seed_hex = os.environ.get("YUTHA_BOOTSTRAP_SEED")
@@ -376,8 +376,8 @@ def load_bootstrap_identity_from_env() -> tuple[
         raise RuntimeError(
             f"YUTHA_BOOTSTRAP_SEED must be exactly 64 hex chars (32 bytes); got {len(seed)} bytes"
         )
-    signing_key, agent_id, swarm_id = derive_bootstrap_identity(seed)
-    return signing_key, agent_id, swarm_id, seed
+    signer, agent_id, swarm_id = derive_bootstrap_identity(seed)
+    return signer, agent_id, swarm_id, seed
 
 
 # -----------------------------------------------------------------------------
@@ -385,19 +385,19 @@ def load_bootstrap_identity_from_env() -> tuple[
 # -----------------------------------------------------------------------------
 
 
-def make_passport(
+async def make_passport(
     name: str,
     framework: str,
     swarm_id: yutha.SwarmId,
-    signing_key: yutha.SigningKey,
+    signer: yutha.Signer,
     agent_id: yutha.AgentId,
 ) -> yutha.Passport:
     """Build a signed passport."""
-    return yutha.Passport(
+    return await yutha.Passport(
         spec_version="1.0.0",
         agent_id=agent_id,
         swarm_id=swarm_id,
-        agent_public_key=signing_key.public_key(),
+        agent_public_key=signer.public_key(),
         owner=f"yutha-demo:research-crew:{name}",
         framework=framework,
         framework_version="1.0.0",
@@ -405,7 +405,7 @@ def make_passport(
         tier=yutha.PassportTier.MINIMAL,
         issued_at=yutha.Timestamp.now(),
         expires_at=FAR_FUTURE,
-    ).sign(signing_key)
+    ).sign(signer)
 
 
 # -----------------------------------------------------------------------------
@@ -442,7 +442,11 @@ def build_editor_publish(
             tags=tags,
         )
 
-    return publish_brief
+    # capability_required returns `Callable[[Any], Any]` (the openai_agents
+    # decorator surface is intentionally loose since it wraps both function
+    # tools and bare async fns). Cast back to the precise signature for
+    # type-safety at the call site.
+    return cast("Callable[[str, bool], Awaitable[yutha.Hash]]", publish_brief)
 
 
 # -----------------------------------------------------------------------------
@@ -513,10 +517,10 @@ async def run_research_crew(server_addr: str = SERVER_ADDR) -> dict[str, int]:
         return {}
 
     # --- bootstrap identity ------------------------------------------------
-    bootstrap_key, bootstrap_agent_id, swarm_id, seed = load_bootstrap_identity_from_env()
+    bootstrap_signer, bootstrap_agent_id, swarm_id, seed = load_bootstrap_identity_from_env()
     print(f"# swarm_id={swarm_id.value.hex()} (from YUTHA_BOOTSTRAP_SEED)")
 
-    op_signing_key, op_public_key = derive_operator_identity(seed)
+    op_signer, op_public_key = derive_operator_identity(seed)
     print(f"# operator pubkey: {op_public_key.value.hex()}")
 
     # --- Phase 0: pre-flow audit snapshot ---------------------------------
@@ -525,18 +529,18 @@ async def run_research_crew(server_addr: str = SERVER_ADDR) -> dict[str, int]:
         server_addr,
         agent_id=bootstrap_agent_id,
         swarm_id=swarm_id,
-        signing_key=bootstrap_key,
+        signer=bootstrap_signer,
     ) as bootstrap_client:
         before = await query_audit(bootstrap_client, kinds)
     print(f"# pre-flow snapshot taken via bootstrap agent {bootstrap_agent_id.value.hex()[:16]}…")
 
     # --- identities + passports -------------------------------------------
-    identities: dict[str, tuple[yutha.SigningKey, yutha.AgentId, yutha.Passport]] = {}
+    identities: dict[str, tuple[yutha.InProcessSigner, yutha.AgentId, yutha.Passport]] = {}
     for name, framework in CAST:
-        key = yutha.SigningKey.generate()
+        agent_signer = yutha.InProcessSigner.generate()
         agent_id = yutha.AgentId(value=secrets.token_bytes(16))
-        passport = make_passport(name, framework, swarm_id, key, agent_id)
-        identities[name] = (key, agent_id, passport)
+        passport = await make_passport(name, framework, swarm_id, agent_signer, agent_id)
+        identities[name] = (agent_signer, agent_id, passport)
 
     # --- OpenAI Agents Agent instances (constructed up front) -------------
     # Tight instructions: each handoff is an explicit step the
@@ -602,11 +606,11 @@ async def run_research_crew(server_addr: str = SERVER_ADDR) -> dict[str, int]:
     print("\n# Phase 1 — connect + register")
     wrappers: dict[str, YuthaOpenAIAgent] = {}
     try:
-        for name, (key, _agent_id, passport) in identities.items():
+        for name, (agent_signer, _agent_id, passport) in identities.items():
             wrapper = YuthaOpenAIAgent.connect(
                 server_addr,
                 passport=passport,
-                signing_key=key,
+                signer=agent_signer,
                 oai_agent=oai_agents[name],
                 # Dispatch loops are no-ops in this demo — the
                 # orchestrator drives every Runner.run directly
@@ -655,7 +659,7 @@ async def run_research_crew(server_addr: str = SERVER_ADDR) -> dict[str, int]:
                 server_addr,
                 operator_id="yutha-demo:research-crew:operator",
                 swarm_id=swarm_id,
-                operator_signing_key=op_signing_key,
+                operator_signer=op_signer,
             ) as op_client:
                 activated = await op_client.constitution.activate(constitution)
             print(

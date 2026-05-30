@@ -1,0 +1,12 @@
+{
+  "name": "seed_alternating_msg_64",
+  "description": "Seed 0x5a 0xa5 alternating, 64-byte message ('yutha conformance vector — alternating-seed long-message case ').",
+  "kind": "signer-sign-and-verify",
+  "inputs": {
+    "message_hex": "79757468612063616e6f6e6963616c2076656374203a20616c7465726e612d735f6c6f6e672d6d65737361675f636173655f315f30303030303030303030303030",
+    "seed_hex": "5aa55aa55aa55aa55aa55aa55aa55aa55aa55aa55aa55aa55aa55aa55aa55aa5"
+  },
+  "expected_public_key_hex": "5fba54ea0413ce10b272dfdd7e5e0f6864dcb0293ae4480d17e07e11c8dd4db7",
+  "expected_key_fingerprint_hex": "83d970040e916d83158ef3ee9087f1b924786d75c298d795d6362b5273648715",
+  "expected_signature_hex": "40a7f6443083f5762341d16b15d31826e99618ae3bae367bb7281db1a7795c4d10a43cbb1c0d403057c7d5a9415b3de784b30ce49f49750e54656f205687c00d"
+}

@@ -1,0 +1,12 @@
+{
+  "name": "seed_aa_msg_16",
+  "description": "All-0xaa seed (alternating bit pattern at the seed level), 16-byte message of repeating 0x33.",
+  "kind": "signer-sign-and-verify",
+  "inputs": {
+    "message_hex": "33333333333333333333333333333333",
+    "seed_hex": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+  },
+  "expected_public_key_hex": "e734ea6c2b6257de72355e472aa05a4c487e6b463c029ed306df2f01b5636b58",
+  "expected_key_fingerprint_hex": "448f04ffcba874db93d9fd02520daa583a92b1f20b100ff791202a6d7a93e0de",
+  "expected_signature_hex": "2e94f1040a3fd17b707274c35267d4f90c7198a42baa01e9442f84a2212fbb7afa1bba0913b1fd7fbc08b97a5ad13daf7dba3cd8ed3e0e6d2f7ffbeec2afc00c"
+}

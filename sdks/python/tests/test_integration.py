@@ -11,7 +11,7 @@ Skipped by default. To run:
 
        YUTHA_BOOTSTRAP_SEED=<hex> cargo run -p yutha-control-plane
 
-     Both sides derive (signing_key, agent_id, swarm_id) from the
+     Both sides derive (signer, agent_id, swarm_id) from the
      same seed via the documented Rust ``BootstrapIdentity::from_seed_hex``
      in ``crates/yutha-control-plane/src/main.rs``. The Python side
      mirrors that derivation in :func:`_derive_identity_from_seed`
@@ -64,7 +64,7 @@ pytestmark = pytest.mark.integration
 
 def _derive_identity_from_seed(
     seed: bytes,
-) -> tuple[yutha.SigningKey, yutha.AgentId, yutha.SwarmId]:
+) -> tuple[yutha.InProcessSigner, yutha.AgentId, yutha.SwarmId]:
     """Mirror of the Rust ``BootstrapIdentity::from_seed_hex``
     derivation in ``crates/yutha-control-plane/src/main.rs``. Both
     sides MUST agree on these bytes or the test silently
@@ -72,11 +72,11 @@ def _derive_identity_from_seed(
     """
     if len(seed) != 32:
         raise ValueError(f"seed must be exactly 32 bytes, got {len(seed)}")
-    signing_key = yutha.SigningKey.from_seed_bytes(seed)
+    signer = yutha.InProcessSigner.from_seed_bytes(seed)
     agent_id_bytes = hashlib.sha256(seed + b"\x01").digest()[:16]
     swarm_id_bytes = hashlib.sha256(seed + b"\x02").digest()[:16]
     return (
-        signing_key,
+        signer,
         yutha.AgentId(value=agent_id_bytes),
         yutha.SwarmId(value=swarm_id_bytes),
     )
@@ -88,7 +88,7 @@ def _derive_identity_from_seed(
 
 
 @pytest.fixture
-def bootstrap_identity() -> tuple[yutha.SigningKey, yutha.AgentId, yutha.SwarmId]:
+def bootstrap_identity() -> tuple[yutha.InProcessSigner, yutha.AgentId, yutha.SwarmId]:
     seed_hex = os.environ.get(INTEGRATION_SEED_VAR)
     if not seed_hex:
         pytest.skip(
@@ -126,7 +126,7 @@ def test_seed_derivation_is_deterministic() -> None:
     seed = secrets.token_bytes(32)
     a = _derive_identity_from_seed(seed)
     b = _derive_identity_from_seed(seed)
-    assert a[0].public_key_bytes() == b[0].public_key_bytes()
+    assert a[0].public_key() == b[0].public_key()
     assert a[1] == b[1]
     assert a[2] == b[2]
 
@@ -143,19 +143,19 @@ def test_seed_derivation_is_deterministic() -> None:
 
 @pytest.mark.asyncio
 async def test_get_topology_returns_our_swarm(
-    bootstrap_identity: tuple[yutha.SigningKey, yutha.AgentId, yutha.SwarmId],
+    bootstrap_identity: tuple[yutha.InProcessSigner, yutha.AgentId, yutha.SwarmId],
     address: str,
 ) -> None:
     """Simplest live check: connect, bearer-authenticate, fetch the
     topology, verify the swarm_id matches the derived one. If the
     server is using a different seed (or no seed), the swarm_id
     won't match and this fails loudly."""
-    signing_key, agent_id, swarm_id = bootstrap_identity
+    signer, agent_id, swarm_id = bootstrap_identity
     async with yutha.YuthaClient.connect(
         address,
         agent_id=agent_id,
         swarm_id=swarm_id,
-        signing_key=signing_key,
+        signer=signer,
     ) as client:
         resp = await client.admission.get_topology()
         assert bytes(resp.topology.swarm_id.value) == swarm_id.value, (
@@ -167,7 +167,7 @@ async def test_get_topology_returns_our_swarm(
 
 @pytest.mark.asyncio
 async def test_full_lifecycle(
-    bootstrap_identity: tuple[yutha.SigningKey, yutha.AgentId, yutha.SwarmId],
+    bootstrap_identity: tuple[yutha.InProcessSigner, yutha.AgentId, yutha.SwarmId],
     address: str,
     activated_permissive_constitution: object,  # fixture has side-effects only
 ) -> None:
@@ -179,13 +179,13 @@ async def test_full_lifecycle(
     SendEnvelope gate refuses every call until an operator activates
     a constitution. The fixture does that once per session against the
     same control plane this test connects to."""
-    signing_key, agent_id, swarm_id = bootstrap_identity
+    signer, agent_id, swarm_id = bootstrap_identity
 
     async with yutha.YuthaClient.connect(
         address,
         agent_id=agent_id,
         swarm_id=swarm_id,
-        signing_key=signing_key,
+        signer=signer,
     ) as client:
         # ---------------------------------------------------------------
         # 1. Issue a capability scoped to envelope.send.
@@ -227,7 +227,7 @@ async def test_full_lifecycle(
         # ---------------------------------------------------------------
         # 3. Send a signed envelope addressed to self.
         # ---------------------------------------------------------------
-        envelope = yutha.Envelope(
+        envelope = await yutha.Envelope(
             spec_version="1.0.0",
             swarm_id=swarm_id,
             envelope_id=secrets.token_bytes(16),
@@ -240,7 +240,7 @@ async def test_full_lifecycle(
             nonce=secrets.token_bytes(16),
             epoch=1,
             sent_at=yutha.Timestamp.now(),
-        ).sign(signing_key)
+        ).sign(signer)
         # Thread the cap issued in step 1 through send — required when
         # the server has `topology.require_capability_for_send=true`
         # (E1 / RFC 0007). The pre-E1 shape of this test omitted
@@ -287,7 +287,7 @@ async def test_full_lifecycle(
 
 @pytest.mark.asyncio
 async def test_send_to_role_recipient_passes_constitution_eval(
-    bootstrap_identity: tuple[yutha.SigningKey, yutha.AgentId, yutha.SwarmId],
+    bootstrap_identity: tuple[yutha.InProcessSigner, yutha.AgentId, yutha.SwarmId],
     address: str,
     activated_permissive_constitution: object,  # fixture has side-effects only
 ) -> None:
@@ -311,7 +311,7 @@ async def test_send_to_role_recipient_passes_constitution_eval(
     so the resource-shape failure shows up cleanly without other
     error paths in the way.
     """
-    signing_key, agent_id, swarm_id = bootstrap_identity
+    signer, agent_id, swarm_id = bootstrap_identity
     # Self-issue a cap permitting envelope.send for the role-recipient
     # case. Required when the server enforces require_capability_for_send
     # (closed mode); harmless otherwise.
@@ -319,7 +319,7 @@ async def test_send_to_role_recipient_passes_constitution_eval(
         address,
         agent_id=agent_id,
         swarm_id=swarm_id,
-        signing_key=signing_key,
+        signer=signer,
     ) as client:
         cap = yutha.Capability(
             spec_version="1.0.0",
@@ -333,7 +333,7 @@ async def test_send_to_role_recipient_passes_constitution_eval(
         )
         cap_id, _ = await client.capability.issue(cap)
 
-        envelope = yutha.Envelope(
+        envelope = await yutha.Envelope(
             spec_version="1.0.0",
             swarm_id=swarm_id,
             envelope_id=secrets.token_bytes(16),
@@ -345,7 +345,7 @@ async def test_send_to_role_recipient_passes_constitution_eval(
             nonce=secrets.token_bytes(16),
             epoch=1,
             sent_at=yutha.Timestamp.now(),
-        ).sign(signing_key)
+        ).sign(signer)
 
         # Three legal outcomes — the fix is asserted by the ABSENCE of
         # the pre-fix Cedar-shape error:
@@ -380,19 +380,19 @@ async def test_send_to_role_recipient_passes_constitution_eval(
 
 @pytest.mark.asyncio
 async def test_get_receipt_returns_none_for_unknown_id(
-    bootstrap_identity: tuple[yutha.SigningKey, yutha.AgentId, yutha.SwarmId],
+    bootstrap_identity: tuple[yutha.InProcessSigner, yutha.AgentId, yutha.SwarmId],
     address: str,
 ) -> None:
     """The ReceiptAPI.get NOT_FOUND → None translation, against the
     live server. Verifies the gRPC error-code mapping in
     ``client.py::ReceiptAPI.get`` works end-to-end."""
-    signing_key, agent_id, swarm_id = bootstrap_identity
+    signer, agent_id, swarm_id = bootstrap_identity
 
     async with yutha.YuthaClient.connect(
         address,
         agent_id=agent_id,
         swarm_id=swarm_id,
-        signing_key=signing_key,
+        signer=signer,
     ) as client:
         unknown = yutha.Hash(
             algorithm=yutha.HashAlgorithm.SHA256,

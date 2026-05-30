@@ -88,16 +88,16 @@ async def main():
     seed = bytes.fromhex(os.environ["YUTHA_BOOTSTRAP_SEED"])
     swarm_id = yutha.SwarmId(value=hashlib.sha256(seed + b"\x02").digest()[:16])
 
-    # Mint an identity. The signing_key's public counterpart goes on the
+    # Mint an identity. The signer's public counterpart goes on the
     # passport; the substrate uses it to verify every envelope you sign.
-    signing_key = yutha.SigningKey.generate()
+    signer = yutha.InProcessSigner.generate()
     agent_id = yutha.AgentId(value=secrets.token_bytes(16))
 
-    passport = yutha.Passport(
+    passport = await yutha.Passport(
         spec_version="1.0.0",
         agent_id=agent_id,
         swarm_id=swarm_id,
-        agent_public_key=signing_key.public_key(),
+        agent_public_key=signer.public_key(),
         owner="hello-yutha",
         framework="langgraph",
         framework_version="1.0.0",
@@ -108,13 +108,13 @@ async def main():
         expires_at=yutha.Timestamp(
             wall_clock="2099-01-01T00:00:00Z", monotonic_ns=2**62
         ),
-    ).sign(signing_key)
+    ).sign(signer)
 
     async with yutha.YuthaClient.connect(
         "127.0.0.1:50051",
         agent_id=agent_id,
         swarm_id=swarm_id,
-        signing_key=signing_key,
+        signer=signer,
     ) as client:
         # Register — anonymous RPC; passport IS the credential.
         await client.admission.register(passport)
@@ -128,7 +128,7 @@ async def main():
         await asyncio.sleep(0.1)
 
         # Build, sign, and send an envelope to ourselves.
-        env = yutha.Envelope(
+        env = await yutha.Envelope(
             spec_version="1.0.0",
             swarm_id=swarm_id,
             envelope_id=secrets.token_bytes(16),
@@ -140,7 +140,7 @@ async def main():
             nonce=secrets.token_bytes(16),
             epoch=1,
             sent_at=yutha.Timestamp.now(),
-        ).sign(signing_key)
+        ).sign(signer)
         await client.envelope.send(env)
 
         delivered = await asyncio.wait_for(receive_task, timeout=3.0)
@@ -156,7 +156,10 @@ the audit-log section below.
 
 A few things to internalize about that snippet:
 
-- **The signing key never leaves your process.** The server has
+- **The signer never leaks raw key material.** The `Signer` Protocol
+  only exposes `public_key()` and `sign_message()`; for the
+  in-process default the private bytes live in process memory, but
+  cloud-KMS-backed signers are drop-in compatible. The server has
   the public counterpart on the registered passport and verifies
   every envelope's signature against it.
 - **`secrets.token_bytes(16)` for `envelope_id` and `nonce`.** Both
@@ -185,7 +188,7 @@ async def handler(agent, envelope, deliver_id):
 agent = YuthaAgent.connect(
     "127.0.0.1:50051",
     passport=passport,
-    signing_key=signing_key,
+    signer=signer,
     handler=handler,
 )
 await agent.register()
@@ -488,16 +491,17 @@ public counterpart.
 ```python
 from yutha import YuthaClient
 
-# The operator's signing key. In production this stays in an
-# operator-side secret store. For the demo we derive it from the
-# bootstrap seed (see the S1 demo's derive_operator_identity).
-operator_signing_key = ...
+# The operator's signer. In production the custody handle stays in
+# an operator-side secret store (KMS, Vault transit, HSM); for the
+# demo we derive an in-process signer from the bootstrap seed
+# (see the S1 demo's derive_operator_identity).
+operator_signer = ...
 
 async with YuthaClient.connect_as_operator(
     "127.0.0.1:50051",
     operator_id="ops-team-1",
     swarm_id=swarm_id,
-    operator_signing_key=operator_signing_key,
+    operator_signer=operator_signer,
 ) as op_client:
     receipt = await op_client.admission.operator_revoke(
         target_agent_id,

@@ -127,14 +127,14 @@ async def main():
     swarm_id = yutha.SwarmId(value=hashlib.sha256(seed + b"\x02").digest()[:16])
 
     # Mint a fresh identity for this OpenAI Agents agent.
-    signing_key = yutha.SigningKey.generate()
+    signer = yutha.InProcessSigner.generate()
     agent_id = yutha.AgentId(value=secrets.token_bytes(16))
 
-    passport = yutha.Passport(
+    passport = await yutha.Passport(
         spec_version="1.0.0",
         agent_id=agent_id,
         swarm_id=swarm_id,
-        agent_public_key=signing_key.public_key(),
+        agent_public_key=signer.public_key(),
         owner="hello-yutha-openai-agents",
         framework="openai-agents",
         framework_version="0.x",
@@ -144,7 +144,7 @@ async def main():
         expires_at=yutha.Timestamp(
             wall_clock="2099-01-01T00:00:00Z", monotonic_ns=2**62
         ),
-    ).sign(signing_key)
+    ).sign(signer)
 
     # Construct an OpenAI Agents Agent. instructions/tools/handoffs
     # drive the LLM reasoning; for the substrate-level integration
@@ -164,7 +164,7 @@ async def main():
     async with YuthaOpenAIAgent.connect(
         "127.0.0.1:50051",
         passport=passport,
-        signing_key=signing_key,
+        signer=signer,
         oai_agent=oai_agent,
     ) as agent:
         await agent.register()

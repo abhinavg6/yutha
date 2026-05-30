@@ -66,4 +66,10 @@ pub enum CapabilityError {
     /// Core-layer error.
     #[error(transparent)]
     Core(#[from] CoreError),
+
+    /// The injected [`yutha_signer::Signer`] failed to produce a signature.
+    /// Same posture as `PassportError::Signer` — string-wrapped to keep
+    /// this error type from taking a hard dep on the signer error variants.
+    #[error("signer failed: {0}")]
+    Signer(String),
 }

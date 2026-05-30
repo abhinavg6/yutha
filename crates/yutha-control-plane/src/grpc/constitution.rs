@@ -271,7 +271,11 @@ async fn emit_constitution_activate_receipt(
     let bytes = receipt
         .canonical_bytes()
         .map_err(|e| Status::internal(format!("constitution.activate canonical: {e}")))?;
-    let sig = state.control_plane_identity.sign(&bytes);
+    let sig = state
+        .control_plane_identity
+        .sign(&bytes)
+        .await
+        .map_err(|e| Status::internal(format!("constitution.activate signer: {e}")))?;
     receipt
         .signatures
         .push(SignedBy::new(SignatureRole::Actor, sig, Timestamp::now()));

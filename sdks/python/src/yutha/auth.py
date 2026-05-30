@@ -51,7 +51,7 @@ from grpc.aio import (
 
 from yutha._proto.control_plane import v1_pb2 as cp_pb2
 from yutha.canonical import canonical_bytes
-from yutha.crypto import SigningKey
+from yutha.crypto import Signer
 from yutha.identity import AgentId, SwarmId, Timestamp
 
 # Metadata sentinel: callers attach this key to a call's metadata to
@@ -95,7 +95,7 @@ class _CachedToken:
 
 
 class BearerSession:
-    """Owns a passport signing key; mints and caches
+    """Owns a passport :class:`~yutha.crypto.Signer`; mints and caches
     ``AgentBearerToken`` headers for outbound gRPC calls.
 
     A single session is safe to share across many concurrent RPCs.
@@ -105,11 +105,15 @@ class BearerSession:
 
     Parameters
     ----------
-    agent_id, swarm_id, signing_key
-        The bearer's identity. ``signing_key``'s public counterpart
-        MUST match the public key on the registered passport; the
-        server resolves ``agent_id`` against the passport store and
-        verifies the token's signature with that public key.
+    agent_id, swarm_id, signer
+        The bearer's identity. ``signer.public_key()`` MUST match
+        the public key on the registered passport; the server resolves
+        ``agent_id`` against the passport store and verifies the
+        token's signature with that public key. The signer is the
+        custody handle — the typical hobby-swarm value is a
+        :class:`~yutha.crypto.InProcessSigner` wrapping the agent's
+        Ed25519 keypair; cloud-KMS-backed implementations are
+        drop-in compatible.
     token_lifetime_seconds
         How long each minted token is valid. Recommended ≤ 5 minutes
         per the spec rationale (short-lived tokens limit blast radius
@@ -125,7 +129,7 @@ class BearerSession:
         self,
         agent_id: AgentId,
         swarm_id: SwarmId,
-        signing_key: SigningKey,
+        signer: Signer,
         *,
         token_lifetime_seconds: int = 300,
         refresh_lead_seconds: int = 30,
@@ -137,7 +141,7 @@ class BearerSession:
             )
         self._agent_id = agent_id
         self._swarm_id = swarm_id
-        self._signing_key = signing_key
+        self._signer = signer
         self._lifetime_ns = token_lifetime_seconds * 1_000_000_000
         self._refresh_lead_ns = refresh_lead_seconds * 1_000_000_000
         self._cache: _CachedToken | None = None
@@ -168,17 +172,20 @@ class BearerSession:
             now_ns = time.monotonic_ns()
             if cached is not None and cached.expires_monotonic_ns - now_ns > self._refresh_lead_ns:
                 return f"bearer agent {cached.hex_value}"
-            minted = self._mint()
+            minted = await self._mint()
             self._cache = minted
             return f"bearer agent {minted.hex_value}"
 
-    def _mint(self) -> _CachedToken:
+    async def _mint(self) -> _CachedToken:
         """Build, sign, and hex-encode a fresh bearer token.
 
         Mirrors the Rust server's expectations:
           1. Construct the AgentBearerToken proto with required fields.
           2. Serialize with signature/extensions cleared → canonical bytes.
-          3. Ed25519-sign the canonical bytes with the passport key.
+          3. Ed25519-sign the canonical bytes with the passport key
+             (``await`` because the :class:`~yutha.crypto.Signer`
+             surface is async — instant for in-process, one network
+             round-trip for cloud-KMS-backed signers).
           4. Re-encode the token with the signature attached.
           5. Hex-encode the wire bytes.
         """
@@ -206,7 +213,7 @@ class BearerSession:
         )
         # Canonical bytes: token with signature + extensions cleared.
         canonical = canonical_bytes(token)
-        sig = self._signing_key.sign_message(canonical)
+        sig = await self._signer.sign_message(canonical)
         token.signature.CopyFrom(sig.to_proto())
 
         wire = token.SerializeToString()
@@ -217,7 +224,7 @@ class BearerSession:
 
 
 class OperatorBearerSession:
-    """Owns an operator signing key; mints and caches
+    """Owns an operator :class:`~yutha.crypto.Signer`; mints and caches
     ``OperatorBearerToken`` headers for outbound gRPC calls.
 
     Sibling of :class:`BearerSession` for the operator credential path
@@ -226,10 +233,10 @@ class OperatorBearerSession:
     that's how the server's auth helper distinguishes operator tokens
     from agent tokens on the same ``authorization`` header.
 
-    The ``operator_signing_key``'s public counterpart MUST match the
-    public key the control plane was started with
-    (``--operator-public-key``). The server rejects tokens whose
-    signature can't be verified against that configured key.
+    ``operator_signer.public_key()`` MUST match the public key the
+    control plane was started with (``--operator-public-key``). The
+    server rejects tokens whose signature can't be verified against
+    that configured key.
 
     Parameters
     ----------
@@ -239,16 +246,17 @@ class OperatorBearerSession:
         RFC ships) the server accepts multiple operator public keys.
     swarm_id
         The swarm this operator's tokens target.
-    operator_signing_key
-        Ed25519 private key. Stays in operator tooling; never
-        transmitted.
+    operator_signer
+        Custody handle for the operator's Ed25519 key. Typically an
+        :class:`~yutha.crypto.InProcessSigner`; cloud-KMS implementations
+        are drop-in compatible.
     """
 
     def __init__(
         self,
         operator_id: str,
         swarm_id: SwarmId,
-        operator_signing_key: SigningKey,
+        operator_signer: Signer,
         *,
         token_lifetime_seconds: int = 300,
         refresh_lead_seconds: int = 30,
@@ -260,7 +268,7 @@ class OperatorBearerSession:
             )
         self._operator_id = operator_id
         self._swarm_id = swarm_id
-        self._signing_key = operator_signing_key
+        self._signer = operator_signer
         self._lifetime_ns = token_lifetime_seconds * 1_000_000_000
         self._refresh_lead_ns = refresh_lead_seconds * 1_000_000_000
         self._cache: _CachedToken | None = None
@@ -289,14 +297,16 @@ class OperatorBearerSession:
             now_ns = time.monotonic_ns()
             if cached is not None and cached.expires_monotonic_ns - now_ns > self._refresh_lead_ns:
                 return f"bearer operator {cached.hex_value}"
-            minted = self._mint()
+            minted = await self._mint()
             self._cache = minted
             return f"bearer operator {minted.hex_value}"
 
-    def _mint(self) -> _CachedToken:
+    async def _mint(self) -> _CachedToken:
         """Build, sign, and hex-encode a fresh operator token. Same
         canonical-bytes-with-signature-cleared shape every other Yutha
-        signed message uses."""
+        signed message uses. ``await`` on the signer for symmetry with
+        :meth:`BearerSession._mint` — instant for the in-process
+        default, one round-trip for cloud-KMS-backed implementations."""
         now = Timestamp.now()
         expires_monotonic_ns = now.monotonic_ns + self._lifetime_ns
         expires_at = Timestamp(
@@ -312,7 +322,7 @@ class OperatorBearerSession:
             nonce=os.urandom(16),
         )
         canonical = canonical_bytes(token)
-        sig = self._signing_key.sign_message(canonical)
+        sig = await self._signer.sign_message(canonical)
         token.signature.CopyFrom(sig.to_proto())
 
         wire = token.SerializeToString()

@@ -14,7 +14,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from yutha._proto import common_pb2
 from yutha._proto.envelope import envelope_v1_pb2 as proto
 from yutha.canonical import canonical_bytes as _canonical_bytes
-from yutha.crypto import SigningKey, VerificationFailed, verify
+from yutha.crypto import Signer, VerificationFailed, verify
 from yutha.identity import AgentId, CausalRef, Hash, PublicKey, Signature, SwarmId, Timestamp
 
 
@@ -151,8 +151,8 @@ class Recipient(BaseModel):
 
 
 class Envelope(BaseModel):
-    """A typed, signed message wrapper. Construct, then ``.sign(key)``
-    to attach ``agent_signature``."""
+    """A typed, signed message wrapper. Construct, then ``await
+    envelope.sign(signer)`` to attach ``agent_signature``."""
 
     model_config = ConfigDict(frozen=True)
 
@@ -229,18 +229,18 @@ class Envelope(BaseModel):
         p.ClearField("extensions")
         return _canonical_bytes(p)
 
-    def sign(self, signing_key: SigningKey, public_key: PublicKey | None = None) -> Envelope:
+    async def sign(self, signer: Signer, public_key: PublicKey | None = None) -> Envelope:
         """Return a copy with ``agent_signature`` attached.
 
         Unlike Passport, Envelope doesn't carry the sender's public key
         inline — verification requires resolving ``from_agent`` against
         the passport registry. The optional ``public_key`` argument is
-        only used to cross-check that the signing key matches what the
+        only used to cross-check that the signer matches what the
         caller expects.
         """
-        if public_key is not None and signing_key.public_key_bytes() != public_key.value:
-            raise ValueError("signing key does not match the supplied public_key")
-        sig = signing_key.sign_message(self.canonical_bytes())
+        if public_key is not None and signer.public_key().value != public_key.value:
+            raise ValueError("signer does not match the supplied public_key")
+        sig = await signer.sign_message(self.canonical_bytes())
         return self.model_copy(update={"agent_signature": sig})
 
     def verify_signature(self, sender_public_key: PublicKey) -> None:

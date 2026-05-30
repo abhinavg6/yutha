@@ -1,0 +1,12 @@
+{
+  "name": "seed_ff_empty_msg",
+  "description": "All-0xff seed, empty message. Exercises the Ed25519 scalar clamping high-bit clear — without clamping, the seed's top bit would alias differently.",
+  "kind": "signer-sign-and-verify",
+  "inputs": {
+    "message_hex": "",
+    "seed_hex": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+  },
+  "expected_public_key_hex": "76a1592044a6e4f511265bca73a604d90b0529d1df602be30a19a9257660d1f5",
+  "expected_key_fingerprint_hex": "af822958f2d75afb91f8a8f4da253230d63bebf8c3ce8fa9a2e275c2cd35456e",
+  "expected_signature_hex": "ee00ac6e44a6a43bc3a701c137b467473e32a4bed47d3293fe6186fe9868c7d254024f65ffa552487bdbd34aaccd1e82c1a20a191d183dbb64c3523cccd89c0f"
+}

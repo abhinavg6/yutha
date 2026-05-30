@@ -217,7 +217,7 @@ async with yutha.YuthaClient.connect_as_operator(
     server_addr,
     operator_id="s1-demo-operator",
     swarm_id=swarm_id,
-    operator_signing_key=op_signing_key,
+    operator_signer=op_signer,
 ) as op_client:
     op_outcome = await op_client.admission.operator_revoke(
         billing_id,

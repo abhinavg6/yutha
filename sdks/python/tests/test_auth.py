@@ -24,23 +24,23 @@ def _new_session(
     *,
     token_lifetime_seconds: int = 300,
     refresh_lead_seconds: int = 30,
-) -> tuple[BearerSession, yutha.SigningKey, yutha.AgentId, yutha.SwarmId]:
-    key = yutha.SigningKey.generate()
+) -> tuple[BearerSession, yutha.InProcessSigner, yutha.AgentId, yutha.SwarmId]:
+    signer = yutha.InProcessSigner.generate()
     agent_id = yutha.AgentId.new()
     swarm_id = yutha.SwarmId.new()
     session = BearerSession(
         agent_id=agent_id,
         swarm_id=swarm_id,
-        signing_key=key,
+        signer=signer,
         token_lifetime_seconds=token_lifetime_seconds,
         refresh_lead_seconds=refresh_lead_seconds,
     )
-    return session, key, agent_id, swarm_id
+    return session, signer, agent_id, swarm_id
 
 
 @pytest.mark.asyncio
 async def test_session_mints_well_formed_header() -> None:
-    session, _key, _agent_id, _swarm_id = _new_session()
+    session, _signer, _agent_id, _swarm_id = _new_session()
     header = await session.header_value()
     # RFC 0009 §3.1 (post-F10): the bearer header carries an explicit
     # variant prefix. Agent sessions mint `bearer agent <hex>`; operator
@@ -64,7 +64,7 @@ async def test_minted_token_signature_verifies_against_passport_key() -> None:
     """The signature the SDK attaches MUST be the same one the Rust
     server will reconstruct + verify: Ed25519 over canonical bytes
     (token with signature + extensions cleared)."""
-    session, key, agent_id, swarm_id = _new_session()
+    session, signer, agent_id, swarm_id = _new_session()
     header = await session.header_value()
     bytes_ = bytes.fromhex(header.removeprefix("bearer agent "))
     token = cp_pb2.AgentBearerToken()
@@ -83,7 +83,7 @@ async def test_minted_token_signature_verifies_against_passport_key() -> None:
     canonical_wire = canonical_bytes(canonical)
 
     sig = yutha.Signature.from_proto(token.signature)
-    yutha.verify(key.public_key(), canonical_wire, sig)
+    yutha.verify(signer.public_key(), canonical_wire, sig)
     # And the signature bytes match what `cryptography` would produce
     # — sanity check against the wire payload.
     assert len(signature_bytes) == 64
@@ -129,7 +129,7 @@ async def test_session_rejects_bad_refresh_window() -> None:
         BearerSession(
             agent_id=yutha.AgentId.new(),
             swarm_id=yutha.SwarmId.new(),
-            signing_key=yutha.SigningKey.generate(),
+            signer=yutha.InProcessSigner.generate(),
             token_lifetime_seconds=60,
             refresh_lead_seconds=120,
         )

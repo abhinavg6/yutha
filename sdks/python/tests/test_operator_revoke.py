@@ -81,20 +81,20 @@ def _derive_swarm_id(seed: bytes) -> yutha.SwarmId:
     return yutha.SwarmId(value=hashlib.sha256(seed + b"\x02").digest()[:16])
 
 
-def _derive_operator_keypair(seed: bytes) -> tuple[yutha.SigningKey, yutha.PublicKey]:
+def _derive_operator_keypair(seed: bytes) -> tuple[yutha.InProcessSigner, yutha.PublicKey]:
     op_seed = hashlib.sha256(seed + b"\x03").digest()
-    signing = yutha.SigningKey.from_seed_bytes(op_seed)
-    return signing, signing.public_key()
+    signer = yutha.InProcessSigner.from_seed_bytes(op_seed)
+    return signer, signer.public_key()
 
 
-def _make_demo_passport(
-    name: str, swarm_id: yutha.SwarmId, key: yutha.SigningKey, agent_id: yutha.AgentId
+async def _make_demo_passport(
+    name: str, swarm_id: yutha.SwarmId, signer: yutha.Signer, agent_id: yutha.AgentId
 ) -> yutha.Passport:
-    return yutha.Passport(
+    return await yutha.Passport(
         spec_version="1.0.0",
         agent_id=agent_id,
         swarm_id=swarm_id,
-        agent_public_key=key.public_key(),
+        agent_public_key=signer.public_key(),
         owner=f"yutha-test:operator-revoke:{name}",
         framework="test",
         framework_version="1.0.0",
@@ -102,7 +102,7 @@ def _make_demo_passport(
         tier=yutha.PassportTier.MINIMAL,
         issued_at=yutha.Timestamp.now(),
         expires_at=FAR_FUTURE,
-    ).sign(key)
+    ).sign(signer)
 
 
 # =============================================================================
@@ -119,18 +119,18 @@ async def test_operator_revokes_target_and_targets_subsequent_auth_fails(
     subsequent bearer auth fails with UNAUTHENTICATED (revoked-set
     check, RFC 0009 §3.3)."""
     swarm_id = _derive_swarm_id(seed_bytes)
-    op_signing, _ = _derive_operator_keypair(seed_bytes)
+    op_signer, _ = _derive_operator_keypair(seed_bytes)
 
     # Register a demo agent ("target") via anonymous register.
-    target_key = yutha.SigningKey.generate()
+    target_signer = yutha.InProcessSigner.generate()
     target_id = yutha.AgentId(value=secrets.token_bytes(16))
-    target_passport = _make_demo_passport("target", swarm_id, target_key, target_id)
+    target_passport = await _make_demo_passport("target", swarm_id, target_signer, target_id)
 
     async with yutha.YuthaClient.connect(
         server_addr,
         agent_id=target_id,
         swarm_id=swarm_id,
-        signing_key=target_key,
+        signer=target_signer,
     ) as target_client:
         await target_client.admission.register(target_passport)
 
@@ -142,7 +142,7 @@ async def test_operator_revokes_target_and_targets_subsequent_auth_fails(
             server_addr,
             operator_id="test-operator",
             swarm_id=swarm_id,
-            operator_signing_key=op_signing,
+            operator_signer=op_signer,
         ) as op_client:
             outcome = await op_client.admission.operator_revoke(
                 target_id, "test: operator eviction"
@@ -176,11 +176,13 @@ async def test_active_stream_tear_down_on_operator_revoke(
     catch the deny via the agent's `_dispatch_error` capture path that
     Stage 4b ships."""
     swarm_id = _derive_swarm_id(seed_bytes)
-    op_signing, _ = _derive_operator_keypair(seed_bytes)
+    op_signer, _ = _derive_operator_keypair(seed_bytes)
 
-    subscriber_key = yutha.SigningKey.generate()
+    subscriber_signer = yutha.InProcessSigner.generate()
     subscriber_id = yutha.AgentId(value=secrets.token_bytes(16))
-    subscriber_passport = _make_demo_passport("subscriber", swarm_id, subscriber_key, subscriber_id)
+    subscriber_passport = await _make_demo_passport(
+        "subscriber", swarm_id, subscriber_signer, subscriber_id
+    )
 
     received: list[object] = []
 
@@ -190,7 +192,7 @@ async def test_active_stream_tear_down_on_operator_revoke(
     agent = YuthaAgent.connect(
         server_addr,
         passport=subscriber_passport,
-        signing_key=subscriber_key,
+        signer=subscriber_signer,
         handler=handler,
     )
     await agent.register()
@@ -205,7 +207,7 @@ async def test_active_stream_tear_down_on_operator_revoke(
             server_addr,
             operator_id="test-operator",
             swarm_id=swarm_id,
-            operator_signing_key=op_signing,
+            operator_signer=op_signer,
         ) as op_client:
             await op_client.admission.operator_revoke(subscriber_id, "test: tear-down probe")
 
@@ -252,24 +254,28 @@ async def test_operator_revoke_cascade_capabilities_revokes_outstanding_caps(
     (``cascade=False``) explicitly negates.
     """
     swarm_id = _derive_swarm_id(seed_bytes)
-    op_signing, _ = _derive_operator_keypair(seed_bytes)
+    op_signer, _ = _derive_operator_keypair(seed_bytes)
 
-    target_key = yutha.SigningKey.generate()
+    target_signer = yutha.InProcessSigner.generate()
     target_id = yutha.AgentId(value=secrets.token_bytes(16))
-    target_passport = _make_demo_passport("cascade-target", swarm_id, target_key, target_id)
+    target_passport = await _make_demo_passport(
+        "cascade-target", swarm_id, target_signer, target_id
+    )
 
     # Auditor exists purely to read `capability.revoke` receipts back
     # post-cascade — the target's bearer is invalid after eviction and
     # the operator bearer doesn't speak the receipt query surface.
-    auditor_key = yutha.SigningKey.generate()
+    auditor_signer = yutha.InProcessSigner.generate()
     auditor_id = yutha.AgentId(value=secrets.token_bytes(16))
-    auditor_passport = _make_demo_passport("cascade-auditor", swarm_id, auditor_key, auditor_id)
+    auditor_passport = await _make_demo_passport(
+        "cascade-auditor", swarm_id, auditor_signer, auditor_id
+    )
 
     async with yutha.YuthaClient.connect(
         server_addr,
         agent_id=target_id,
         swarm_id=swarm_id,
-        signing_key=target_key,
+        signer=target_signer,
     ) as target_client:
         await target_client.admission.register(target_passport)
 
@@ -301,7 +307,7 @@ async def test_operator_revoke_cascade_capabilities_revokes_outstanding_caps(
         server_addr,
         agent_id=auditor_id,
         swarm_id=swarm_id,
-        signing_key=auditor_key,
+        signer=auditor_signer,
     ) as auditor_client:
         await auditor_client.admission.register(auditor_passport)
         before, _ = await auditor_client.receipt.query_by_action_kind("capability.revoke")
@@ -313,7 +319,7 @@ async def test_operator_revoke_cascade_capabilities_revokes_outstanding_caps(
             server_addr,
             operator_id="test-operator",
             swarm_id=swarm_id,
-            operator_signing_key=op_signing,
+            operator_signer=op_signer,
         ) as op_client:
             outcome = await op_client.admission.operator_revoke(
                 target_id,
@@ -351,16 +357,16 @@ async def test_agent_client_cannot_call_operator_revoke(
     (RFC 0009 §3.1)."""
     swarm_id = _derive_swarm_id(seed_bytes)
 
-    agent_key = yutha.SigningKey.generate()
+    agent_signer = yutha.InProcessSigner.generate()
     agent_id = yutha.AgentId(value=secrets.token_bytes(16))
-    agent_passport = _make_demo_passport("agent", swarm_id, agent_key, agent_id)
+    agent_passport = await _make_demo_passport("agent", swarm_id, agent_signer, agent_id)
     target_id = yutha.AgentId(value=secrets.token_bytes(16))
 
     async with yutha.YuthaClient.connect(
         server_addr,
         agent_id=agent_id,
         swarm_id=swarm_id,
-        signing_key=agent_key,
+        signer=agent_signer,
     ) as agent_client:
         await agent_client.admission.register(agent_passport)
 

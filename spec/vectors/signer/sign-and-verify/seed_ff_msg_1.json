@@ -1,0 +1,12 @@
+{
+  "name": "seed_ff_msg_1",
+  "description": "All-0xff seed, single-byte message (0x42). Smallest non-empty message.",
+  "kind": "signer-sign-and-verify",
+  "inputs": {
+    "message_hex": "42",
+    "seed_hex": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+  },
+  "expected_public_key_hex": "76a1592044a6e4f511265bca73a604d90b0529d1df602be30a19a9257660d1f5",
+  "expected_key_fingerprint_hex": "af822958f2d75afb91f8a8f4da253230d63bebf8c3ce8fa9a2e275c2cd35456e",
+  "expected_signature_hex": "7b4dc8d2f9577483bf0dab77dbb22180d7f8378e7ff3edbe69c560d58c8bb9f667d9db5b6bfe5524f419faaac53910758d26523f8d6433344446d519e817f107"
+}

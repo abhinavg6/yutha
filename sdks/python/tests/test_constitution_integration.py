@@ -49,19 +49,19 @@ pytestmark = pytest.mark.integration
 # identity. Mirror the helper from test_integration.py.
 
 
-def _derive_identity(seed: bytes) -> tuple[yutha.SigningKey, yutha.AgentId, yutha.SwarmId]:
-    signing_key = yutha.SigningKey.from_seed_bytes(seed)
+def _derive_identity(seed: bytes) -> tuple[yutha.InProcessSigner, yutha.AgentId, yutha.SwarmId]:
+    signer = yutha.InProcessSigner.from_seed_bytes(seed)
     agent_id_bytes = hashlib.sha256(seed + b"\x01").digest()[:16]
     swarm_id_bytes = hashlib.sha256(seed + b"\x02").digest()[:16]
     return (
-        signing_key,
+        signer,
         yutha.AgentId(value=agent_id_bytes),
         yutha.SwarmId(value=swarm_id_bytes),
     )
 
 
 @pytest.fixture
-def bootstrap_identity() -> tuple[yutha.SigningKey, yutha.AgentId, yutha.SwarmId]:
+def bootstrap_identity() -> tuple[yutha.InProcessSigner, yutha.AgentId, yutha.SwarmId]:
     seed_hex = os.environ.get("YUTHA_BOOTSTRAP_SEED")
     if not seed_hex:
         pytest.skip("set YUTHA_BOOTSTRAP_SEED")
@@ -103,20 +103,20 @@ async def test_fixture_returns_well_formed_activation(
 @pytest.mark.asyncio
 async def test_get_active_returns_what_we_activated(
     activated_permissive_constitution: ActivatedConstitutionFixture,
-    bootstrap_identity: tuple[yutha.SigningKey, yutha.AgentId, yutha.SwarmId],
+    bootstrap_identity: tuple[yutha.InProcessSigner, yutha.AgentId, yutha.SwarmId],
     address: str,
 ) -> None:
     """An agent-bearer client calling ``get_active`` immediately after
     the fixture activates should see the same constitution come back.
     Verifies the round-trip of activate → read on the server side."""
-    signing_key, agent_id, swarm_id = bootstrap_identity
+    signer, agent_id, swarm_id = bootstrap_identity
     expected_hash = activated_permissive_constitution.activated.constitution_hash
 
     async with yutha.YuthaClient.connect(
         address,
         agent_id=agent_id,
         swarm_id=swarm_id,
-        signing_key=signing_key,
+        signer=signer,
     ) as client:
         active = await client.constitution.get_active()
 
@@ -149,21 +149,21 @@ async def test_get_active_returns_what_we_activated(
 @pytest.mark.asyncio
 async def test_activate_receipt_is_queryable(
     activated_permissive_constitution: ActivatedConstitutionFixture,
-    bootstrap_identity: tuple[yutha.SigningKey, yutha.AgentId, yutha.SwarmId],
+    bootstrap_identity: tuple[yutha.InProcessSigner, yutha.AgentId, yutha.SwarmId],
     address: str,
 ) -> None:
     """The activate-receipt id the server returned must resolve via
     ``ReceiptAPI.get`` to a real ``constitution.activate`` receipt.
     Verifies the activate path emits the audit-trail anchor F10c
     promises."""
-    signing_key, agent_id, swarm_id = bootstrap_identity
+    signer, agent_id, swarm_id = bootstrap_identity
     activate_receipt = activated_permissive_constitution.activated.activate_receipt
 
     async with yutha.YuthaClient.connect(
         address,
         agent_id=agent_id,
         swarm_id=swarm_id,
-        signing_key=signing_key,
+        signer=signer,
     ) as client:
         receipt = await client.receipt.get(activate_receipt)
 

@@ -51,21 +51,21 @@ pytestmark = pytest.mark.integration
 
 def _derive_identity_from_seed(
     seed: bytes,
-) -> tuple[yutha.SigningKey, yutha.AgentId, yutha.SwarmId]:
+) -> tuple[yutha.InProcessSigner, yutha.AgentId, yutha.SwarmId]:
     if len(seed) != 32:
         raise ValueError(f"seed must be exactly 32 bytes, got {len(seed)}")
-    signing_key = yutha.SigningKey.from_seed_bytes(seed)
+    signer = yutha.InProcessSigner.from_seed_bytes(seed)
     agent_id_bytes = hashlib.sha256(seed + b"\x01").digest()[:16]
     swarm_id_bytes = hashlib.sha256(seed + b"\x02").digest()[:16]
     return (
-        signing_key,
+        signer,
         yutha.AgentId(value=agent_id_bytes),
         yutha.SwarmId(value=swarm_id_bytes),
     )
 
 
 @pytest.fixture
-def bootstrap_identity() -> tuple[yutha.SigningKey, yutha.AgentId, yutha.SwarmId]:
+def bootstrap_identity() -> tuple[yutha.InProcessSigner, yutha.AgentId, yutha.SwarmId]:
     seed_hex = os.environ.get(INTEGRATION_SEED_VAR)
     if not seed_hex:
         pytest.skip(f"set {INTEGRATION_SEED_VAR}=<64 hex chars> to run integration tests")
@@ -83,23 +83,23 @@ def address() -> str:
     return os.environ.get(INTEGRATION_ADDR_VAR, "127.0.0.1:50051")
 
 
-def _build_passport(
-    signing_key: yutha.SigningKey,
+async def _build_passport(
+    signer: yutha.Signer,
     agent_id: yutha.AgentId,
     swarm_id: yutha.SwarmId,
 ) -> yutha.Passport:
-    return yutha.Passport(
+    return await yutha.Passport(
         spec_version="1.0.0",
         agent_id=agent_id,
         swarm_id=swarm_id,
-        agent_public_key=signing_key.public_key(),
+        agent_public_key=signer.public_key(),
         owner="yutha-crewai integration test",
         framework="crewai",
         framework_version="test",
         accepted_constitution_version="1.0.0",
         tier=yutha.PassportTier.MINIMAL,
         issued_at=yutha.Timestamp.now(),
-    ).sign(signing_key)
+    ).sign(signer)
 
 
 async def _issue_self_send_cap(
@@ -133,7 +133,7 @@ async def _issue_self_send_cap(
 
 @pytest.mark.asyncio
 async def test_crew_agent_lifecycle_via_dispatch_loop(
-    bootstrap_identity: tuple[yutha.SigningKey, yutha.AgentId, yutha.SwarmId],
+    bootstrap_identity: tuple[yutha.InProcessSigner, yutha.AgentId, yutha.SwarmId],
     address: str,
     activated_permissive_constitution: object,  # fixture has side-effects only
 ) -> None:
@@ -146,8 +146,8 @@ async def test_crew_agent_lifecycle_via_dispatch_loop(
     """
     _ = activated_permissive_constitution  # only here for the fixture side-effect
 
-    signing_key, agent_id, swarm_id = bootstrap_identity
-    passport = _build_passport(signing_key, agent_id, swarm_id)
+    signer, agent_id, swarm_id = bootstrap_identity
+    passport = await _build_passport(signer, agent_id, swarm_id)
     received: list[yutha.Envelope] = []
     output_callback_fires: list[Any] = []
 
@@ -175,7 +175,7 @@ async def test_crew_agent_lifecycle_via_dispatch_loop(
     crew_wrapper = YuthaCrewAgent.connect(
         address,
         passport=passport,
-        signing_key=signing_key,
+        signer=signer,
         crew_agent=crew_agent,
         task_factory=skip_task_factory,
         on_output=on_output,
@@ -214,7 +214,7 @@ async def test_crew_agent_lifecycle_via_dispatch_loop(
 
 @pytest.mark.asyncio
 async def test_crew_agent_send_auto_increments_epoch(
-    bootstrap_identity: tuple[yutha.SigningKey, yutha.AgentId, yutha.SwarmId],
+    bootstrap_identity: tuple[yutha.InProcessSigner, yutha.AgentId, yutha.SwarmId],
     address: str,
     activated_permissive_constitution: object,  # fixture has side-effects only
 ) -> None:
@@ -222,8 +222,8 @@ async def test_crew_agent_send_auto_increments_epoch(
     sends carry strictly-increasing epochs."""
     _ = activated_permissive_constitution
 
-    signing_key, agent_id, swarm_id = bootstrap_identity
-    passport = _build_passport(signing_key, agent_id, swarm_id)
+    signer, agent_id, swarm_id = bootstrap_identity
+    passport = await _build_passport(signer, agent_id, swarm_id)
     received: list[yutha.Envelope] = []
 
     crew_agent = Agent(
@@ -240,7 +240,7 @@ async def test_crew_agent_send_auto_increments_epoch(
     crew_wrapper = YuthaCrewAgent.connect(
         address,
         passport=passport,
-        signing_key=signing_key,
+        signer=signer,
         crew_agent=crew_agent,
         task_factory=skip_factory,
     )
