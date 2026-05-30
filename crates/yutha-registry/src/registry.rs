@@ -26,10 +26,27 @@ pub trait Registry: Send + Sync {
     ///   - **Hybrid**: closed_core then open_periphery; apply
     ///     periphery_capability_constraint when issuing the initial
     ///     capability.
+    /// - Call the configured `Attestor` (RFC 0016) with the passport's
+    ///   identity context + `external_credential`. On `AttestorError`,
+    ///   emit `agent.register.deny` and return [`RegistryError::AttestationDenied`]
+    ///   (permanent) or [`RegistryError::AttestationUnavailable`] (transient,
+    ///   no deny receipt). On success, the returned `AttestedIdentity`
+    ///   populates the new `attested_external_identity` + `attestor_id`
+    ///   evidence keys on the `agent.register` receipt.
     /// - Persist the passport via the passport store.
     /// - Return a [`RegistrationOutcome`] with status + receipt pointer
     ///   (when the receipt-store side is wired).
-    async fn register(&self, passport: Passport) -> Result<RegistrationOutcome>;
+    ///
+    /// `external_credential` is the operator-supplied blob from
+    /// `RegisterRequest.external_credential`. Empty bytes are the
+    /// expected input for `NativeAttestor` (the hobby path). The
+    /// configured Attestor decides how to parse non-empty inputs;
+    /// see RFC 0016 §3.4.
+    async fn register(
+        &self,
+        passport: Passport,
+        external_credential: Vec<u8>,
+    ) -> Result<RegistrationOutcome>;
 
     /// Revoke an agent's membership via the **self-revoke** path
     /// (`AdmissionService.Revoke`). Produces an `agent.revoke` receipt

@@ -49,10 +49,12 @@ class OperatorBearerToken(_message.Message):
     def __init__(self, operator_id: _Optional[str] = ..., swarm_id: _Optional[_Union[_common_pb2.SwarmId, _Mapping]] = ..., issued_at: _Optional[_Union[_common_pb2.Timestamp, _Mapping]] = ..., expires_at: _Optional[_Union[_common_pb2.Timestamp, _Mapping]] = ..., nonce: _Optional[bytes] = ..., extensions: _Optional[_Union[_common_pb2.Extensions, _Mapping]] = ..., signature: _Optional[_Union[_common_pb2.Signature, _Mapping]] = ...) -> None: ...
 
 class RegisterRequest(_message.Message):
-    __slots__ = ("passport",)
+    __slots__ = ("passport", "external_credential")
     PASSPORT_FIELD_NUMBER: _ClassVar[int]
+    EXTERNAL_CREDENTIAL_FIELD_NUMBER: _ClassVar[int]
     passport: _passport_v1_pb2.Passport
-    def __init__(self, passport: _Optional[_Union[_passport_v1_pb2.Passport, _Mapping]] = ...) -> None: ...
+    external_credential: bytes
+    def __init__(self, passport: _Optional[_Union[_passport_v1_pb2.Passport, _Mapping]] = ..., external_credential: _Optional[bytes] = ...) -> None: ...
 
 class RegisterResponse(_message.Message):
     __slots__ = ("result",)

@@ -559,20 +559,20 @@ For v1: document that the agent is responsible for re-registering with a fresh c
 
 ## 10. Adoption checklist
 
-- [ ] `/spec/identity-keys/README.md` reviewed and lands (shared with RFC 0015)
-- [ ] Companion RFC 0015 reviewed and lands
-- [ ] This RFC reviewed and lands
-- [ ] Phase D work tracked: `yutha-attestor` crate scaffolded; trait defined; `NativeAttestor` implemented
-- [ ] Phase D work tracked: `RegisterRequest` proto gains `external_credential` field; codegen regenerated
-- [ ] Phase D work tracked: admission handler refactored to call `Attestor.verify` between policy check and registry insert
-- [ ] Phase D work tracked: `/spec/receipt/canonical-actions.md` updated with new `agent.register` evidence keys + new `agent.register.deny` action-kind
-- [ ] Phase D work tracked: Python SDK `YuthaClient.connect(...)` gains `external_credential` parameter
-- [ ] Phase D work tracked: every demo + walkthrough + example doc updated
-- [ ] Conformance vectors authored under `/spec/vectors/attestor/` (native-accept-empty, native-reject-nonempty, context-passthrough)
+- [x] `/spec/identity-keys/README.md` reviewed and lands (shared with RFC 0015) *(Phase A, 2026-05-27)*
+- [x] Companion RFC 0015 reviewed and lands *(Phase A, 2026-05-27)*
+- [x] This RFC reviewed and lands *(Phase A, 2026-05-27)*
+- [x] Phase D work tracked: `yutha-attestor` crate scaffolded; trait defined; `NativeAttestor` implemented *(2026-05-30, D1)*
+- [x] Phase D work tracked: `RegisterRequest` proto gains `external_credential` field; codegen regenerated *(D2)*
+- [x] Phase D work tracked: admission handler refactored to call `Attestor.verify` between policy check and registry insert *(D4 — actually landed in the registry layer per the registry-holds-attestor design, not the handler; orchestration semantics are identical, and the handler stays thin)*
+- [x] Phase D work tracked: `/spec/receipt/canonical-actions.md` updated with new `agent.register` evidence keys + new `agent.register.deny` action-kind *(D3)*
+- [x] Phase D work tracked: Python SDK `YuthaClient.connect(...)` gains `external_credential` parameter *(D7 — actually landed on `AdmissionAPI.register()` + each adapter's `register()` rather than on `YuthaClient.connect`, because `connect` doesn't currently call Register. Semantically equivalent: caller passes the credential at the same logical "register the agent" step.)*
+- [x] Phase D work tracked: every demo + walkthrough + example doc updated *(no source changes needed — `external_credential` defaults to `b""` which the native path expects; existing examples keep working unchanged)*
+- [~] Conformance vectors authored under `/spec/vectors/attestor/` (native-accept-empty, native-reject-nonempty, context-passthrough) *(D8 — `/spec/vectors/attestor/README.md` shipped + 16/8/8 Rust test cases at `crates/yutha-attestor/tests/native_vectors.rs`. **Deviation:** JSON fixtures NOT shipped in v1 because NativeAttestor has no cross-impl to validate against; the Rust test IS the spec. Phase E/F SPIFFE + OIDC vectors land as JSON because their credential formats have multiple reference impls.)*
 - [ ] Phase E work tracked: `yutha-attestor-spiffe` crate + `/spec/identity-keys/attestor-spiffe.md`
 - [ ] Phase F work tracked: `yutha-attestor-oidc` crate + `/spec/identity-keys/attestor-oidc.md`
 - [ ] Phase G work tracked: `docs/operator/enterprise-identity.md` end-to-end walkthrough
-- [ ] mkdocs `--strict`, ruff check, mypy strict, cargo build, cargo clippy all clean
+- [ ] mkdocs `--strict`, ruff check, mypy strict, cargo build, cargo clippy all clean *(D11 — verification gate)*
 - [ ] At least one reviewer approves (per RFC 0001 process)
 - [ ] Public review window expired
 

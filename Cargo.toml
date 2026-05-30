@@ -5,6 +5,7 @@ members = [
     "crates/yutha-core",
     "crates/yutha-crypto",
     "crates/yutha-signer",
+    "crates/yutha-attestor",
     "crates/yutha-receipt",
     "crates/yutha-conformance",
     "crates/yutha-passport",
@@ -41,6 +42,7 @@ yutha-proto = { path = "crates/yutha-proto", version = "0.1.0-alpha.1" }
 yutha-core = { path = "crates/yutha-core", version = "0.1.0-alpha.1" }
 yutha-crypto = { path = "crates/yutha-crypto", version = "0.1.0-alpha.1" }
 yutha-signer = { path = "crates/yutha-signer", version = "0.1.0-alpha.1" }
+yutha-attestor = { path = "crates/yutha-attestor", version = "0.1.0-alpha.1" }
 yutha-receipt = { path = "crates/yutha-receipt", version = "0.1.0-alpha.1" }
 yutha-conformance = { path = "crates/yutha-conformance", version = "0.1.0-alpha.1" }
 yutha-passport = { path = "crates/yutha-passport", version = "0.1.0-alpha.1" }

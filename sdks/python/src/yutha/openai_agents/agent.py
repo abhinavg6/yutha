@@ -308,11 +308,15 @@ class YuthaOpenAIAgent:
     # Registration
     # -------------------------------------------------------------------------
 
-    async def register(self) -> Hash | None:
+    async def register(self, external_credential: bytes = b"") -> Hash | None:
         """Register the agent's passport. Same semantics as the
         other adapters: returns the registration receipt id on
-        success, ``None`` if the passport was already present."""
-        resp = await self._client.admission.register(self._passport)
+        success, ``None`` if the passport was already present.
+
+        ``external_credential`` is forwarded to the control plane's
+        configured ``Attestor`` (RFC 0016); empty bytes is the right
+        default against a ``NativeAttestor`` server."""
+        resp = await self._client.admission.register(self._passport, external_credential)
         if not resp.result.HasField("registration_receipt"):
             return None
         return Hash.from_proto(resp.result.registration_receipt)

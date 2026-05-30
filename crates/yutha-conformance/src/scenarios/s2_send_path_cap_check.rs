@@ -32,13 +32,13 @@ use yutha_passport::{
     ControlPlaneIdentity, MemoryPassportStore, Passport, PassportResolverAdapter, PassportStore,
     PassportTier,
 };
-use yutha_signer::{InProcessSigner, Signer};
 use yutha_receipt::{
     ActionKindQuery, MemoryStore as MemoryReceiptStore, PassportResolver, Query, ReceiptStore,
 };
 use yutha_registry::{
     AdmissionPolicy, ClosedPolicy, MemoryRegistry, Registry, Topology, TopologyMode,
 };
+use yutha_signer::{InProcessSigner, Signer};
 use yutha_transport::{Envelope, MemoryTransport, Performative, Recipient, Transport};
 
 /// Receipt-count shape produced by a clean S2 run. The conformance
@@ -161,6 +161,7 @@ pub async fn run_s2() -> S2Outcome {
         operator_key_fingerprint: vec![0u8; 32],
         operator_signature: None,
     };
+    let attestor: Arc<dyn yutha_attestor::Attestor> = Arc::new(yutha_attestor::NativeAttestor);
     let registry: Arc<dyn Registry> = Arc::new(
         MemoryRegistry::new(
             topology,
@@ -168,6 +169,7 @@ pub async fn run_s2() -> S2Outcome {
             Arc::clone(&receipts),
             Arc::clone(&resolver),
             Arc::clone(&cp),
+            attestor,
         )
         .expect("registry construction"),
     );
@@ -179,7 +181,7 @@ pub async fn run_s2() -> S2Outcome {
         (&bob_signer, bob_id, "bob"),
     ] {
         let passport = signed_passport(swarm_id, agent_id, signer, owner).await;
-        let outcome = registry.register(passport).await.unwrap();
+        let outcome = registry.register(passport, Vec::new()).await.unwrap();
         assert!(outcome.is_accepted(), "{owner} not admitted");
         transport.register_recipient(agent_id).await;
         agents_registered += 1;

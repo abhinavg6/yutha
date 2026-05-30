@@ -18,6 +18,7 @@ path = "src/main.rs"
 yutha-core.workspace = true
 yutha-crypto.workspace = true
 yutha-signer.workspace = true
+yutha-attestor.workspace = true
 yutha-proto.workspace = true
 yutha-receipt.workspace = true
 yutha-passport.workspace = true

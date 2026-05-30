@@ -37,6 +37,30 @@ pub enum RegistryError {
     #[error("topology is immutable; create a new swarm to change it")]
     TopologyImmutable,
 
+    /// The configured `Attestor` (RFC 0016) rejected the external
+    /// credential on a registration request. A `agent.register.deny`
+    /// receipt was emitted with the same `attestor_id` + `reason`.
+    /// The gRPC layer maps this to `PERMISSION_DENIED`.
+    #[error("attestation denied by attestor `{attestor_id}`: {reason}")]
+    AttestationDenied {
+        /// `Attestor::id()` of the Attestor that rejected.
+        attestor_id: String,
+        /// Operator-facing reason from `AttestorError::{Malformed,Rejected,Internal}`.
+        reason: String,
+    },
+
+    /// The configured `Attestor` (RFC 0016) could not reach its trust
+    /// root (SPIRE socket down, OIDC JWKS endpoint timed out). No
+    /// verdict was reached, so NO deny receipt was emitted. The gRPC
+    /// layer maps this to `UNAVAILABLE` so the client knows to retry.
+    #[error("attestation trust root unavailable for `{attestor_id}`: {reason}")]
+    AttestationUnavailable {
+        /// `Attestor::id()` of the Attestor that couldn't reach its trust root.
+        attestor_id: String,
+        /// Operator-facing reason from `AttestorError::TrustRootUnavailable`.
+        reason: String,
+    },
+
     /// Passport-layer error.
     #[error(transparent)]
     Passport(#[from] PassportError),

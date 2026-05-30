@@ -14,6 +14,7 @@ readme = "README.md"
 yutha-core.workspace = true
 yutha-crypto.workspace = true
 yutha-signer.workspace = true
+yutha-attestor.workspace = true
 yutha-receipt.workspace = true
 yutha-passport.workspace = true
 yutha-capability.workspace = true

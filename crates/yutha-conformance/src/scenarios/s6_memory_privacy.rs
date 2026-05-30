@@ -34,11 +34,11 @@ use yutha_passport::{
     ControlPlaneIdentity, MemoryPassportStore, Passport, PassportResolverAdapter, PassportStore,
     PassportTier,
 };
-use yutha_signer::{InProcessSigner, Signer};
 use yutha_receipt::{
     ActionKindQuery, AppendOptions, Evidence, MemoryStore as MemoryReceiptStore, PassportResolver,
     Query, Receipt, ReceiptStore, SignatureRole, SignedBy,
 };
+use yutha_signer::{InProcessSigner, Signer};
 
 const PRIVACY_CEDAR: &str = include_str!(
     "../../../../spec/constitution/canonical-schemas/v1.1.0/examples/memory-privacy-gate.cedar"

@@ -64,7 +64,10 @@ impl std::fmt::Debug for GcpKmsSigner {
         f.debug_struct("GcpKmsSigner")
             .field("key_version_name", &self.key_version_name)
             .field("public_key", &self.public_key)
-            .field("client", &"<google_cloud_kms_v1::KeyManagementService redacted>")
+            .field(
+                "client",
+                &"<google_cloud_kms_v1::KeyManagementService redacted>",
+            )
             .finish()
     }
 }
@@ -108,7 +111,10 @@ impl GcpKmsSigner {
             .await
             .map_err(|e| map_kms_error(e, "GetPublicKey"))?;
 
-        if !matches!(pk_response.algorithm, CryptoKeyVersionAlgorithm::EcSignEd25519) {
+        if !matches!(
+            pk_response.algorithm,
+            CryptoKeyVersionAlgorithm::EcSignEd25519
+        ) {
             return Err(SignerError::UnsupportedAlgorithm(format!(
                 "GCP KMS key version '{}' uses algorithm {:?}; only EC_SIGN_ED25519 is supported \
                  (RFC 0015 §3.1 invariant 2 pins the algorithm). Create the key with \
@@ -262,7 +268,11 @@ mod tests {
         spki.extend_from_slice(&[0x7F_u8; 32]);
         let body = B64.encode(&spki);
         // Split into 16-char chunks like OpenSSL renders.
-        let chunks: Vec<&str> = body.as_bytes().chunks(16).map(|c| std::str::from_utf8(c).unwrap()).collect();
+        let chunks: Vec<&str> = body
+            .as_bytes()
+            .chunks(16)
+            .map(|c| std::str::from_utf8(c).unwrap())
+            .collect();
         let pem = format!(
             "-----BEGIN PUBLIC KEY-----\n{}\n-----END PUBLIC KEY-----\n",
             chunks.join("\n")

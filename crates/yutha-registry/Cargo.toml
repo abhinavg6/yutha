@@ -18,6 +18,7 @@ yutha-proto.workspace = true
 yutha-receipt.workspace = true
 yutha-passport.workspace = true
 yutha-capability.workspace = true
+yutha-attestor.workspace = true
 
 async-trait.workspace = true
 tokio = { workspace = true, features = ["sync"] }

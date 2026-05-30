@@ -28,13 +28,13 @@ use yutha_passport::{
     ControlPlaneIdentity, MemoryPassportStore, Passport, PassportResolverAdapter, PassportStore,
     PassportTier,
 };
-use yutha_signer::{InProcessSigner, Signer};
 use yutha_receipt::{
     ActionKindQuery, MemoryStore as MemoryReceiptStore, PassportResolver, Query, ReceiptStore,
 };
 use yutha_registry::{
     AdmissionPolicy, ClosedPolicy, MemoryRegistry, Registry, Topology, TopologyMode,
 };
+use yutha_signer::{InProcessSigner, Signer};
 use yutha_transport::{Envelope, MemoryTransport, Performative, Recipient, Transport};
 
 /// What a successful S1 run reports. Counts in this struct align to what
@@ -145,6 +145,7 @@ pub async fn run_s1() -> S1Outcome {
         operator_key_fingerprint: vec![0u8; 32],
         operator_signature: None,
     };
+    let attestor: Arc<dyn yutha_attestor::Attestor> = Arc::new(yutha_attestor::NativeAttestor);
     let registry: Arc<dyn Registry> = Arc::new(
         MemoryRegistry::new(
             topology,
@@ -152,6 +153,7 @@ pub async fn run_s1() -> S1Outcome {
             Arc::clone(&receipts),
             Arc::clone(&resolver),
             Arc::clone(&cp),
+            attestor,
         )
         .expect("registry construction"),
     );
@@ -168,7 +170,7 @@ pub async fn run_s1() -> S1Outcome {
         )
         .await;
         let outcome = registry
-            .register(passport)
+            .register(passport, Vec::new())
             .await
             .unwrap_or_else(|e| panic!("registration failed for {}: {e}", agent.name));
         assert!(outcome.is_accepted(), "{} not accepted", agent.name);

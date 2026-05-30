@@ -185,6 +185,16 @@ impl ErrorIntoStatus for RegistryError {
             RegistryError::SybilCheckFailed(_) => Status::failed_precondition(self.to_string()),
             RegistryError::SwarmMismatch { .. } => Status::failed_precondition(self.to_string()),
             RegistryError::TopologyImmutable => Status::failed_precondition(self.to_string()),
+            // Attestor rejected the external_credential — permanent
+            // verdict; deny receipt already emitted by the registry.
+            // Mirrors the AdmissionDenied mapping (both are
+            // "registration was refused on policy grounds").
+            RegistryError::AttestationDenied { .. } => Status::permission_denied(self.to_string()),
+            // Attestor couldn't reach its trust root — no verdict;
+            // client should retry. Distinct from AttestationDenied so
+            // clients can distinguish "you're not allowed" from "we
+            // couldn't tell yet."
+            RegistryError::AttestationUnavailable { .. } => Status::unavailable(self.to_string()),
             RegistryError::Passport(p) => p.to_status(),
             RegistryError::Receipt(r) => r.to_status(),
             RegistryError::Core(c) => c.to_status(),

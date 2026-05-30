@@ -71,12 +71,16 @@ impl AdmissionService for AdmissionHandler {
         let passport = Passport::try_from(passport_proto).map_err(|e| e.to_status())?;
 
         // The registry handles: self-signature verification, swarm_id
-        // check, admission policy, persistence, and registration-receipt
-        // emission. We just translate the outcome to the wire shape.
+        // check, admission policy, Attestor verification (RFC 0016),
+        // persistence, and registration-receipt emission. We just
+        // translate the outcome to the wire shape. RegistryError's
+        // AttestationDenied → PERMISSION_DENIED and
+        // AttestationUnavailable → UNAVAILABLE mappings are pinned in
+        // grpc/error.rs.
         let outcome = self
             .state
             .registry
-            .register(passport)
+            .register(passport, req.external_credential)
             .await
             .map_err(|e| e.to_status())?;
 

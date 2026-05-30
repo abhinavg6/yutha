@@ -174,6 +174,23 @@ service AdmissionService {
 
 message RegisterRequest {
   yutha.passport.v1.Passport passport = 1;
+
+  // External credential to attest the registering principal against
+  // an enterprise identity provider (SPIFFE/SPIRE, OIDC, …). Format
+  // is Attestor-dependent: SPIFFE JWT-SVID is the raw JWT bytes;
+  // OIDC is the raw ID-token JWT bytes; native expects empty.
+  //
+  // The control plane's configured Attestor (one per process; see
+  // RFC 0016 §3.7) parses this field. Clients that don't know which
+  // Attestor the server runs can omit the field — a control plane
+  // running NativeAttestor accepts the empty default; one running
+  // SpiffeAttestor / OidcAttestor rejects with PERMISSION_DENIED +
+  // an `agent.register.deny` receipt.
+  //
+  // Added in RFC 0016 (Phase D of the enterprise-identity workstream).
+  // Proto3-additive: existing clients on a NativeAttestor server
+  // continue working unchanged.
+  bytes external_credential = 2;
 }
 
 message RegisterResponse {

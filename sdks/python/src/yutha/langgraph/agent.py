@@ -169,15 +169,20 @@ class YuthaAgent:
     # Registration
     # -------------------------------------------------------------------------
 
-    async def register(self) -> Hash | None:
+    async def register(self, external_credential: bytes = b"") -> Hash | None:
         """Register the agent's passport with the control plane.
 
         Returns the registration receipt id on success, or ``None``
         when the passport is already present (e.g. the bootstrap-seed
         case where the operator pre-registered the agent). Use this
         for open-swarm workflows where the SDK admits itself.
+
+        ``external_credential`` is forwarded to the control plane's
+        configured ``Attestor`` (RFC 0016). Empty bytes is the right
+        default against a ``NativeAttestor`` server (the hobby path);
+        SPIFFE / OIDC deployments pass the SVID or ID-token bytes.
         """
-        resp = await self._client.admission.register(self._passport)
+        resp = await self._client.admission.register(self._passport, external_credential)
         if not resp.result.HasField("registration_receipt"):
             return None
         return Hash.from_proto(resp.result.registration_receipt)

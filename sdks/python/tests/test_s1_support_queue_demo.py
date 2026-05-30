@@ -81,7 +81,7 @@ async def test_s1_demo_audit_shape(
     # `sdks/python/examples/`, outside the source set — so we
     # suppress the import-not-found error here rather than widening
     # mypy's package-discovery scope just for one test.
-    from s1_support_queue import EXPECTED_AUDIT_DELTA, run_s1
+    from s1_support_queue import EXPECTED_AUDIT_DELTA, run_s1  # type: ignore[import-not-found]
 
     delta = await run_s1(server_addr=open_mode_addr)
 

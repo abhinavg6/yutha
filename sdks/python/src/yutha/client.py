@@ -200,7 +200,11 @@ class AdmissionAPI:
     def __init__(self, stub: cp_grpc.AdmissionServiceStub) -> None:
         self._stub = stub
 
-    async def register(self, passport: Passport) -> cp_pb2.RegisterResponse:
+    async def register(
+        self,
+        passport: Passport,
+        external_credential: bytes = b"",
+    ) -> cp_pb2.RegisterResponse:
         """Register an agent. Returns the raw proto response — callers
         typically just want ``result.registration_receipt``. The
         registration receipt itself is queryable via
@@ -209,9 +213,30 @@ class AdmissionAPI:
         Anonymous: no bearer token attached. The ``yutha-no-auth``
         metadata sentinel signals the bearer interceptor to skip
         injection.
+
+        Parameters
+        ----------
+        passport
+            The agent's signed passport. The control plane verifies
+            its self-signature + swarm binding + admission policy
+            before consulting the Attestor (RFC 0016).
+        external_credential
+            Optional bytes proving the agent's external identity to
+            the control plane's configured ``Attestor`` (RFC 0016).
+            Format depends on the deployed Attestor: SPIFFE JWT-SVID
+            for ``yutha-attestor-spiffe``, OIDC ID-token JWT for
+            ``yutha-attestor-oidc``, empty for ``NativeAttestor`` (the
+            hobby-path default). Leave at the empty default if you
+            don't know what the server runs; a ``NativeAttestor``
+            server will accept, anything else returns
+            ``PERMISSION_DENIED`` with an ``agent.register.deny``
+            receipt.
         """
         resp = await self._stub.Register(
-            cp_pb2.RegisterRequest(passport=passport.to_proto()),
+            cp_pb2.RegisterRequest(
+                passport=passport.to_proto(),
+                external_credential=external_credential,
+            ),
             metadata=skip_auth_metadata(),
         )
         return cast(cp_pb2.RegisterResponse, resp)

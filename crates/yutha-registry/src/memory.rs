@@ -8,6 +8,7 @@ use crate::sybil;
 use crate::topology::Topology;
 use async_trait::async_trait;
 use std::sync::Arc;
+use yutha_attestor::{AttestationContext, AttestedIdentity, Attestor, AttestorError};
 use yutha_core::{AgentId, SpecVersion, Timestamp};
 use yutha_crypto::canonical::{content_address, Canonical};
 use yutha_passport::{Passport, PassportStore, RegistrationOutcome};
@@ -34,6 +35,11 @@ pub struct MemoryRegistry {
     receipts: Arc<dyn ReceiptStore>,
     resolver: Arc<dyn PassportResolver>,
     control_plane: Arc<ControlPlaneIdentity>,
+    /// External-identity verifier consulted on every registration. One
+    /// per control plane per RFC 0016 §3.7; multi-tenant resolver is a
+    /// future RFC. NativeAttestor on the hobby path; SpiffeAttestor or
+    /// OidcAttestor in Phase E / F deployments.
+    attestor: Arc<dyn Attestor>,
 }
 
 impl std::fmt::Debug for MemoryRegistry {
@@ -44,6 +50,7 @@ impl std::fmt::Debug for MemoryRegistry {
             .field("receipts", &"<store>")
             .field("resolver", &"<resolver>")
             .field("control_plane", &self.control_plane)
+            .field("attestor", &self.attestor.id())
             .finish()
     }
 }
@@ -57,6 +64,7 @@ impl MemoryRegistry {
         receipts: Arc<dyn ReceiptStore>,
         resolver: Arc<dyn PassportResolver>,
         control_plane: Arc<ControlPlaneIdentity>,
+        attestor: Arc<dyn Attestor>,
     ) -> Result<Self> {
         if !topology.is_consistent() {
             return Err(RegistryError::TopologyInconsistent);
@@ -67,6 +75,7 @@ impl MemoryRegistry {
             receipts,
             resolver,
             control_plane,
+            attestor,
         })
     }
 
@@ -122,20 +131,80 @@ impl MemoryRegistry {
     }
 
     /// Build the registration receipt.
-    async fn build_registration_receipt(&self, passport: &Passport) -> Result<Receipt> {
+    ///
+    /// Evidence shape per RFC 0016 §3.4: the existing two keys
+    /// (`passport_agent_id`, `passport_hash`) PLUS three new keys —
+    /// `attested_external_identity`, `attestor_id`, and one
+    /// `attributes.<key>` per entry in the AttestedIdentity's
+    /// attribute map.
+    async fn build_registration_receipt(
+        &self,
+        passport: &Passport,
+        identity: &AttestedIdentity,
+        attestor_id: &str,
+    ) -> Result<Receipt> {
         let passport_hash = content_address(passport).map_err(yutha_receipt::ReceiptError::from)?;
+        let mut evidence = vec![
+            Evidence::new(
+                "passport_agent_id",
+                "type.yutha.dev/v1/AgentId",
+                passport.agent_id.as_bytes().to_vec(),
+            ),
+            Evidence::new(
+                "passport_hash",
+                "type.yutha.dev/v1/Hash",
+                passport_hash.digest.clone(),
+            ),
+            Evidence::new(
+                "attested_external_identity",
+                "type.yutha.dev/v1/String",
+                identity.external_identity.as_bytes().to_vec(),
+            ),
+            Evidence::new(
+                "attestor_id",
+                "type.yutha.dev/v1/String",
+                attestor_id.as_bytes().to_vec(),
+            ),
+        ];
+        // BTreeMap iteration is sorted → evidence ordering is
+        // deterministic regardless of insertion order.
+        for (k, v) in &identity.attributes {
+            evidence.push(Evidence::new(
+                format!("attributes.{k}"),
+                "type.yutha.dev/v1/String",
+                v.as_bytes().to_vec(),
+            ));
+        }
+        self.build_signed_receipt("agent.register", evidence).await
+    }
+
+    /// Build the `agent.register.deny` receipt emitted when an
+    /// `Attestor` rejects (per RFC 0016 §3.4). Distinct from
+    /// `agent.register` so audit-log filtering can separate
+    /// successful registrations from rejections.
+    async fn build_register_deny_receipt(
+        &self,
+        claimed_agent_id: &AgentId,
+        attestor_id: &str,
+        deny_reason: &str,
+    ) -> Result<Receipt> {
         self.build_signed_receipt(
-            "agent.register",
+            "agent.register.deny",
             vec![
                 Evidence::new(
-                    "passport_agent_id",
+                    "claimed_agent_id",
                     "type.yutha.dev/v1/AgentId",
-                    passport.agent_id.as_bytes().to_vec(),
+                    claimed_agent_id.as_bytes().to_vec(),
                 ),
                 Evidence::new(
-                    "passport_hash",
-                    "type.yutha.dev/v1/Hash",
-                    passport_hash.digest.clone(),
+                    "attestor_id",
+                    "type.yutha.dev/v1/String",
+                    attestor_id.as_bytes().to_vec(),
+                ),
+                Evidence::new(
+                    "deny_reason",
+                    "type.yutha.dev/v1/String",
+                    deny_reason.as_bytes().to_vec(),
                 ),
             ],
         )
@@ -145,7 +214,11 @@ impl MemoryRegistry {
 
 #[async_trait]
 impl Registry for MemoryRegistry {
-    async fn register(&self, passport: Passport) -> Result<RegistrationOutcome> {
+    async fn register(
+        &self,
+        passport: Passport,
+        external_credential: Vec<u8>,
+    ) -> Result<RegistrationOutcome> {
         // Substrate-layer checks.
         passport.verify_self_signature()?;
         if passport.swarm_id != self.topology.swarm_id {
@@ -162,6 +235,55 @@ impl Registry for MemoryRegistry {
             AdmissionPolicy::Hybrid(policy) => check_hybrid(policy, &passport)?,
         }
 
+        // External-identity attestation (RFC 0016 §3.3). The Attestor
+        // runs AFTER admission policy (we don't burn the IdP call on
+        // requests that wouldn't have been admitted anyway) and BEFORE
+        // persistence (a rejected attestation leaves no registry rows).
+        let attestor_id = self.attestor.id().to_string();
+        let context = AttestationContext {
+            swarm_id: passport.swarm_id,
+            claimed_agent_id: passport.agent_id,
+            agent_public_key: passport.agent_public_key.clone(),
+        };
+        let attested_identity = match self.attestor.verify(&context, &external_credential).await {
+            Ok(identity) => identity,
+            Err(AttestorError::TrustRootUnavailable(reason)) => {
+                // No verdict reached → no deny receipt. Client should
+                // retry; the gRPC layer maps to UNAVAILABLE.
+                return Err(RegistryError::AttestationUnavailable {
+                    attestor_id,
+                    reason,
+                });
+            }
+            Err(err) => {
+                // Permanent rejection. Emit the deny receipt FIRST
+                // (audit-log invariant: every rejection is recorded
+                // before the client learns about it), then return the
+                // error. We deliberately swallow append errors here —
+                // a receipt-store failure shouldn't mask the deny
+                // reason from the caller; the wider operator alerting
+                // catches receipt-store outages.
+                let reason = err.to_string();
+                if let Ok(deny_receipt) = self
+                    .build_register_deny_receipt(&passport.agent_id, &attestor_id, &reason)
+                    .await
+                {
+                    let _ = self
+                        .receipts
+                        .append(
+                            deny_receipt,
+                            AppendOptions::default(),
+                            self.resolver.as_ref(),
+                        )
+                        .await;
+                }
+                return Err(RegistryError::AttestationDenied {
+                    attestor_id,
+                    reason,
+                });
+            }
+        };
+
         // Persist the passport BEFORE producing the receipt — the resolver
         // needs to find the agent's key, and (more importantly for this
         // moment) the control plane's key must already be present so the
@@ -169,7 +291,11 @@ impl Registry for MemoryRegistry {
         let mut outcome = self.passports.register(passport.clone()).await?;
 
         // Build the registration receipt, signed by the control plane.
-        let receipt = self.build_registration_receipt(&passport).await?;
+        // Evidence now includes the attested external identity (RFC 0016
+        // §3.4).
+        let receipt = self
+            .build_registration_receipt(&passport, &attested_identity, &attestor_id)
+            .await?;
         let append_out = self
             .receipts
             .append(receipt, AppendOptions::default(), self.resolver.as_ref())
@@ -423,8 +549,20 @@ mod tests {
 
         let cp = Arc::new(ControlPlaneIdentity::new(cp_agent_id, cp_signer));
 
-        let registry =
-            MemoryRegistry::new(topology, passports, Arc::clone(&receipts), resolver, cp).unwrap();
+        // Native attestor: empty-credential path for every test. Tests
+        // that need to exercise the deny-path use a different harness
+        // that injects an always-rejecting Attestor stub.
+        let attestor: Arc<dyn Attestor> = Arc::new(yutha_attestor::NativeAttestor);
+
+        let registry = MemoryRegistry::new(
+            topology,
+            passports,
+            Arc::clone(&receipts),
+            resolver,
+            cp,
+            attestor,
+        )
+        .unwrap();
         (registry, receipts, swarm_id)
     }
 
@@ -472,7 +610,7 @@ mod tests {
             .await
             .unwrap();
 
-        let outcome = registry.register(p).await.unwrap();
+        let outcome = registry.register(p, Vec::new()).await.unwrap();
         assert!(matches!(outcome.status, RegistrationStatus::Accepted));
         assert!(
             outcome.registration_receipt.is_some(),
@@ -502,7 +640,7 @@ mod tests {
         )
         .await;
         let p = signed_passport_for_swarm(swarm, PassportTier::Minimal, false).await;
-        let result = registry.register(p).await;
+        let result = registry.register(p, Vec::new()).await;
         assert!(matches!(result, Err(RegistryError::AdmissionDenied(_))));
         assert_eq!(receipts.count().await.unwrap(), 0);
     }
@@ -515,7 +653,7 @@ mod tests {
         )
         .await;
         let p = signed_passport_for_swarm(swarm, PassportTier::Standard, false).await;
-        let result = registry.register(p).await;
+        let result = registry.register(p, Vec::new()).await;
         assert!(matches!(result, Err(RegistryError::AdmissionDenied(_))));
     }
 
@@ -527,7 +665,7 @@ mod tests {
         )
         .await;
         let p = signed_passport_for_swarm(swarm, PassportTier::Minimal, true).await;
-        let result = registry.register(p).await;
+        let result = registry.register(p, Vec::new()).await;
         assert!(matches!(result, Err(RegistryError::AdmissionDenied(_))));
     }
 
@@ -539,7 +677,7 @@ mod tests {
         )
         .await;
         let p = signed_passport_for_swarm(swarm, PassportTier::Standard, true).await;
-        let outcome = registry.register(p).await.unwrap();
+        let outcome = registry.register(p, Vec::new()).await.unwrap();
         assert!(matches!(outcome.status, RegistrationStatus::Accepted));
         assert_eq!(receipts.count().await.unwrap(), 1);
     }
@@ -554,7 +692,7 @@ mod tests {
 
         let other_swarm = SwarmId::new();
         let p = signed_passport_for_swarm(other_swarm, PassportTier::Minimal, false).await;
-        let result = registry.register(p).await;
+        let result = registry.register(p, Vec::new()).await;
         assert!(matches!(result, Err(RegistryError::SwarmMismatch { .. })));
         assert_eq!(receipts.count().await.unwrap(), 0);
     }
@@ -582,7 +720,7 @@ mod tests {
             .sign(&signer)
             .await
             .unwrap();
-        registry.register(p).await.unwrap();
+        registry.register(p, Vec::new()).await.unwrap();
 
         registry.revoke(&agent_id, "test").await.unwrap();
 
@@ -622,7 +760,7 @@ mod tests {
             .sign(&signer1)
             .await
             .unwrap();
-        registry.register(p1).await.unwrap();
+        registry.register(p1, Vec::new()).await.unwrap();
 
         // New passport with rotated key.
         let signer2 = InProcessSigner::generate();
@@ -674,7 +812,8 @@ mod tests {
         let resolver: Arc<dyn PassportResolver> =
             Arc::new(PassportResolverAdapter::new(Arc::clone(&passports)));
         let cp = Arc::new(ControlPlaneIdentity::generate());
-        let result = MemoryRegistry::new(topology, passports, receipts, resolver, cp);
+        let attestor: Arc<dyn Attestor> = Arc::new(yutha_attestor::NativeAttestor);
+        let result = MemoryRegistry::new(topology, passports, receipts, resolver, cp, attestor);
         assert!(matches!(result, Err(RegistryError::TopologyInconsistent)));
     }
 }

@@ -86,7 +86,10 @@ impl std::fmt::Debug for AzureKvSigner {
             .field("key_name", &self.key_name)
             .field("key_version", &self.key_version)
             .field("public_key", &self.public_key)
-            .field("client", &"<azure_security_keyvault_keys::KeyClient redacted>")
+            .field(
+                "client",
+                &"<azure_security_keyvault_keys::KeyClient redacted>",
+            )
             .finish()
     }
 }
@@ -207,9 +210,10 @@ impl AzureKvSigner {
             )));
         }
 
-        let public_key = PublicKey::new(YuthaSignatureAlgorithm::Ed25519, pk_bytes).map_err(
-            |e| SignerError::Internal(format!("invalid public-key bytes from Azure: {e}")),
-        )?;
+        let public_key =
+            PublicKey::new(YuthaSignatureAlgorithm::Ed25519, pk_bytes).map_err(|e| {
+                SignerError::Internal(format!("invalid public-key bytes from Azure: {e}"))
+            })?;
         let key_fingerprint = Sha256::digest(&public_key.value).to_vec();
 
         tracing::info!(
@@ -267,9 +271,9 @@ impl Signer for AzureKvSigner {
             .into_model()
             .map_err(|e| map_azure_error(e, "Sign deserialise"))?;
 
-        let sig_bytes = sign_result.result.ok_or_else(|| {
-            SignerError::Internal("Azure sign returned no `result` bytes".into())
-        })?;
+        let sig_bytes = sign_result
+            .result
+            .ok_or_else(|| SignerError::Internal("Azure sign returned no `result` bytes".into()))?;
 
         Signature::new(
             YuthaSignatureAlgorithm::Ed25519,

@@ -38,6 +38,7 @@ pub mod s4_enforcement_loop;
 pub mod s5_support_queue_refunds;
 pub mod s6_memory_privacy;
 pub mod s7_reverse_path;
+pub mod s8_attestation_deny;
 
 pub use s1_queue_mode::{run_s1, S1Outcome};
 pub use s2_send_path_cap_check::{run_s2, S2Outcome};
@@ -45,3 +46,4 @@ pub use s4_enforcement_loop::{run_s4, S4Outcome};
 pub use s5_support_queue_refunds::{run_s5, S5Outcome};
 pub use s6_memory_privacy::{run_s6, S6Outcome};
 pub use s7_reverse_path::{run_s7, S7Outcome};
+pub use s8_attestation_deny::{run_s8, S8Outcome};

@@ -111,9 +111,8 @@ impl VaultSigner {
             .build()
             .map_err(|e| SignerError::Internal(format!("invalid Vault settings: {e}")))?;
 
-        let mut client = VaultClient::new(settings).map_err(|e| {
-            SignerError::Internal(format!("failed to build VaultClient: {e}"))
-        })?;
+        let mut client = VaultClient::new(settings)
+            .map_err(|e| SignerError::Internal(format!("failed to build VaultClient: {e}")))?;
 
         // Auth methods that need a login round-trip do it here, then plug
         // the returned client_token back into the client.
@@ -126,10 +125,9 @@ impl VaultSigner {
                 role_id,
                 secret_id,
             } => {
-                let auth_info =
-                    vaultrs::auth::approle::login(&client, mount, role_id, secret_id)
-                        .await
-                        .map_err(|e| map_client_error(e, "approle login"))?;
+                let auth_info = vaultrs::auth::approle::login(&client, mount, role_id, secret_id)
+                    .await
+                    .map_err(|e| map_client_error(e, "approle login"))?;
                 // `VaultrsClient::set_token` is the trait method that
                 // updates both `client.settings.token` and the middleware
                 // header. Imported at module-level to keep the call site
@@ -292,16 +290,12 @@ impl Signer for VaultSigner {
         // We don't currently surface the version number (callers don't need
         // it — the signature is self-contained and the public key is
         // pinned at connect time). Strip the prefix + decode.
-        let sig_b64 = response
-            .signature
-            .splitn(3, ':')
-            .nth(2)
-            .ok_or_else(|| {
-                SignerError::Internal(format!(
-                    "vault returned malformed signature envelope: {}",
-                    response.signature
-                ))
-            })?;
+        let sig_b64 = response.signature.splitn(3, ':').nth(2).ok_or_else(|| {
+            SignerError::Internal(format!(
+                "vault returned malformed signature envelope: {}",
+                response.signature
+            ))
+        })?;
 
         let sig_bytes = B64
             .decode(sig_b64.as_bytes())
@@ -349,9 +343,7 @@ mod tests {
         let mut spki = vec![0u8; 12];
         spki.extend_from_slice(&[0x7F_u8; 32]);
         let body = B64.encode(&spki);
-        let pem = format!(
-            "-----BEGIN PUBLIC KEY-----\n{body}\n-----END PUBLIC KEY-----\n",
-        );
+        let pem = format!("-----BEGIN PUBLIC KEY-----\n{body}\n-----END PUBLIC KEY-----\n",);
         let decoded = decode_ed25519_public_key(&pem).expect("must decode");
         assert_eq!(decoded, vec![0x7F_u8; 32]);
     }

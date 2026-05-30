@@ -48,11 +48,11 @@ use yutha_passport::{
     ControlPlaneIdentity, MemoryPassportStore, Passport, PassportResolverAdapter, PassportStore,
     PassportTier,
 };
-use yutha_signer::{InProcessSigner, Signer};
 use yutha_receipt::{
     ActionKindQuery, AppendOptions, Evidence, MemoryStore as MemoryReceiptStore, PassportResolver,
     Query, Receipt, ReceiptStore, SignatureRole, SignedBy,
 };
+use yutha_signer::{InProcessSigner, Signer};
 
 /// Receipt-count snapshot a clean S4 run produces. The conformance
 /// test below asserts against these expectations exactly.

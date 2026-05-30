@@ -48,7 +48,6 @@ use tracing::{info, warn};
 use yutha_capability::{CapabilityStore, MemoryCapabilityStore};
 use yutha_core::{AgentId, SpecVersion, SwarmId, Timestamp};
 use yutha_crypto::hash::sha256;
-use yutha_signer::{InProcessSigner, Signer};
 use yutha_passport::{
     ControlPlaneIdentity, MemoryPassportStore, Passport, PassportResolverAdapter, PassportStore,
     PassportTier,
@@ -66,6 +65,7 @@ use yutha_receipt::{
 use yutha_registry::{
     AdmissionPolicy, ClosedPolicy, MemoryRegistry, OpenPolicy, Registry, Topology, TopologyMode,
 };
+use yutha_signer::{InProcessSigner, Signer};
 use yutha_transport::{MemoryTransport, Transport};
 
 use auth::BearerInterceptor;
@@ -137,6 +137,29 @@ struct Cli {
         default_value_t = RequireCapForSendArg::Auto
     )]
     require_cap_for_send: RequireCapForSendArg,
+
+    /// External-identity `Attestor` to consult on every registration
+    /// (RFC 0016).
+    ///
+    /// - `native` (default) — `NativeAttestor`: accepts empty
+    ///   `external_credential`, records `yutha:native:<hex>` as the
+    ///   attested external identity. Behaviorally identical to the
+    ///   pre-RFC-0016 flow modulo two new evidence keys on
+    ///   `agent.register`.
+    /// - `spiffe` — **NOT YET IMPLEMENTED.** Lands in Phase E with
+    ///   `yutha-attestor-spiffe` (SPIFFE JWT-SVID verification against
+    ///   a SPIRE trust bundle). Selecting it today exits with a
+    ///   clear "lands in Phase E" message.
+    /// - `oidc` — **NOT YET IMPLEMENTED.** Lands in Phase F with
+    ///   `yutha-attestor-oidc` (OIDC ID-token verification against
+    ///   a discovery URL's JWKS).
+    ///
+    /// The CLI flag exists ahead of the SPIFFE / OIDC implementations
+    /// so operators can plan their configuration and so any startup
+    /// scripts that pre-set `--attestor native` keep working when
+    /// `spiffe` / `oidc` later land without flag renames.
+    #[arg(long, env = "YUTHA_ATTESTOR", value_enum, default_value_t = AttestorArg::Native)]
+    attestor: AttestorArg,
 
     /// Deterministic 32-byte hex seed for the bootstrap agent's
     /// identity (signing key + AgentId + SwarmId).
@@ -313,6 +336,38 @@ enum AdmissionModeArg {
     Open,
 }
 
+/// CLI shadow of the configured external-identity [`Attestor`]
+/// (RFC 0016). `Native` is the v1 default; `Spiffe` / `Oidc` are
+/// reserved variants that emit a clear "lands in Phase E/F" startup
+/// error if selected today.
+///
+/// [`Attestor`]: yutha_attestor::Attestor
+#[derive(Debug, Clone, Copy, ValueEnum)]
+enum AttestorArg {
+    Native,
+    Spiffe,
+    Oidc,
+}
+
+impl AttestorArg {
+    /// Construct the configured Attestor, or return an operator-facing
+    /// error explaining when the requested flavor will land.
+    fn build(self) -> Result<Arc<dyn yutha_attestor::Attestor>, anyhow::Error> {
+        match self {
+            Self::Native => Ok(Arc::new(yutha_attestor::NativeAttestor)),
+            Self::Spiffe => anyhow::bail!(
+                "--attestor spiffe is not yet implemented; lands in Phase E with the \
+                 yutha-attestor-spiffe crate. Use --attestor native today, or run an \
+                 out-of-process credential broker until then. See RFC 0016 §3.5."
+            ),
+            Self::Oidc => anyhow::bail!(
+                "--attestor oidc is not yet implemented; lands in Phase F with the \
+                 yutha-attestor-oidc crate. Use --attestor native today. See RFC 0016 §3.6."
+            ),
+        }
+    }
+}
+
 /// Three-way control for `Topology.require_capability_for_send`. See
 /// RFC 0007. `Auto` derives from `AdmissionModeArg`; the explicit
 /// values let operators force-set during migration windows.
@@ -444,6 +499,13 @@ async fn main() -> anyhow::Result<()> {
     // the gRPC path.
     let anchor_receipt_store_for_candidates = Arc::clone(&inner_receipt_store);
 
+    // Phase D / RFC 0016: construct the configured Attestor before
+    // bootstrap_backends so a misconfigured --attestor flag (e.g.,
+    // selecting `spiffe` before Phase E ships) fails the operator
+    // FAST with a clear "lands in Phase E" message, before any
+    // backend wiring runs.
+    let attestor: Arc<dyn yutha_attestor::Attestor> = cli.attestor.build()?;
+
     let (state, enforcement_rx) = bootstrap_backends(
         bootstrap_identity,
         cli.admission_mode,
@@ -451,6 +513,7 @@ async fn main() -> anyhow::Result<()> {
         operator_public_key,
         &workload_sources,
         inner_receipt_store,
+        attestor,
     )
     .await?;
 
@@ -779,6 +842,7 @@ async fn bootstrap_backends(
     operator_public_key: Option<yutha_core::PublicKey>,
     workload_extensions: &[&str],
     inner_receipt_store: Arc<dyn ReceiptStore>,
+    attestor: Arc<dyn yutha_attestor::Attestor>,
 ) -> anyhow::Result<(
     Arc<ControlPlaneState>,
     mpsc::Receiver<EnforcementReceiptView>,
@@ -949,20 +1013,38 @@ async fn bootstrap_backends(
         operator_key_fingerprint: vec![0u8; 32],
         operator_signature: None,
     };
+    // Phase D / RFC 0016: the Attestor that the registry consults on
+    // every registration. The `--attestor` flag selects the flavor
+    // (native today; spiffe / oidc reserved for Phase E / F).
+    // NativeAttestor accepts empty `external_credential` and records
+    // `yutha:native:<hex>` as the attested external identity — the
+    // hobby-path default. The same `Arc<dyn Attestor>` flows into
+    // MemoryRegistry below AND onto ControlPlaneState so handlers can
+    // surface the configured flavor in diagnostic responses.
+
     let registry: Arc<dyn Registry> = Arc::new(MemoryRegistry::new(
         topology,
         Arc::clone(&passport_store),
         Arc::clone(&receipt_store),
         Arc::clone(&resolver),
         Arc::clone(&cp),
+        Arc::clone(&attestor),
     )?);
     let mode_str = match admission_mode {
         AdmissionModeArg::Closed => "CLOSED",
         AdmissionModeArg::Open => "OPEN",
     };
-    info!(swarm_id = %swarm_id, mode = mode_str, "registry constructed");
+    info!(
+        swarm_id = %swarm_id,
+        mode = mode_str,
+        attestor = attestor.id(),
+        "registry constructed",
+    );
 
-    let outcome = registry.register(bootstrap_passport).await?;
+    // Bootstrap passport registers with an empty external_credential
+    // — the control plane's own passport is always the native path
+    // (no IdP knows about the control plane itself).
+    let outcome = registry.register(bootstrap_passport, Vec::new()).await?;
     info!(
         status = ?outcome.status,
         agent_id = %outcome.agent_id,
@@ -1037,6 +1119,7 @@ async fn bootstrap_backends(
             ),
             cedar_plus,
             enforcement,
+            attestor,
         }),
         enforcement_rx,
     ))

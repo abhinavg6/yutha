@@ -795,9 +795,7 @@ mod tests {
         let (transport, receipts, swarm_id) = harness().await;
         let sender = AgentId::new();
         transport
-            .send(
-                broadcast_envelope(swarm_id, sender, Recipient::Role("nobody".to_string())).await,
-            )
+            .send(broadcast_envelope(swarm_id, sender, Recipient::Role("nobody".to_string())).await)
             .await
             .unwrap();
 

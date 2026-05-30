@@ -24,6 +24,7 @@ use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
 use tokio::sync::{Notify, RwLock};
+use yutha_attestor::Attestor;
 use yutha_capability::CapabilityStore;
 use yutha_cedar_plus::{CedarPlusEvaluator, EnforcementEngine};
 use yutha_core::{AgentId, PublicKey};
@@ -59,6 +60,14 @@ pub struct ControlPlaneState {
     pub receipt_store: Arc<dyn ReceiptStore>,
     pub resolver: Arc<dyn PassportResolver>,
     pub control_plane_identity: Arc<ControlPlaneIdentity>,
+
+    /// External-identity verifier consulted by the admission handler
+    /// on every registration (RFC 0016). The registry holds its own
+    /// `Arc<dyn Attestor>` clone (passed at `MemoryRegistry::new`);
+    /// this field is the canonical source operators can read for
+    /// status/diagnostic surfaces. One per control plane in v1
+    /// (multi-tenant resolver is RFC 0016 §5.4 future work).
+    pub attestor: Arc<dyn Attestor>,
 
     /// Operator public key the server trusts for `OperatorBearerToken`
     /// verification (RFC 0009 §3.4). When `None`, `OperatorRevoke`

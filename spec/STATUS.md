@@ -1,8 +1,29 @@
 # Workstream A Status — Spec Drafts
 
-> **As of:** 2026-05-30 (Phase B + Phase C of the identity-keys workstream — entries; prior entries below)
+> **As of:** 2026-05-30 (Phase D of the identity-keys workstream — entry; prior entries below)
 > **Author:** background work session, autonomous
 > **Audience:** Abhinav (returning to the project), incoming Workstream A reviewers
+
+## Phase D — identity-keys workstream, shipped 2026-05-30
+
+Implementation phase for RFC 0016 — the `Attestor` seam that mediates registration-time external-identity verification. Lands the trait + the zero-dependency `NativeAttestor` default + the wire-format change + the receipt-evidence change + the Python SDK passthrough. SPIFFE (Phase E) + OIDC (Phase F) implementations remain ahead.
+
+| Artifact | Status |
+|----------|--------|
+| [`crates/yutha-attestor/`](../crates/yutha-attestor/) | Shipped. Async `Attestor` trait + `NativeAttestor` zero-dependency default + `AttestationContext` / `AttestedIdentity` value types + `AttestorError` (Malformed / Rejected / TrustRootUnavailable / Internal — split chosen so the gRPC layer can distinguish "you're not allowed" PERMISSION_DENIED from "we couldn't tell yet" UNAVAILABLE). Trait shape is forward-compatible with the future per-tenant resolver (RFC 0016 §5.4). |
+| [`/spec/control-plane/v1.proto`](./control-plane/v1.proto) | `RegisterRequest` gains `bytes external_credential = 2;` — proto3-additive; existing clients on a NativeAttestor server keep working. |
+| [`/spec/receipt/canonical-actions.md`](./receipt/canonical-actions.md) | `agent.register` evidence extended with three new keys (`attested_external_identity`, `attestor_id`, optional `attributes.<key>`). New `agent.register.deny` action-kind for the rejection path (mirrors `capability.check.deny`'s pattern). |
+| [`crates/yutha-registry/`](../crates/yutha-registry/) | `Registry::register(passport, external_credential)` trait sig change. MemoryRegistry holds `Arc<dyn Attestor>` injected at construction; after the admission-policy check it calls `attestor.verify`. On `Err(TrustRootUnavailable)` returns `AttestationUnavailable` (no deny receipt — no verdict reached); on any other Err emits `agent.register.deny` then returns `AttestationDenied`. On Ok the `AttestedIdentity` populates the new evidence keys on `agent.register`. |
+| [`crates/yutha-control-plane/`](../crates/yutha-control-plane/) | gRPC admission handler threads `external_credential` from proto into the registry. `AttestationDenied` → `PERMISSION_DENIED`; `AttestationUnavailable` → `UNAVAILABLE`. New `--attestor {native,spiffe,oidc}` CLI flag (`native` works today; `spiffe`/`oidc` reject with a clear "lands in Phase E/F" message). `ControlPlaneState.attestor` field for diagnostic surfaces. Bootstrap registration passes empty credential. |
+| Python SDK + four adapters | `AdmissionAPI.register(passport, external_credential=b"")` and `yutha.{langgraph,crewai,openai_agents,maf}` adapters' `register(external_credential=b"")`. Default empty bytes — existing demos / tests / walkthroughs need NO source changes against a NativeAttestor server. |
+| [`/spec/vectors/attestor/README.md`](./vectors/attestor/README.md) + [`crates/yutha-attestor/tests/native_vectors.rs`](../crates/yutha-attestor/tests/native_vectors.rs) | Conformance contract for NativeAttestor. 16 accept-empty cases + 8 reject-nonempty cases + 8 context-passthrough cases (RFC 0016 §3.8 shape). **Deliberate v1 deviation from RFC §3.8:** the JSON fixtures are NOT shipped because NativeAttestor has no cross-impl to validate against; the Rust test IS the spec. Phase E/F SPIFFE + OIDC will ship JSON-fixture vectors because those credential formats have multiple reference impls. |
+| New conformance scenario `crates/yutha-conformance/src/scenarios/s8_attestation_deny.rs` | Asserts the deny-path end-to-end: NativeAttestor rejects a non-empty credential → `AttestationDenied` returned → `agent.register.deny` receipt appended with `claimed_agent_id`/`attestor_id`/`deny_reason` evidence → NO `agent.register` receipt → passport NOT persisted. |
+
+Verification gates that passed before declaring Phase D done: `cargo build --workspace`, `cargo test --workspace`, `cargo clippy --workspace --all-targets -- -D warnings`, conformance scenarios S1–S8, `ruff` + `ruff-format` + `mypy --strict` on Python, live-server Python integration tests, `mkdocs --strict`.
+
+Phasing checkpoint: Phase D ends here. Phase E (SPIFFE/SPIRE Attestor) is the next consequential step; do not roll into Phase E without explicit go-ahead.
+
+---
 
 ## Phases B + C — identity-keys workstream, shipped 2026-05-30
 

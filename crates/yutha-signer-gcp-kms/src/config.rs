@@ -63,10 +63,7 @@ impl GcpKmsConfig {
     /// The check catches typo'd resource paths at startup rather than
     /// at the first sign call. The full Cloud KMS resource format is 8
     /// segments: `projects/X/locations/X/keyRings/X/cryptoKeys/X/cryptoKeyVersions/X`.
-    pub fn new(
-        key_version_name: String,
-        endpoint: Option<String>,
-    ) -> Result<Self, SignerError> {
+    pub fn new(key_version_name: String, endpoint: Option<String>) -> Result<Self, SignerError> {
         if !key_version_name.contains("/cryptoKeyVersions/") {
             return Err(SignerError::Internal(format!(
                 "key_version_name must include /cryptoKeyVersions/<version>; got: {key_version_name}"

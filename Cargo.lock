@@ -6143,6 +6143,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "yutha-attestor"
+version = "0.1.0-alpha.1"
+dependencies = [
+ "async-trait",
+ "hex",
+ "serde",
+ "serde_json",
+ "thiserror 1.0.69",
+ "tokio",
+ "yutha-core",
+]
+
+[[package]]
 name = "yutha-backend-postgres-receipt"
 version = "0.1.0-alpha.1"
 dependencies = [
@@ -6257,6 +6270,7 @@ dependencies = [
  "thiserror 1.0.69",
  "time",
  "tokio",
+ "yutha-attestor",
  "yutha-capability",
  "yutha-cedar-plus",
  "yutha-core",
@@ -6288,6 +6302,7 @@ dependencies = [
  "tonic-reflection",
  "tracing",
  "tracing-subscriber",
+ "yutha-attestor",
  "yutha-backend-postgres-receipt",
  "yutha-backend-sui-anchor",
  "yutha-capability",
@@ -6402,6 +6417,7 @@ dependencies = [
  "thiserror 1.0.69",
  "tokio",
  "tracing",
+ "yutha-attestor",
  "yutha-capability",
  "yutha-core",
  "yutha-crypto",
