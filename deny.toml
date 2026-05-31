@@ -117,6 +117,17 @@ confidence-threshold = 0.93
 name = "ring"
 allow = ["ISC", "MIT", "OpenSSL"]
 
+# Operator-asserted SPDX expression for `jwks` (chenhunghan). The crate
+# uses `license-file = "LICENSE"` in its Cargo.toml rather than the
+# standard `license = "MIT"` SPDX field, so cargo-deny can't auto-
+# resolve it. We've verified the LICENSE file content is plain MIT
+# (https://github.com/chenhunghan/jwks/blob/main/LICENSE). Re-evaluate
+# if a future jwks release changes its license terms.
+[[licenses.clarify]]
+crate = "jwks"
+expression = "MIT"
+license-files = []
+
 [bans]
 # multiple-versions: set to "allow" while the AWS SDK is mid-migration
 # from the legacy hyper 0.14 / rustls 0.21 stack to the modern hyper 1.x /

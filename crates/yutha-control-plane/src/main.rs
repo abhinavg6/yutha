@@ -154,14 +154,16 @@ struct Cli {
     ///   (static JWKS, air-gapped). See
     ///   /spec/identity-keys/attestor-spiffe.md §10 for the full flag
     ///   surface.
-    /// - `oidc` — **NOT YET IMPLEMENTED.** Lands in Phase F with
-    ///   `yutha-attestor-oidc` (OIDC ID-token verification against
-    ///   a discovery URL's JWKS).
-    ///
-    /// The CLI flag exists ahead of the OIDC implementation so
-    /// operators can plan their configuration and any startup
-    /// scripts that pre-set `--attestor native` keep working when
-    /// `oidc` later lands without flag renames.
+    /// - `oidc` — `yutha-attestor-oidc` (Phase F). Verifies OpenID
+    ///   Connect ID tokens against a configured JWKS. Pair with the
+    ///   `--attestor-oidc-*` flags: REQUIRED `--attestor-oidc-issuer`
+    ///   and `--attestor-oidc-audience`; AT MOST ONE of
+    ///   `--attestor-oidc-jwks-uri` (skip discovery, fetch JWKS
+    ///   directly) or `--attestor-oidc-jwks-file` (air-gapped, static
+    ///   file); default (neither override set) is OIDC Discovery
+    ///   against the issuer URL. See
+    ///   /spec/identity-keys/attestor-oidc.md §10 for the full flag
+    ///   surface and §4 for the source-mode trade-offs.
     #[arg(long, env = "YUTHA_ATTESTOR", value_enum, default_value_t = AttestorArg::Native)]
     attestor: AttestorArg,
 
@@ -225,6 +227,134 @@ struct Cli {
         default_value_t = 10
     )]
     attestor_spiffe_connect_timeout_secs: u64,
+
+    // -------------------------------------------------------------------
+    // OIDC Attestor (Phase F, /spec/identity-keys/attestor-oidc.md §10).
+    //
+    // All flags below take effect only when `--attestor=oidc`. The
+    // three source-mode flags are mutually constrained:
+    //   - Default (none set) → OIDC Discovery against `--attestor-oidc-issuer`.
+    //   - `--attestor-oidc-jwks-uri <url>` set → skip discovery, fetch
+    //     JWKS directly (operator escape hatch for non-standard IdPs).
+    //   - `--attestor-oidc-jwks-file <path>` set → static-file (air-
+    //     gapped or "rotate by restart" deployments).
+    //   - Both override flags set → fatal startup error.
+    // -------------------------------------------------------------------
+    /// IdP's issuer URL. REQUIRED when `--attestor=oidc`. Must exactly
+    /// equal the `iss` claim in minted ID tokens; in Discovery mode
+    /// also exact-matched against the discovery doc's `issuer` field
+    /// per spec §6.3 / RFC 8414 §3.3.
+    ///
+    /// MUST be HTTPS unless `--attestor-oidc-allow-insecure-http` is
+    /// set. Trailing slashes matter — copy from the IdP's discovery
+    /// doc; do not normalize. Examples:
+    ///   `https://login.example.okta.com`
+    ///   `https://accounts.google.com`
+    ///   `https://<tenant>.auth0.com/`
+    ///   `https://<host>/realms/<realm>`
+    #[arg(long, env = "YUTHA_ATTESTOR_OIDC_ISSUER")]
+    attestor_oidc_issuer: Option<String>,
+
+    /// Audience value the ID token's `aud` claim MUST contain.
+    /// REQUIRED when `--attestor=oidc`. Operators choose a swarm-
+    /// specific value (`yutha-<swarm-name>-<env>` is the recommended
+    /// shape per /spec/identity-keys/attestor-oidc.md §6.1); generic
+    /// values like `yutha-prod` invite cross-system ID-token replay.
+    #[arg(long, env = "YUTHA_ATTESTOR_OIDC_AUDIENCE")]
+    attestor_oidc_audience: Option<String>,
+
+    /// Optional JWKS URL override. When set, skips OIDC Discovery
+    /// and fetches the JWKS directly from this URL. Use sparingly —
+    /// see spec §4.2 for the trade-off (operator loses the
+    /// discovery-doc `issuer` integrity check). Mutually exclusive
+    /// with `--attestor-oidc-jwks-file`.
+    #[arg(long, env = "YUTHA_ATTESTOR_OIDC_JWKS_URI")]
+    attestor_oidc_jwks_uri: Option<String>,
+
+    /// Optional static JWKS file path. When set, the Attestor reads
+    /// the file once at startup and serves it for the process
+    /// lifetime; rotation requires writing a new file and restarting.
+    /// Suitable for air-gapped deployments. Mutually exclusive with
+    /// `--attestor-oidc-jwks-uri`. Spec §4.3.
+    #[arg(long, env = "YUTHA_ATTESTOR_OIDC_JWKS_FILE")]
+    attestor_oidc_jwks_file: Option<PathBuf>,
+
+    /// Operator-allowlisted ID-token claims to project into the
+    /// `agent.register` receipt's evidence as
+    /// `attributes.<claim-name>: <value>` keys. Default empty
+    /// (no projection). Repeatable; env-var form takes a comma-
+    /// separated list (`YUTHA_ATTESTOR_OIDC_PROJECT_CLAIMS=groups,email,roles`).
+    /// Spec §8.
+    #[arg(
+        long = "attestor-oidc-project-claims",
+        env = "YUTHA_ATTESTOR_OIDC_PROJECT_CLAIMS",
+        value_delimiter = ','
+    )]
+    attestor_oidc_project_claims: Vec<String>,
+
+    /// JWS `alg` allow-list. Default: `RS256,RS384,RS512,ES256,ES384,EdDSA`.
+    /// `none` and `HS*` are architecturally rejected at startup if
+    /// present (HMAC requires shared-secret distribution that breaks
+    /// the OIDC trust model; see spec §2.1). Operators can narrow
+    /// further per IdP capability. Env-var form takes a comma-
+    /// separated list.
+    #[arg(
+        long = "attestor-oidc-allowed-algs",
+        env = "YUTHA_ATTESTOR_OIDC_ALLOWED_ALGS",
+        value_delimiter = ',',
+        default_values_t = default_oidc_allowed_algs(),
+    )]
+    attestor_oidc_allowed_algs: Vec<String>,
+
+    /// JWKS cache TTL in seconds. Default 3600 (1 h). Minimum 60;
+    /// shorter values are rejected to avoid IdP-side rate-limit
+    /// pressure. Ignored when `--attestor-oidc-jwks-file` is in use.
+    /// Spec §5.1.
+    #[arg(
+        long,
+        env = "YUTHA_ATTESTOR_OIDC_CACHE_TTL_SECS",
+        default_value_t = 3600
+    )]
+    attestor_oidc_cache_ttl_secs: u64,
+
+    /// Maximum staleness window before the Attestor stops serving
+    /// from the cached JWKS. Default behaviour: discovery / JWKS-URI
+    /// use 86400 s (24 h); static-file uses no check (`Duration::MAX`).
+    /// `0` selects "hard fail on TTL expiry" (strictest policy).
+    /// Spec §5.1.
+    #[arg(long, env = "YUTHA_ATTESTOR_OIDC_MAX_STALENESS_SECS")]
+    attestor_oidc_max_staleness_secs: Option<u64>,
+
+    /// Clock-skew tolerance for `iat` / `nbf` checks, in seconds.
+    /// Default 60. Spec §3 step 7.
+    #[arg(
+        long,
+        env = "YUTHA_ATTESTOR_OIDC_CLOCK_SKEW_SECS",
+        default_value_t = 60
+    )]
+    attestor_oidc_clock_skew_secs: u64,
+
+    /// Cold-start connect timeout for the discovery-doc fetch and
+    /// the initial JWKS fetch, in seconds. Default 10. Ignored for
+    /// the static-file source.
+    #[arg(
+        long,
+        env = "YUTHA_ATTESTOR_OIDC_CONNECT_TIMEOUT_SECS",
+        default_value_t = 10
+    )]
+    attestor_oidc_connect_timeout_secs: u64,
+
+    /// Permit HTTP (not just HTTPS) URLs for issuer + JWKS endpoints.
+    /// Default `false`. Setting `true` violates OpenID Connect Core
+    /// §2 ("Communication ... MUST utilize TLS") and emits a startup
+    /// warning. Exists for the in-process mock-OIDC test server and
+    /// local-developer Keycloak/dex setups. Spec §6.4.
+    #[arg(
+        long,
+        env = "YUTHA_ATTESTOR_OIDC_ALLOW_INSECURE_HTTP",
+        default_value_t = false
+    )]
+    attestor_oidc_allow_insecure_http: bool,
 
     /// Deterministic 32-byte hex seed for the bootstrap agent's
     /// identity (signing key + AgentId + SwarmId).
@@ -443,24 +573,78 @@ impl SpiffeCliOpts {
     }
 }
 
+/// Default JWS `alg` allow-list for `--attestor-oidc-allowed-algs`,
+/// per /spec/identity-keys/attestor-oidc.md §2.1.
+///
+/// Set as a function (not a `const`) because `clap`'s
+/// `default_values_t` requires an expression that constructs a
+/// `Vec<String>` at parse time.
+fn default_oidc_allowed_algs() -> Vec<String> {
+    vec![
+        "RS256".into(),
+        "RS384".into(),
+        "RS512".into(),
+        "ES256".into(),
+        "ES384".into(),
+        "EdDSA".into(),
+    ]
+}
+
+/// OIDC-specific options harvested from [`Cli`]. Same pattern as
+/// [`SpiffeCliOpts`] — the validation rules (issuer/audience
+/// required, at-most-one-of jwks-uri/jwks-file) live on
+/// [`AttestorArg::build`].
+#[derive(Debug, Clone)]
+struct OidcCliOpts {
+    issuer: Option<String>,
+    audience: Option<String>,
+    jwks_uri: Option<String>,
+    jwks_file: Option<PathBuf>,
+    project_claims: Vec<String>,
+    allowed_algs: Vec<String>,
+    cache_ttl_secs: u64,
+    max_staleness_secs: Option<u64>,
+    clock_skew_secs: u64,
+    connect_timeout_secs: u64,
+    allow_insecure_http: bool,
+}
+
+impl OidcCliOpts {
+    fn from_cli(cli: &Cli) -> Self {
+        Self {
+            issuer: cli.attestor_oidc_issuer.clone(),
+            audience: cli.attestor_oidc_audience.clone(),
+            jwks_uri: cli.attestor_oidc_jwks_uri.clone(),
+            jwks_file: cli.attestor_oidc_jwks_file.clone(),
+            project_claims: cli.attestor_oidc_project_claims.clone(),
+            allowed_algs: cli.attestor_oidc_allowed_algs.clone(),
+            cache_ttl_secs: cli.attestor_oidc_cache_ttl_secs,
+            max_staleness_secs: cli.attestor_oidc_max_staleness_secs,
+            clock_skew_secs: cli.attestor_oidc_clock_skew_secs,
+            connect_timeout_secs: cli.attestor_oidc_connect_timeout_secs,
+            allow_insecure_http: cli.attestor_oidc_allow_insecure_http,
+        }
+    }
+}
+
 impl AttestorArg {
     /// Construct the configured Attestor.
     ///
     /// Async because `SpiffeAttestor::connect` reads the static
-    /// bundle file or initial-syncs the Workload API stream; both
-    /// happen at construction so a misconfigured `--attestor spiffe`
-    /// fails the operator at startup, before any agent registers.
+    /// bundle file or initial-syncs the Workload API stream, and
+    /// `OidcAttestor::connect` performs the discovery-doc + initial
+    /// JWKS fetch (or static-file read). All construction-time I/O
+    /// happens here so a misconfigured `--attestor` flag fails the
+    /// operator at startup, before any agent registers.
     async fn build(
         self,
         spiffe: SpiffeCliOpts,
+        oidc: OidcCliOpts,
     ) -> Result<Arc<dyn yutha_attestor::Attestor>, anyhow::Error> {
         match self {
             Self::Native => Ok(Arc::new(yutha_attestor::NativeAttestor)),
             Self::Spiffe => build_spiffe_attestor(spiffe).await,
-            Self::Oidc => anyhow::bail!(
-                "--attestor oidc is not yet implemented; lands in Phase F with the \
-                 yutha-attestor-oidc crate. Use --attestor native today. See RFC 0016 §3.6."
-            ),
+            Self::Oidc => build_oidc_attestor(oidc).await,
         }
     }
 }
@@ -528,6 +712,94 @@ async fn build_spiffe_attestor(
                 "SPIFFE Attestor construction failed: {e}. See \
                  /spec/identity-keys/attestor-spiffe.md and \
                  docs/operator/spiffe-attestor.md for troubleshooting."
+            )
+        })?;
+
+    Ok(Arc::new(attestor))
+}
+
+/// Translate [`OidcCliOpts`] into a constructed [`OidcAttestor`].
+///
+/// Validates the operator-facing invariants from
+/// /spec/identity-keys/attestor-oidc.md §10:
+///
+///   - `--attestor-oidc-issuer` is REQUIRED and non-empty.
+///   - `--attestor-oidc-audience` is REQUIRED and non-empty.
+///   - AT MOST ONE of `--attestor-oidc-jwks-uri` /
+///     `--attestor-oidc-jwks-file` may be set (neither → Discovery).
+///
+/// All checks fail at startup with operator-actionable messages that
+/// name the offending flags, before any backend wiring runs.
+///
+/// [`OidcAttestor`]: yutha_attestor_oidc::OidcAttestor
+async fn build_oidc_attestor(
+    opts: OidcCliOpts,
+) -> Result<Arc<dyn yutha_attestor::Attestor>, anyhow::Error> {
+    let issuer = opts
+        .issuer
+        .as_deref()
+        .filter(|s| !s.is_empty())
+        .ok_or_else(|| {
+            anyhow::anyhow!(
+                "--attestor oidc requires --attestor-oidc-issuer \
+                 (the IdP's issuer URL; see /spec/identity-keys/attestor-oidc.md §6.1)"
+            )
+        })?
+        .to_string();
+
+    let audience = opts
+        .audience
+        .as_deref()
+        .filter(|s| !s.is_empty())
+        .ok_or_else(|| {
+            anyhow::anyhow!(
+                "--attestor oidc requires --attestor-oidc-audience \
+                 (a swarm-specific value; see /spec/identity-keys/attestor-oidc.md §6.1)"
+            )
+        })?
+        .to_string();
+
+    let source = match (&opts.jwks_uri, &opts.jwks_file) {
+        (None, None) => yutha_attestor_oidc::JwksSource::Discovery {
+            issuer_url: issuer.clone(),
+        },
+        (Some(url), None) => yutha_attestor_oidc::JwksSource::JwksUri { url: url.clone() },
+        (None, Some(path)) => yutha_attestor_oidc::JwksSource::StaticFile { path: path.clone() },
+        (Some(_), Some(_)) => anyhow::bail!(
+            "--attestor oidc requires AT MOST ONE of \
+             --attestor-oidc-jwks-uri or --attestor-oidc-jwks-file; \
+             both are set. See /spec/identity-keys/attestor-oidc.md §4.4."
+        ),
+    };
+
+    if opts.allow_insecure_http {
+        tracing::warn!(
+            "--attestor-oidc-allow-insecure-http is set; the OIDC Attestor \
+             will accept HTTP (non-TLS) issuer + JWKS URLs. This violates \
+             OpenID Connect Core §2 and MUST NOT be used in production."
+        );
+    }
+
+    let config = yutha_attestor_oidc::OidcConfig {
+        source,
+        expected_issuer: issuer,
+        expected_audience: audience,
+        allowed_algs: opts.allowed_algs,
+        project_claims: opts.project_claims,
+        cache_ttl_secs: opts.cache_ttl_secs,
+        max_staleness_secs: opts.max_staleness_secs,
+        clock_skew_tolerance_secs: opts.clock_skew_secs,
+        connect_timeout_secs: opts.connect_timeout_secs,
+        allow_insecure_http: opts.allow_insecure_http,
+    };
+
+    let attestor = yutha_attestor_oidc::OidcAttestor::connect(config)
+        .await
+        .map_err(|e| {
+            anyhow::anyhow!(
+                "OIDC Attestor construction failed: {e}. See \
+                 /spec/identity-keys/attestor-oidc.md and \
+                 docs/operator/oidc-attestor.md for troubleshooting."
             )
         })?;
 
@@ -678,7 +950,9 @@ async fn main() -> anyhow::Result<()> {
     // SPIFFE-related startup failures land at process boot rather
     // than at first registration.
     let spiffe_opts = SpiffeCliOpts::from_cli(&cli);
-    let attestor: Arc<dyn yutha_attestor::Attestor> = cli.attestor.build(spiffe_opts).await?;
+    let oidc_opts = OidcCliOpts::from_cli(&cli);
+    let attestor: Arc<dyn yutha_attestor::Attestor> =
+        cli.attestor.build(spiffe_opts, oidc_opts).await?;
 
     let (state, enforcement_rx) = bootstrap_backends(
         bootstrap_identity,

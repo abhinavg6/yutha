@@ -580,7 +580,18 @@ For v1: document that the agent is responsible for re-registering with a fresh c
   - [x] E8 conformance vectors — 9 JSON fixtures under `/spec/vectors/attestor/spiffe/` + deterministic regen + loader test *(deliberate v1 deviation from spec §11's 45-case target: see vectors README)*
   - [x] E9 operator runbook — `docs/operator/spiffe-attestor.md` wired into mkdocs nav
   - [x] E10 verification gate — workspace cargo build/test/clippy clean, mkdocs strict clean, cross-spec sweep
-- [ ] Phase F work tracked: `yutha-attestor-oidc` crate + `/spec/identity-keys/attestor-oidc.md`
+- [x] Phase F work tracked: `yutha-attestor-oidc` crate + `/spec/identity-keys/attestor-oidc.md`
+  - [x] F0 recon — JWKS-library survey (`jwks` chenhunghan + handwritten cache selected; `jwks_client_rs` rejected for opaque verify API + heavier dep graph)
+  - [x] F1 spec — [`/spec/identity-keys/attestor-oidc.md`](../identity-keys/attestor-oidc.md) v1 draft, design-frozen
+  - [x] F2 scaffold `yutha-attestor-oidc` crate — config + source + attestor + payload + jwks_cache + error modules; workspace member wired
+  - [x] F3 `JwksSource` — Discovery + `jwks_uri` override + static file; `JwksCache` with TTL refresh + kid-miss async refresh (deduplicated via before/after `last_refresh_at` snapshot — F7 kid-rotation test guards against the F3-original elapsed-ms heuristic bug)
+  - [x] F4 `OidcAttestor::verify` — full 9-step algorithm per spec §3 (`decode_header` → kid+typ+alg pre-check → cache.assert_fresh → cache.lookup → `jsonwebtoken::decode<Value>` for sig+iss+aud+exp+nbf → manual iat → AttestedIdentity construction with `oidc:<iss>:<sub>` + claim projection)
+  - [x] F5 error mapping per spec §9 — `map_oidc_error(jsonwebtoken::Error)` covers verified ErrorKind variants (InvalidSignature/InvalidToken/InvalidIssuer/InvalidAudience/ExpiredSignature/ImmatureSignature/MissingRequiredClaim) + catch-all → Malformed for unknown variants. PII-leak spot-check test in `src/error.rs::tests`.
+  - [x] F6 CLI wiring — `--attestor oidc` + 11 `--attestor-oidc-*` flags wired into `yutha-control-plane`; mutex validation for jwks-uri vs jwks-file; HS*/none rejected at config-validate time
+  - [x] F7 tests — 10 forged-JWT round-trip tests (RS256 + ES256 + EdDSA happy paths + 5 claim-failure rows that need a valid signature + projection + aud-array) + 4 in-process axum-mock-OIDC integration tests including kid-rotation (no `#[ignore]`; runs in CI)
+  - [x] F8 conformance vectors — 7 JSON fixtures under `/spec/vectors/attestor/oidc/` + deterministic regen + loader test *(deliberate v1 deviation from spec §11's 25-case target: see vectors README)*
+  - [x] F9 operator runbook — `docs/operator/oidc-attestor.md` wired into mkdocs nav (Discovery / JWKS-URI / static-file source-decision table, per-IdP recipes for Auth0/Okta/Keycloak/Azure AD/Google, failure-mode → diagnosis table, docker-keycloak local-test recipe)
+  - [x] F10 verification gate — workspace cargo build/test/clippy clean, mkdocs strict clean, cross-spec sweep
 - [ ] Phase G work tracked: `docs/operator/enterprise-identity.md` end-to-end walkthrough
 - [ ] mkdocs `--strict`, ruff check, mypy strict, cargo build, cargo clippy all clean *(D11 — verification gate; Phase E re-affirmed at E10)*
 - [ ] At least one reviewer approves (per RFC 0001 process)

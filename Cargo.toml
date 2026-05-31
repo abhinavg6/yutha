@@ -19,6 +19,7 @@ members = [
     "crates/yutha-signer-gcp-kms",
     "crates/yutha-signer-azure-kv",
     "crates/yutha-attestor-spiffe",
+    "crates/yutha-attestor-oidc",
     "backends/postgres-receipt",
     "backends/s3-blob",
     "backends/sui-anchor",
@@ -45,6 +46,7 @@ yutha-crypto = { path = "crates/yutha-crypto", version = "0.1.0-alpha.1" }
 yutha-signer = { path = "crates/yutha-signer", version = "0.1.0-alpha.1" }
 yutha-attestor = { path = "crates/yutha-attestor", version = "0.1.0-alpha.1" }
 yutha-attestor-spiffe = { path = "crates/yutha-attestor-spiffe", version = "0.1.0-alpha.1" }
+yutha-attestor-oidc = { path = "crates/yutha-attestor-oidc", version = "0.1.0-alpha.1" }
 yutha-receipt = { path = "crates/yutha-receipt", version = "0.1.0-alpha.1" }
 yutha-conformance = { path = "crates/yutha-conformance", version = "0.1.0-alpha.1" }
 yutha-passport = { path = "crates/yutha-passport", version = "0.1.0-alpha.1" }
@@ -183,6 +185,40 @@ azure_core = "0.35"
 # Version: 0.15 (the current minor cohort as of 2026-05).
 spiffe = { version = "0.15", default-features = false }
 
+# OIDC JWKS parse + OIDC discovery — used by the yutha-attestor-oidc
+# backend per /spec/identity-keys/attestor-oidc.md.
+# `chenhunghan/jwks` is the canonical lightweight Rust JWKS crate as of
+# 2026-05; it parses RSA / EC / Ed25519 / symmetric JWKS entries via
+# jsonwebtoken's `jwk` module and provides one-shot `from_jwks_url` +
+# `from_oidc_url` (discovery doc) fetches. 287 LOC, MIT, jsonwebtoken ^10.2.
+# Yutha owns the cache + TTL + kid-miss refresh on top (in-tree at
+# crates/yutha-attestor-oidc/src/jwks_cache.rs) — `jwks` is the parse
+# primitive, NOT the cache. See F0 recon notes for why this crate (vs.
+# `jwks_client_rs` or pure-handwritten) was selected.
+#
+# Sole-maintainer micro-package; 287 LOC is well within "we can vendor-
+# fork if it goes dormant" range per threat-model A7's mitigation guidance.
+jwks = "0.5"
+
+# `reqwest` for the OIDC discovery-doc fetch that the jwks crate's
+# `from_oidc_url` deliberately hides (it deserialises only the
+# `jwks_uri` field and throws away `issuer`, but spec §6.3 / RFC 8414
+# §3.3 require the Attestor to exact-match the `issuer` field against
+# the operator's configured value).
+#
+# Configured to MATCH jwks's own reqwest pin exactly:
+# `default-features = false, features = ["json", "rustls"]`
+# Reasons:
+# 1. We pin v0.13 to share reqwest's connection pool + TLS state with
+#    jwks (one HTTP client config across both call sites).
+# 2. Defaults stay OFF because reqwest's default `default-tls` feature
+#    enables `native-tls`, which on Linux pulls `openssl-sys` — banned
+#    by `deny.toml [bans]` per ADR 0001 (rustls-only). jwks already
+#    picked `["json", "rustls"]` for the same reason; we match.
+# 3. Consumer crates may layer extra features via `features = [...]`
+#    additively (features unify across the same crate version).
+reqwest = { version = "0.13", default-features = false, features = ["json", "rustls"] }
+
 # Identifiers.
 uuid = { version = "1.8", features = ["v7"] }
 
@@ -212,6 +248,10 @@ aws-config = "1.4"
 # Test deps.
 proptest = "1.4"
 tokio-test = "0.4"
+# Used by yutha-attestor-oidc F3 unit tests to materialise JWKS files
+# in a unique temp dir per test (avoids the static-process-id races
+# Phase E hit in spiffe vectors).
+tempfile = "3"
 
 [profile.release]
 opt-level = 3

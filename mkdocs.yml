@@ -133,6 +133,7 @@ nav:
       - GCP KMS Signer (key custody): operator/gcp-kms-signer.md
       - Azure Key Vault Signer (key custody): operator/azure-kv-signer.md
       - SPIFFE/SPIRE Attestor (identity): operator/spiffe-attestor.md
+      - OIDC Attestor (identity): operator/oidc-attestor.md
       - Monitoring & receipts: operator/monitoring.md
       - Deployment: operator/deployment.md
   - Developer Guide:

@@ -1,0 +1,46 @@
+{
+  "description": "Well-formed ES256-signed ID token; all required claims present, exp far in future. Asserts the §3 happy-path: signature verifies, claims pass, AttestedIdentity.external_identity = oidc:<iss>:<sub>.",
+  "expected_identity": {
+    "attributes": {},
+    "credential_expires_at_unix_secs": 4070908800,
+    "external_identity": "oidc:https://login.test.example.com:user-1"
+  },
+  "expected_outcome": "accept",
+  "inputs": {
+    "attestor_config": {
+      "allowed_algs": [
+        "RS256",
+        "ES256",
+        "EdDSA"
+      ],
+      "clock_skew_tolerance_secs": 60,
+      "expected_audience": "yutha-test-audience",
+      "expected_issuer": "https://login.test.example.com",
+      "jwks": {
+        "keys": [
+          {
+            "alg": "ES256",
+            "crv": "P-256",
+            "kid": "test-key-1",
+            "kty": "EC",
+            "use": "sig",
+            "x": "eAsAUL_7ZDjv0YrzyLCYU9P7QSNaeC-I7N497a8L-v0",
+            "y": "F1CkMv5fvZC9eG7XoKR2nl-b3Rkf8HFpaSqLeaDaCYc"
+          }
+        ]
+      },
+      "project_claims": []
+    },
+    "context": {
+      "agent_public_key": {
+        "algorithm": "ed25519",
+        "value_b64": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+      },
+      "claimed_agent_id_hex": "00000000000000000000000000000002",
+      "swarm_id_hex": "00000000000000000000000000000001"
+    },
+    "credential_b64": "ZXlKMGVYQWlPaUpLVjFRaUxDSmhiR2NpT2lKRlV6STFOaUlzSW10cFpDSTZJblJsYzNRdGEyVjVMVEVpZlEuZXlKcGMzTWlPaUpvZEhSd2N6b3ZMMnh2WjJsdUxuUmxjM1F1WlhoaGJYQnNaUzVqYjIwaUxDSnpkV0lpT2lKMWMyVnlMVEVpTENKaGRXUWlPbHNpZVhWMGFHRXRkR1Z6ZEMxaGRXUnBaVzVqWlNKZExDSmxlSEFpT2pRd056QTVNRGc0TURBc0ltbGhkQ0k2TVRjd01EQXdNREF3TUgwLk9tdkVjblM5Z0d1Ym1LamlDRlROemJydXpNVGJDbDVRUWFvMHd2SWJXN3ExU1JGb2RJUlpsYnBpWjZWVzcxMmlYZ2NGUHV5U0xDTW12WnBfUVpnODBB"
+  },
+  "kind": "attestor-oidc-verify",
+  "name": "happy_path"
+}

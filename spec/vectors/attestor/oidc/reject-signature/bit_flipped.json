@@ -1,0 +1,43 @@
+{
+  "description": "Otherwise-valid ES256 ID token with one bit of the decoded signature bytes flipped. Structurally valid (correct length, in-range R/S) but mathematically invalid. Spec §9 maps to Rejected('signature verification failed').",
+  "expected_error_message_substring": "signature verification failed",
+  "expected_error_variant": "Rejected",
+  "expected_outcome": "reject",
+  "inputs": {
+    "attestor_config": {
+      "allowed_algs": [
+        "RS256",
+        "ES256",
+        "EdDSA"
+      ],
+      "clock_skew_tolerance_secs": 60,
+      "expected_audience": "yutha-test-audience",
+      "expected_issuer": "https://login.test.example.com",
+      "jwks": {
+        "keys": [
+          {
+            "alg": "ES256",
+            "crv": "P-256",
+            "kid": "test-key-1",
+            "kty": "EC",
+            "use": "sig",
+            "x": "eAsAUL_7ZDjv0YrzyLCYU9P7QSNaeC-I7N497a8L-v0",
+            "y": "F1CkMv5fvZC9eG7XoKR2nl-b3Rkf8HFpaSqLeaDaCYc"
+          }
+        ]
+      },
+      "project_claims": []
+    },
+    "context": {
+      "agent_public_key": {
+        "algorithm": "ed25519",
+        "value_b64": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+      },
+      "claimed_agent_id_hex": "00000000000000000000000000000002",
+      "swarm_id_hex": "00000000000000000000000000000001"
+    },
+    "credential_b64": "ZXlKMGVYQWlPaUpLVjFRaUxDSmhiR2NpT2lKRlV6STFOaUlzSW10cFpDSTZJblJsYzNRdGEyVjVMVEVpZlEuZXlKcGMzTWlPaUpvZEhSd2N6b3ZMMnh2WjJsdUxuUmxjM1F1WlhoaGJYQnNaUzVqYjIwaUxDSnpkV0lpT2lKMUlpd2lZWFZrSWpwYklubDFkR2hoTFhSbGMzUXRZWFZrYVdWdVkyVWlYU3dpWlhod0lqbzBNRGN3T1RBNE9EQXdMQ0pwWVhRaU9qRTNNREF3TURBd01EQjkuZnJlUEdmRXMxQnhJeXJuOF92UGx3S29wNFBoU0Y4VWdKcUl6ZWNEcnJQSEVFYmh0dGc1UV9abjZBU2NuQmVSV2ZBQWh5VGZXN3QxM0tIX0ZiQnVfUlE"
+  },
+  "kind": "attestor-oidc-verify",
+  "name": "bit_flipped"
+}

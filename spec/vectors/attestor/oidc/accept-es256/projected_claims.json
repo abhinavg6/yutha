@@ -1,0 +1,52 @@
+{
+  "description": "Operator allowlists `groups` + `email`; token includes both; projection lands in AttestedIdentity.attributes per spec §8.1 (array → comma-joined, string → verbatim).",
+  "expected_identity": {
+    "attributes": {
+      "email": "alice@example.com",
+      "groups": "admin,auditor"
+    },
+    "credential_expires_at_unix_secs": 4070908800,
+    "external_identity": "oidc:https://login.test.example.com:alice"
+  },
+  "expected_outcome": "accept",
+  "inputs": {
+    "attestor_config": {
+      "allowed_algs": [
+        "RS256",
+        "ES256",
+        "EdDSA"
+      ],
+      "clock_skew_tolerance_secs": 60,
+      "expected_audience": "yutha-test-audience",
+      "expected_issuer": "https://login.test.example.com",
+      "jwks": {
+        "keys": [
+          {
+            "alg": "ES256",
+            "crv": "P-256",
+            "kid": "test-key-1",
+            "kty": "EC",
+            "use": "sig",
+            "x": "eAsAUL_7ZDjv0YrzyLCYU9P7QSNaeC-I7N497a8L-v0",
+            "y": "F1CkMv5fvZC9eG7XoKR2nl-b3Rkf8HFpaSqLeaDaCYc"
+          }
+        ]
+      },
+      "project_claims": [
+        "groups",
+        "email"
+      ]
+    },
+    "context": {
+      "agent_public_key": {
+        "algorithm": "ed25519",
+        "value_b64": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+      },
+      "claimed_agent_id_hex": "00000000000000000000000000000002",
+      "swarm_id_hex": "00000000000000000000000000000001"
+    },
+    "credential_b64": "ZXlKMGVYQWlPaUpLVjFRaUxDSmhiR2NpT2lKRlV6STFOaUlzSW10cFpDSTZJblJsYzNRdGEyVjVMVEVpZlEuZXlKcGMzTWlPaUpvZEhSd2N6b3ZMMnh2WjJsdUxuUmxjM1F1WlhoaGJYQnNaUzVqYjIwaUxDSnpkV0lpT2lKaGJHbGpaU0lzSW1GMVpDSTZXeUo1ZFhSb1lTMTBaWE4wTFdGMVpHbGxibU5sSWwwc0ltVjRjQ0k2TkRBM01Ea3dPRGd3TUN3aWFXRjBJam94TnpBd01EQXdNREF3TENKbmNtOTFjSE1pT2xzaVlXUnRhVzRpTENKaGRXUnBkRzl5SWwwc0ltVnRZV2xzSWpvaVlXeHBZMlZBWlhoaGJYQnNaUzVqYjIwaWZRLlU3b0UwanV0VUhYT1lMbVpFRkRIUHo5WmwwcF9FNnpRVVdnOXhYSzRNWlJfYnl1d3ZvOUVGOEM1TUJHU08ydms1UzJqYklpUXpKM0xTYWdwT2Noaml3"
+  },
+  "kind": "attestor-oidc-verify",
+  "name": "projected_claims"
+}

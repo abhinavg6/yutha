@@ -1,0 +1,43 @@
+{
+  "description": "Token `iss` claim does not equal operator's expected_issuer. Spec §9 maps to Rejected('issuer mismatch').",
+  "expected_error_message_substring": "issuer mismatch",
+  "expected_error_variant": "Rejected",
+  "expected_outcome": "reject",
+  "inputs": {
+    "attestor_config": {
+      "allowed_algs": [
+        "RS256",
+        "ES256",
+        "EdDSA"
+      ],
+      "clock_skew_tolerance_secs": 60,
+      "expected_audience": "yutha-test-audience",
+      "expected_issuer": "https://login.test.example.com",
+      "jwks": {
+        "keys": [
+          {
+            "alg": "ES256",
+            "crv": "P-256",
+            "kid": "test-key-1",
+            "kty": "EC",
+            "use": "sig",
+            "x": "eAsAUL_7ZDjv0YrzyLCYU9P7QSNaeC-I7N497a8L-v0",
+            "y": "F1CkMv5fvZC9eG7XoKR2nl-b3Rkf8HFpaSqLeaDaCYc"
+          }
+        ]
+      },
+      "project_claims": []
+    },
+    "context": {
+      "agent_public_key": {
+        "algorithm": "ed25519",
+        "value_b64": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+      },
+      "claimed_agent_id_hex": "00000000000000000000000000000002",
+      "swarm_id_hex": "00000000000000000000000000000001"
+    },
+    "credential_b64": "ZXlKMGVYQWlPaUpLVjFRaUxDSmhiR2NpT2lKRlV6STFOaUlzSW10cFpDSTZJblJsYzNRdGEyVjVMVEVpZlEuZXlKcGMzTWlPaUpvZEhSd2N6b3ZMMkYwZEdGamEyVnlMbVY0WVcxd2JHVXVZMjl0SWl3aWMzVmlJam9pZFNJc0ltRjFaQ0k2V3lKNWRYUm9ZUzEwWlhOMExXRjFaR2xsYm1ObElsMHNJbVY0Y0NJNk5EQTNNRGt3T0Rnd01Dd2lhV0YwSWpveE56QXdNREF3TURBd2ZRLmhiT0hTay1sOHVxU0daVG1GdHkzSDRPUjhOS0UybGRZUWtMNWQwZDZoRENmaXBvOGpPS0YwcE42MVNJYi1aczBXT1YyWEI2WmJmRmRvTHdXeGhZT29R"
+  },
+  "kind": "attestor-oidc-verify",
+  "name": "iss_mismatch"
+}

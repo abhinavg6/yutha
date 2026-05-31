@@ -1,0 +1,125 @@
+[package]
+name = "yutha-attestor-oidc"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+authors.workspace = true
+description = "OpenID Connect backend for the Yutha `Attestor` trait. Verifies OIDC ID tokens against a configured JWKS (live via discovery, live via direct JWKS URL, or static file); returns `oidc:<iss>:<sub>` as the attested external identity and projects operator-allowlisted ID-token claims into audit-log evidence. Implements /spec/identity-keys/attestor-oidc.md (Phase F)."
+readme = "README.md"
+
+[dependencies]
+# Dep surface evolves per sub-phase so each commit's graph delta is
+# inspectable. F2 was scaffold-only; F3 landed the JwksSource +
+# JwksCache impls (jwks + reqwest + serde + serde_json + tracing +
+# direct jsonwebtoken pulled in slightly early). F4+F5 (this commit)
+# adds yutha-core + time for the AttestedIdentity Timestamp
+# construction in the verify body, and replaces the error.rs stub
+# with the real spec §9 mapping. No `thiserror` needed — we map
+# directly into `yutha_attestor::AttestorError` variants without an
+# internal wrapper enum.
+yutha-attestor.workspace = true
+# yutha-core for `Timestamp` (the `AttestedIdentity::credential_expires_at`
+# field type). We construct from the verified ID-token `exp` claim.
+yutha-core.workspace = true
+async-trait.workspace = true
+
+# Tokio: trait methods are `async` (async-trait-based) and the
+# JwksCache uses `tokio::sync::{RwLock, Mutex}` for atomic-swap JWKS
+# reads + refresh-dedup. F3 unit tests use `#[tokio::test]`.
+tokio = { workspace = true, features = ["macros", "rt-multi-thread", "sync", "time"] }
+
+# JWKS parse + OIDC discovery shortcut. We use:
+# - `Jwks::from_jwks_url(...)` — the JwksUri-override + Discovery-path
+#   second leg (we do the discovery-doc fetch ourselves so we can check
+#   the `issuer` field per spec §6.3, then hand the `jwks_uri` value
+#   off to this fn). NOTE: F3 calls `parse_jwks_body` directly rather
+#   than `from_jwks_url` because we need to size-cap the body bytes
+#   before parsing per spec §5.3.
+# - `Jwks::keys` (`HashMap<String, Jwk>` keyed by kid) — what we cache.
+jwks.workspace = true
+
+# Direct `jsonwebtoken` dep — required at F3 (not F4 as the F2 plan
+# anticipated) because `parse_jwks_body` (the size-capped JWKS parser
+# shared by static-file + size-capped network paths) calls
+# `serde_json::from_str::<jsonwebtoken::jwk::JwkSet>(body)`. We mirror
+# the same algorithm `jwks::from_jwks_url_with_client` uses
+# internally (load `JwkSet`, iterate `JwkEntry::try_from(jwk)`) so the
+# parse pipeline is byte-identical across all three sources.
+# F4/F5 will additionally use it to pattern-match on
+# `jsonwebtoken::errors::ErrorKind` for the verify-error mapping —
+# pinned ^10 to match what jwks brings in transitively.
+jsonwebtoken = "10"
+
+# `reqwest` for the discovery-doc fetch. The workspace dep already
+# pins `default-features = false, features = ["json", "rustls"]` to
+# match jwks's own reqwest config (one HTTP client config + rustls-
+# only per ADR 0001, no openssl-sys leak). F3 uses Client + get + json
+# + send + text; all covered by the workspace feature set.
+reqwest.workspace = true
+
+# Discovery-doc + static-file parse. F4 will also use serde_json for
+# the manual JWT payload decode (operator-allowlisted custom claims).
+serde = { workspace = true }
+serde_json.workspace = true
+
+# JWKS cache emits `tracing::warn!` on claim-shape skip, kid-miss
+# refresh failure, and TTL-stale-but-within-max-staleness fallback.
+tracing.workspace = true
+
+# `time` for `OffsetDateTime::from_unix_timestamp(exp_secs).format(Rfc3339)`
+# — the only post-JWT-verify conversion the crate does (verified `exp`
+# claim → `yutha_core::Timestamp` RFC 3339 wall_clock string). Mirrors
+# the SPIFFE crate's `offset_datetime_to_timestamp` helper.
+time = { workspace = true }
+
+[dev-dependencies]
+# F3 unit tests materialise JWKS JSON into per-test temp files so the
+# static-file path is exercised against real filesystem reads (vs. an
+# in-memory mock). NamedTempFile auto-cleans on drop — no static path
+# collisions across parallel tests.
+tempfile.workspace = true
+
+# F4 negative-path tests construct forged JWTs by hand (no signing
+# keypair — we only need to drive the verify body to specific reject
+# rows like "missing kid", "alg not in allowlist", "kid not in JWKS",
+# and "signature verify failed"). base64 URL-safe-no-pad is the JWT
+# header + payload encoding.
+base64.workspace = true
+
+# F7 forged-JWT round-trip tests: real signing keypairs (RS256 + ES256
+# + EdDSA) to drive the verify body end-to-end against signature-valid
+# input. Proves the 9-step algorithm works for happy-paths AND for the
+# spec §9 reject rows that require a valid signature (wrong-iss,
+# wrong-aud, expired, iat-future, nbf-future).
+p256 = { version = "0.13", features = ["jwk", "pem", "pkcs8"] }
+rsa = "0.9"
+# `ed25519-dalek` is a workspace dep with `rand_core`; we union the
+# `pkcs8` feature here so `SigningKey::to_pkcs8_der(...)` is available
+# for jsonwebtoken's `EncodingKey::from_ed_der` interop. PEM-flavored
+# encoding would also need the `pem` feature plus a `LineEnding` arg;
+# DER is shorter and sidesteps the `pkcs8::LineEnding` re-export
+# path churn across ed25519-dalek minor versions.
+ed25519-dalek = { workspace = true, features = ["pkcs8"] }
+rand_core.workspace = true
+
+# F7 in-process mock OIDC server per spec §11.1: axum-based,
+# serves /.well-known/openid-configuration + /jwks at a random
+# local port. Used by tests/integration.rs to exercise the
+# Discovery + JWKS-URI paths end-to-end without `#[ignore]`-gating
+# (no real IdP / no docker required). Pinned to axum 0.8 (hyper 1.x);
+# default-features=false drops the macro/multipart/etc. features we
+# don't use for a smaller test build.
+axum = { version = "0.8", default-features = false, features = ["http1", "json", "tokio"] }
+
+# F8 vectors regen uses `rand_chacha::ChaCha20Rng::seed_from_u64`
+# so `tests/regen_vectors.rs` produces byte-identical fixtures from
+# the documented `REGEN_SEED` env var. Matches the Phase E spiffe
+# crate's regen pattern.
+rand_chacha = "0.3"
+
+# F8 vectors loader decodes `swarm_id_hex` / `claimed_agent_id_hex`
+# from the fixture JSON. Workspace already pins `hex = "0.4"`.
+hex.workspace = true
