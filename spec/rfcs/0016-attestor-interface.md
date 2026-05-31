@@ -338,7 +338,7 @@ impl Attestor for SpiffeAttestor {
 }
 ```
 
-Full design lands in Phase E with a `/spec/identity-keys/attestor-spiffe.md` byte-exact spec alongside the impl. This RFC pins the trait surface; the SPIFFE-specific details (Workload API integration, trust-bundle refresh cadence, selectors-to-attributes mapping) are Phase E's deliverables.
+Full design lands in Phase E with a [`/spec/identity-keys/attestor-spiffe.md`](../identity-keys/attestor-spiffe.md) byte-exact spec alongside the impl. This RFC pins the trait surface; the SPIFFE-specific details (Workload API integration, trust-bundle refresh cadence, selectors-to-attributes mapping) are Phase E's deliverables.
 
 ### 3.6 Reference impl sketch — OIDC (Phase F)
 
@@ -569,10 +569,20 @@ For v1: document that the agent is responsible for re-registering with a fresh c
 - [x] Phase D work tracked: Python SDK `YuthaClient.connect(...)` gains `external_credential` parameter *(D7 — actually landed on `AdmissionAPI.register()` + each adapter's `register()` rather than on `YuthaClient.connect`, because `connect` doesn't currently call Register. Semantically equivalent: caller passes the credential at the same logical "register the agent" step.)*
 - [x] Phase D work tracked: every demo + walkthrough + example doc updated *(no source changes needed — `external_credential` defaults to `b""` which the native path expects; existing examples keep working unchanged)*
 - [~] Conformance vectors authored under `/spec/vectors/attestor/` (native-accept-empty, native-reject-nonempty, context-passthrough) *(D8 — `/spec/vectors/attestor/README.md` shipped + 16/8/8 Rust test cases at `crates/yutha-attestor/tests/native_vectors.rs`. **Deviation:** JSON fixtures NOT shipped in v1 because NativeAttestor has no cross-impl to validate against; the Rust test IS the spec. Phase E/F SPIFFE + OIDC vectors land as JSON because their credential formats have multiple reference impls.)*
-- [ ] Phase E work tracked: `yutha-attestor-spiffe` crate + `/spec/identity-keys/attestor-spiffe.md`
+- [x] Phase E work tracked: `yutha-attestor-spiffe` crate + `/spec/identity-keys/attestor-spiffe.md` *(2026-05-31, E1–E10)*
+  - [x] E1 spec — `/spec/identity-keys/attestor-spiffe.md` byte-exact contract
+  - [x] E2 crate scaffold — `crates/yutha-attestor-spiffe/`, deps + module skeleton
+  - [x] E3 `TrustBundleSource` — static-file + Workload-API streaming via `spiffe::JwtSource`
+  - [x] E4 `SpiffeAttestor::verify` — 9-step algorithm per spec §3, `nbf`/`iat` clock-skew checks
+  - [x] E5 error mapping per spec §9 — full `JwtSvidError` → `AttestorError` table with PII rule
+  - [x] E6 CLI wiring — `--attestor spiffe` + 6 `--attestor-spiffe-*` flags, mutex source-flavour validation
+  - [x] E7 tests — 11 forged-JWT integration tests + docker-spire end-to-end test (env-gated)
+  - [x] E8 conformance vectors — 9 JSON fixtures under `/spec/vectors/attestor/spiffe/` + deterministic regen + loader test *(deliberate v1 deviation from spec §11's 45-case target: see vectors README)*
+  - [x] E9 operator runbook — `docs/operator/spiffe-attestor.md` wired into mkdocs nav
+  - [x] E10 verification gate — workspace cargo build/test/clippy clean, mkdocs strict clean, cross-spec sweep
 - [ ] Phase F work tracked: `yutha-attestor-oidc` crate + `/spec/identity-keys/attestor-oidc.md`
 - [ ] Phase G work tracked: `docs/operator/enterprise-identity.md` end-to-end walkthrough
-- [ ] mkdocs `--strict`, ruff check, mypy strict, cargo build, cargo clippy all clean *(D11 — verification gate)*
+- [ ] mkdocs `--strict`, ruff check, mypy strict, cargo build, cargo clippy all clean *(D11 — verification gate; Phase E re-affirmed at E10)*
 - [ ] At least one reviewer approves (per RFC 0001 process)
 - [ ] Public review window expired
 

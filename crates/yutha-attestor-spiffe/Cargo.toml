@@ -1,0 +1,91 @@
+[package]
+name = "yutha-attestor-spiffe"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+authors.workspace = true
+description = "SPIFFE/SPIRE backend for the Yutha `Attestor` trait. Verifies SPIFFE JWT-SVIDs against a configured trust bundle (static file or live Workload API stream); returns the SVID's SPIFFE ID as the attested external identity and projects workload selectors into the audit-log evidence. Implements /spec/identity-keys/attestor-spiffe.md (Phase E)."
+readme = "README.md"
+
+[dependencies]
+yutha-core.workspace = true
+yutha-attestor.workspace = true
+
+# Canonical Rust SPIFFE SDK (https://github.com/maxlambrecht/rust-spiffe).
+# Feature selection rationale:
+# - `jwt`              — JwtBundle + JwtSvid types + RFC 7517 JWKS parsing
+#                        (the static-file path lives in this feature)
+# - `jwt-source`       — high-level JwtSource that maintains a hot-rotating
+#                        bundle cache via the Workload API; the
+#                        TrustBundleSource::WorkloadApi flavour uses it
+#                        verbatim, getting reconnect/backoff/atomic-swap
+#                        for free
+# - `jwt-verify-rust-crypto` — offline JWS signature verification (the
+#                        verify hot path in E4 uses this; pure-Rust
+#                        backend, no OpenSSL dep)
+# - `tracing`          — observability hooks the SDK emits; matches the
+#                        crate's `tracing.workspace = true` integration
+spiffe = { workspace = true, features = [
+    "jwt",
+    "jwt-source",
+    "jwt-verify-rust-crypto",
+    "tracing",
+] }
+
+# Direct `jsonwebtoken` dep so error.rs can pattern-match on the
+# inner `ErrorKind` packaged inside `JwtSvidError::InvalidToken(_)`.
+# spiffe's JWT-SVID validate delegates the exp + audience checks to
+# jsonwebtoken; without this dep we can't distinguish "expired" from
+# "wrong audience" from "bad signature" at the error-mapping layer.
+# Version pinned to ^10 — same major spiffe pulls in transitively.
+jsonwebtoken = "10"
+
+async-trait.workspace = true
+thiserror.workspace = true
+tracing.workspace = true
+
+# Tokio is required by the Workload API stream + the staleness watchdog
+# (E3). The synchronous unit tests in this crate use the tokio
+# multi-thread runtime via `#[tokio::test(flavor = "multi_thread")]`.
+tokio = { workspace = true, features = ["macros", "rt-multi-thread", "sync", "time"] }
+
+# Static-bundle path reads + parses a JWKS JSON file at construction.
+serde = { workspace = true }
+serde_json.workspace = true
+
+# Manual payload decode in the verify path: the SPIFFE SDK's
+# `JwtSvid::claims()` exposes standard JWT claims (sub/aud/exp/etc.)
+# but not the custom `selectors` claim, nor `nbf`/`iat` with our
+# spec-pinned clock-skew tolerance. We base64url-decode the middle
+# segment ourselves and parse it as JSON.
+base64.workspace = true
+
+# `JwtSvid::expiry()` returns `time::OffsetDateTime`; we convert to
+# `yutha_core::Timestamp` (RFC 3339 wall-clock) via this crate's
+# Rfc3339 formatter.
+time = { workspace = true }
+
+[dev-dependencies]
+# Test fixtures: forging JWT-SVIDs against a test trust bundle (E7).
+# Uses the same async-runtime configuration as the runtime deps.
+yutha-crypto.workspace = true
+
+# E7 forged-JWT tests. `p256` gives us an EC P-256 keypair we can
+# extract JWK x/y components from to build a trust-bundle JWKS;
+# `jsonwebtoken` ^10 matches the version spiffe pins internally
+# (via the jwt-verify-rust-crypto feature) and signs ES256 JWTs that
+# the offline verifier will accept. `rand_core` (already workspace-
+# pinned) provides `OsRng` for the keypair seed without dragging in
+# the full `rand` crate.
+p256 = { version = "0.13", features = ["jwk", "pem", "pkcs8"] }
+jsonwebtoken = "10"
+rand_core.workspace = true
+
+# E8 conformance vectors: ChaCha20-seeded RNG so the regen binary
+# produces byte-identical fixtures from a documented seed. Without
+# this the keypair would change every regen and the committed
+# fixtures would drift.
+rand_chacha = "0.3"

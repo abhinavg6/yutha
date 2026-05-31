@@ -1,0 +1,39 @@
+{
+  "description": "Well-formed ES256-signed JWT-SVID; sub spiffe://example.org/test/workload, aud matches, exp far in future. Asserts the §3 happy-path: signature verifies, claims pass, AttestedIdentity carries the SPIFFE ID + exp.",
+  "expected_identity": {
+    "attributes": {},
+    "credential_expires_at_unix_secs": 4070912400,
+    "external_identity": "spiffe://example.org/test/workload"
+  },
+  "expected_outcome": "accept",
+  "inputs": {
+    "attestor_config": {
+      "clock_skew_tolerance_secs": 60,
+      "expected_audience": "yutha-test-audience",
+      "trust_bundle": {
+        "keys": [
+          {
+            "crv": "P-256",
+            "kid": "test-key-1",
+            "kty": "EC",
+            "use": "jwt-svid",
+            "x": "rk0QtD5vz8CTM9HMvNw9nuQjdh87v-K8HOnXJRgmTrQ",
+            "y": "93-d2paYsnCkQINDzMUohP9KVqpkz5PShZuRoh4TmnU"
+          }
+        ],
+        "trust_domain": "example.org"
+      }
+    },
+    "context": {
+      "agent_public_key": {
+        "algorithm": "ed25519",
+        "value_b64": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+      },
+      "claimed_agent_id_hex": "00000000000000000000000000000002",
+      "swarm_id_hex": "00000000000000000000000000000001"
+    },
+    "credential_b64": "ZXlKMGVYQWlPaUpLVjFRaUxDSmhiR2NpT2lKRlV6STFOaUlzSW10cFpDSTZJblJsYzNRdGEyVjVMVEVpZlEuZXlKemRXSWlPaUp6Y0dsbVptVTZMeTlsZUdGdGNHeGxMbTl5Wnk5MFpYTjBMM2R2Y210c2IyRmtJaXdpWVhWa0lqcGJJbmwxZEdoaExYUmxjM1F0WVhWa2FXVnVZMlVpWFN3aVpYaHdJam8wTURjd09URXlOREF3ZlEuLWVwc1NSeUE4MkJwOG9sM3BqajBobXNDS2xmRUJyNnMtQjJxTC01anFabFBYWm1JLVYxQTVad1QtRm8ySmJEVTlRZTBiZUxTOTI2SWROc2JxbkI0c2c"
+  },
+  "kind": "attestor-spiffe-verify",
+  "name": "es256_happy_path"
+}

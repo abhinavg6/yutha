@@ -1,0 +1,36 @@
+{
+  "description": "SVID's aud claim does not contain the operator-configured expected_audience. Spec §9 maps to Rejected('audience mismatch').",
+  "expected_error_message_substring": "audience mismatch",
+  "expected_error_variant": "Rejected",
+  "expected_outcome": "reject",
+  "inputs": {
+    "attestor_config": {
+      "clock_skew_tolerance_secs": 60,
+      "expected_audience": "yutha-test-audience",
+      "trust_bundle": {
+        "keys": [
+          {
+            "crv": "P-256",
+            "kid": "test-key-1",
+            "kty": "EC",
+            "use": "jwt-svid",
+            "x": "rk0QtD5vz8CTM9HMvNw9nuQjdh87v-K8HOnXJRgmTrQ",
+            "y": "93-d2paYsnCkQINDzMUohP9KVqpkz5PShZuRoh4TmnU"
+          }
+        ],
+        "trust_domain": "example.org"
+      }
+    },
+    "context": {
+      "agent_public_key": {
+        "algorithm": "ed25519",
+        "value_b64": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+      },
+      "claimed_agent_id_hex": "00000000000000000000000000000002",
+      "swarm_id_hex": "00000000000000000000000000000001"
+    },
+    "credential_b64": "ZXlKMGVYQWlPaUpLVjFRaUxDSmhiR2NpT2lKRlV6STFOaUlzSW10cFpDSTZJblJsYzNRdGEyVjVMVEVpZlEuZXlKemRXSWlPaUp6Y0dsbVptVTZMeTlsZUdGdGNHeGxMbTl5Wnk5MFpYTjBMM2R2Y210c2IyRmtJaXdpWVhWa0lqcGJJbk52YldVdGIzUm9aWEl0WVhWa2FXVnVZMlVpWFN3aVpYaHdJam8wTURjd09URXlOREF3ZlEuR1Bjb3o5VmJtQUxPMDFGRDZhVU1rS0VNaWVKTC1LazNfQmVmUFdPNHQ2WFFJVjZjLXc4VW8yMDRQcFZjd2s5MnVlYzdOckNGRElsRE02eGtzQ2s4eGc"
+  },
+  "kind": "attestor-spiffe-verify",
+  "name": "audience_mismatch"
+}

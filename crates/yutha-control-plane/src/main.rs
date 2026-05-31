@@ -146,20 +146,85 @@ struct Cli {
     ///   attested external identity. Behaviorally identical to the
     ///   pre-RFC-0016 flow modulo two new evidence keys on
     ///   `agent.register`.
-    /// - `spiffe` — **NOT YET IMPLEMENTED.** Lands in Phase E with
-    ///   `yutha-attestor-spiffe` (SPIFFE JWT-SVID verification against
-    ///   a SPIRE trust bundle). Selecting it today exits with a
-    ///   clear "lands in Phase E" message.
+    /// - `spiffe` — `yutha-attestor-spiffe` (Phase E). Verifies SPIFFE
+    ///   JWT-SVIDs against a configured trust bundle. Pair with the
+    ///   `--attestor-spiffe-*` flags: REQUIRED `--attestor-spiffe-audience`
+    ///   plus EXACTLY ONE of `--attestor-spiffe-socket` (SPIRE Workload
+    ///   API socket, hot rotation) or `--attestor-spiffe-bundle-file`
+    ///   (static JWKS, air-gapped). See
+    ///   /spec/identity-keys/attestor-spiffe.md §10 for the full flag
+    ///   surface.
     /// - `oidc` — **NOT YET IMPLEMENTED.** Lands in Phase F with
     ///   `yutha-attestor-oidc` (OIDC ID-token verification against
     ///   a discovery URL's JWKS).
     ///
-    /// The CLI flag exists ahead of the SPIFFE / OIDC implementations
-    /// so operators can plan their configuration and so any startup
+    /// The CLI flag exists ahead of the OIDC implementation so
+    /// operators can plan their configuration and any startup
     /// scripts that pre-set `--attestor native` keep working when
-    /// `spiffe` / `oidc` later land without flag renames.
+    /// `oidc` later lands without flag renames.
     #[arg(long, env = "YUTHA_ATTESTOR", value_enum, default_value_t = AttestorArg::Native)]
     attestor: AttestorArg,
+
+    /// SPIRE agent Workload API socket path. REQUIRED when
+    /// `--attestor=spiffe` AND `--attestor-spiffe-bundle-file` is unset
+    /// (and mutually-exclusive with that flag). The SPIFFE Attestor
+    /// connects, awaits the initial trust-bundle sync (bounded by
+    /// `--attestor-spiffe-connect-timeout-secs`), and the underlying
+    /// SDK hot-rotates the cached bundle on each stream update.
+    /// Accepts either a bare path (`/run/spire/sockets/agent.sock`) or
+    /// a URI (`unix:/run/spire/sockets/agent.sock`).
+    #[arg(long, env = "YUTHA_ATTESTOR_SPIFFE_SOCKET")]
+    attestor_spiffe_socket: Option<PathBuf>,
+
+    /// Static JWKS trust-bundle file. REQUIRED when `--attestor=spiffe`
+    /// AND `--attestor-spiffe-socket` is unset (and mutually-exclusive
+    /// with that flag). Format: SPIFFE Trust Bundle JSON
+    /// (`{ "trust_domain": "...", "keys": [<JWKS entries>] }`). Read
+    /// once at startup; operators rotate by replacing the file and
+    /// restarting. Appropriate for air-gapped, edge, and dev
+    /// environments without a SPIRE agent sidecar.
+    #[arg(long, env = "YUTHA_ATTESTOR_SPIFFE_BUNDLE_FILE")]
+    attestor_spiffe_bundle_file: Option<PathBuf>,
+
+    /// Audience value the SVID's `aud` claim MUST contain. REQUIRED
+    /// when `--attestor=spiffe`. Operators choose a swarm-specific
+    /// value (`yutha-<swarm-name>-<env>` is the recommended shape per
+    /// /spec/identity-keys/attestor-spiffe.md §6.1); generic values
+    /// like `yutha-prod` invite cross-system SVID replay.
+    #[arg(long, env = "YUTHA_ATTESTOR_SPIFFE_AUDIENCE")]
+    attestor_spiffe_audience: Option<String>,
+
+    /// Bounded-staleness window for the SPIFFE trust-bundle cache.
+    /// When the cache hasn't refreshed within this window, verify
+    /// returns `TrustRootUnavailable`. Default behaviour (when unset)
+    /// is source-flavour-specific: Workload API uses
+    /// `2 × spiffe_refresh_hint`; static-file uses no check
+    /// (`Duration::MAX`). Setting `0` selects "hard fail on TTL
+    /// expiry" (strictest). See attestor-spiffe.md §5.
+    #[arg(long, env = "YUTHA_ATTESTOR_SPIFFE_MAX_STALENESS_SECS")]
+    attestor_spiffe_max_staleness_secs: Option<u64>,
+
+    /// Clock-skew tolerance for `iat` / `nbf` JWT-SVID claims, in
+    /// seconds. Defaults to 60. Setting `0` enforces strict equality
+    /// (any token timestamp ahead of local wall-clock is rejected);
+    /// large values weaken the freshness guarantee.
+    #[arg(
+        long,
+        env = "YUTHA_ATTESTOR_SPIFFE_CLOCK_SKEW_SECS",
+        default_value_t = 60
+    )]
+    attestor_spiffe_clock_skew_secs: u64,
+
+    /// Cold-start timeout for the Workload API source. Maximum wait
+    /// for the initial trust-bundle sync message before construction
+    /// fails. Defaults to 10 s. Ignored when
+    /// `--attestor-spiffe-bundle-file` is in use.
+    #[arg(
+        long,
+        env = "YUTHA_ATTESTOR_SPIFFE_CONNECT_TIMEOUT_SECS",
+        default_value_t = 10
+    )]
+    attestor_spiffe_connect_timeout_secs: u64,
 
     /// Deterministic 32-byte hex seed for the bootstrap agent's
     /// identity (signing key + AgentId + SwarmId).
@@ -337,9 +402,8 @@ enum AdmissionModeArg {
 }
 
 /// CLI shadow of the configured external-identity [`Attestor`]
-/// (RFC 0016). `Native` is the v1 default; `Spiffe` / `Oidc` are
-/// reserved variants that emit a clear "lands in Phase E/F" startup
-/// error if selected today.
+/// (RFC 0016). `Native` is the v1 default; `Spiffe` lands in Phase E
+/// (`yutha-attestor-spiffe`); `Oidc` is reserved for Phase F.
 ///
 /// [`Attestor`]: yutha_attestor::Attestor
 #[derive(Debug, Clone, Copy, ValueEnum)]
@@ -349,23 +413,125 @@ enum AttestorArg {
     Oidc,
 }
 
+/// SPIFFE-specific options harvested from [`Cli`]. Built once at
+/// startup so [`AttestorArg::build`] can consume the shape that
+/// matters to it without growing a `&Cli` dependency.
+///
+/// The validation rules (audience required + exactly-one-source)
+/// live on [`AttestorArg::build`]; this struct is just the value
+/// passthrough.
+#[derive(Debug, Clone)]
+struct SpiffeCliOpts {
+    socket: Option<PathBuf>,
+    bundle_file: Option<PathBuf>,
+    audience: Option<String>,
+    max_staleness_secs: Option<u64>,
+    clock_skew_secs: u64,
+    connect_timeout_secs: u64,
+}
+
+impl SpiffeCliOpts {
+    fn from_cli(cli: &Cli) -> Self {
+        Self {
+            socket: cli.attestor_spiffe_socket.clone(),
+            bundle_file: cli.attestor_spiffe_bundle_file.clone(),
+            audience: cli.attestor_spiffe_audience.clone(),
+            max_staleness_secs: cli.attestor_spiffe_max_staleness_secs,
+            clock_skew_secs: cli.attestor_spiffe_clock_skew_secs,
+            connect_timeout_secs: cli.attestor_spiffe_connect_timeout_secs,
+        }
+    }
+}
+
 impl AttestorArg {
-    /// Construct the configured Attestor, or return an operator-facing
-    /// error explaining when the requested flavor will land.
-    fn build(self) -> Result<Arc<dyn yutha_attestor::Attestor>, anyhow::Error> {
+    /// Construct the configured Attestor.
+    ///
+    /// Async because `SpiffeAttestor::connect` reads the static
+    /// bundle file or initial-syncs the Workload API stream; both
+    /// happen at construction so a misconfigured `--attestor spiffe`
+    /// fails the operator at startup, before any agent registers.
+    async fn build(
+        self,
+        spiffe: SpiffeCliOpts,
+    ) -> Result<Arc<dyn yutha_attestor::Attestor>, anyhow::Error> {
         match self {
             Self::Native => Ok(Arc::new(yutha_attestor::NativeAttestor)),
-            Self::Spiffe => anyhow::bail!(
-                "--attestor spiffe is not yet implemented; lands in Phase E with the \
-                 yutha-attestor-spiffe crate. Use --attestor native today, or run an \
-                 out-of-process credential broker until then. See RFC 0016 §3.5."
-            ),
+            Self::Spiffe => build_spiffe_attestor(spiffe).await,
             Self::Oidc => anyhow::bail!(
                 "--attestor oidc is not yet implemented; lands in Phase F with the \
                  yutha-attestor-oidc crate. Use --attestor native today. See RFC 0016 §3.6."
             ),
         }
     }
+}
+
+/// Translate [`SpiffeCliOpts`] into a constructed [`SpiffeAttestor`].
+///
+/// Validates the operator-facing invariants from
+/// /spec/identity-keys/attestor-spiffe.md §10:
+///
+///   - `--attestor-spiffe-audience` is REQUIRED and non-empty.
+///   - EXACTLY ONE of `--attestor-spiffe-socket` /
+///     `--attestor-spiffe-bundle-file` is set.
+///
+/// Both checks fail at startup with operator-actionable messages that
+/// name the offending flags, before any backend wiring runs.
+async fn build_spiffe_attestor(
+    opts: SpiffeCliOpts,
+) -> Result<Arc<dyn yutha_attestor::Attestor>, anyhow::Error> {
+    let audience = opts
+        .audience
+        .as_deref()
+        .filter(|s| !s.is_empty())
+        .ok_or_else(|| {
+            anyhow::anyhow!(
+                "--attestor spiffe requires --attestor-spiffe-audience \
+                 (a swarm-specific value; see /spec/identity-keys/attestor-spiffe.md §6.1)"
+            )
+        })?
+        .to_string();
+
+    let source = match (&opts.socket, &opts.bundle_file) {
+        (Some(socket), None) => yutha_attestor_spiffe::TrustBundleSource::WorkloadApi {
+            socket: socket.clone(),
+        },
+        (None, Some(path)) => {
+            yutha_attestor_spiffe::TrustBundleSource::StaticFile { path: path.clone() }
+        }
+        (None, None) => anyhow::bail!(
+            "--attestor spiffe requires EXACTLY ONE of \
+             --attestor-spiffe-socket (SPIRE Workload API) or \
+             --attestor-spiffe-bundle-file (static JWKS); both are unset. \
+             See /spec/identity-keys/attestor-spiffe.md §4."
+        ),
+        (Some(_), Some(_)) => anyhow::bail!(
+            "--attestor spiffe requires EXACTLY ONE of \
+             --attestor-spiffe-socket and --attestor-spiffe-bundle-file; \
+             both are set. See /spec/identity-keys/attestor-spiffe.md §4.3."
+        ),
+    };
+
+    let max_staleness = opts.max_staleness_secs.map(std::time::Duration::from_secs);
+
+    let config = yutha_attestor_spiffe::SpiffeConfig {
+        source,
+        expected_audience: audience,
+        max_staleness,
+        clock_skew_tolerance_secs: opts.clock_skew_secs,
+        connect_timeout_secs: opts.connect_timeout_secs,
+    };
+
+    let attestor = yutha_attestor_spiffe::SpiffeAttestor::connect(config)
+        .await
+        .map_err(|e| {
+            anyhow::anyhow!(
+                "SPIFFE Attestor construction failed: {e}. See \
+                 /spec/identity-keys/attestor-spiffe.md and \
+                 docs/operator/spiffe-attestor.md for troubleshooting."
+            )
+        })?;
+
+    Ok(Arc::new(attestor))
 }
 
 /// Three-way control for `Topology.require_capability_for_send`. See
@@ -501,10 +667,18 @@ async fn main() -> anyhow::Result<()> {
 
     // Phase D / RFC 0016: construct the configured Attestor before
     // bootstrap_backends so a misconfigured --attestor flag (e.g.,
-    // selecting `spiffe` before Phase E ships) fails the operator
-    // FAST with a clear "lands in Phase E" message, before any
-    // backend wiring runs.
-    let attestor: Arc<dyn yutha_attestor::Attestor> = cli.attestor.build()?;
+    // --attestor spiffe with neither --attestor-spiffe-socket nor
+    // --attestor-spiffe-bundle-file) fails the operator FAST with a
+    // clear flag-naming message, before any backend wiring runs.
+    //
+    // For `--attestor spiffe` (Phase E), construction includes I/O:
+    // either reading + parsing the static JWKS file, or initial-
+    // syncing the SPIRE Workload API stream (bounded by
+    // --attestor-spiffe-connect-timeout-secs). Both happen here, so
+    // SPIFFE-related startup failures land at process boot rather
+    // than at first registration.
+    let spiffe_opts = SpiffeCliOpts::from_cli(&cli);
+    let attestor: Arc<dyn yutha_attestor::Attestor> = cli.attestor.build(spiffe_opts).await?;
 
     let (state, enforcement_rx) = bootstrap_backends(
         bootstrap_identity,

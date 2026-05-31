@@ -19,6 +19,12 @@ yutha-core.workspace = true
 yutha-crypto.workspace = true
 yutha-signer.workspace = true
 yutha-attestor.workspace = true
+# Phase E: SPIFFE/SPIRE Attestor backend. Wired through `--attestor spiffe`
+# + `--attestor-spiffe-{socket,bundle-file,audience,...}` CLI flags
+# (RFC 0016 §3.7, /spec/identity-keys/attestor-spiffe.md §10). Dead-weight
+# when --attestor=native (the default); construction only triggers when
+# the operator explicitly opts in.
+yutha-attestor-spiffe.workspace = true
 yutha-proto.workspace = true
 yutha-receipt.workspace = true
 yutha-passport.workspace = true

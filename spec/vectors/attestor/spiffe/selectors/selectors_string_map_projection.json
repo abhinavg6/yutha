@@ -1,0 +1,42 @@
+{
+  "description": "Selectors claim with all-string values projects 1:1 into AttestedIdentity.attributes per spec §8.",
+  "expected_identity": {
+    "attributes": {
+      "k8s_ns": "billing",
+      "k8s_sa": "processor"
+    },
+    "credential_expires_at_unix_secs": 4070912400,
+    "external_identity": "spiffe://example.org/test/workload"
+  },
+  "expected_outcome": "accept",
+  "inputs": {
+    "attestor_config": {
+      "clock_skew_tolerance_secs": 60,
+      "expected_audience": "yutha-test-audience",
+      "trust_bundle": {
+        "keys": [
+          {
+            "crv": "P-256",
+            "kid": "test-key-1",
+            "kty": "EC",
+            "use": "jwt-svid",
+            "x": "rk0QtD5vz8CTM9HMvNw9nuQjdh87v-K8HOnXJRgmTrQ",
+            "y": "93-d2paYsnCkQINDzMUohP9KVqpkz5PShZuRoh4TmnU"
+          }
+        ],
+        "trust_domain": "example.org"
+      }
+    },
+    "context": {
+      "agent_public_key": {
+        "algorithm": "ed25519",
+        "value_b64": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+      },
+      "claimed_agent_id_hex": "00000000000000000000000000000002",
+      "swarm_id_hex": "00000000000000000000000000000001"
+    },
+    "credential_b64": "ZXlKMGVYQWlPaUpLVjFRaUxDSmhiR2NpT2lKRlV6STFOaUlzSW10cFpDSTZJblJsYzNRdGEyVjVMVEVpZlEuZXlKemRXSWlPaUp6Y0dsbVptVTZMeTlsZUdGdGNHeGxMbTl5Wnk5MFpYTjBMM2R2Y210c2IyRmtJaXdpWVhWa0lqcGJJbmwxZEdoaExYUmxjM1F0WVhWa2FXVnVZMlVpWFN3aVpYaHdJam8wTURjd09URXlOREF3TENKelpXeGxZM1J2Y25NaU9uc2lhemh6WDI1eklqb2lZbWxzYkdsdVp5SXNJbXM0YzE5ellTSTZJbkJ5YjJObGMzTnZjaUo5ZlEuQWl4Y0dHZzdJNnNNZW1wZ2ZTM0VSSkZlOVROOWs4NkxnUXl5NHJQdFVKVWYtckNZRnZyNWNtTVQtd1JLZmMtZ0ZrYVZGR05HU3hzcmRQRG5wUmptanc"
+  },
+  "kind": "attestor-spiffe-verify",
+  "name": "selectors_string_map_projection"
+}

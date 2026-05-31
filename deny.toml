@@ -56,12 +56,28 @@ ignore = [
     # called only inside the AWS SDK's cache code; we never construct an
     # lru cache or call IterMut anywhere in our codebase.
     { id = "RUSTSEC-2026-0002", reason = "Unsoundness in lru's IterMut, reachable only inside aws-sdk-s3's internal request-cache machinery; not exposed to our usage." },
-    # Note: rsa (RUSTSEC-2023-0071) is only in the *all-features* dep
-    # graph (transitive via sqlx-mysql, which our postgres-only feature
-    # set never enables). It's listed only in .cargo/audit.toml because
-    # cargo-audit reads the raw Cargo.lock without feature filtering;
-    # cargo-deny doesn't see it in the default graph, so listing it here
-    # would fire "advisory-not-detected".
+    # rsa 0.9.x (RUSTSEC-2023-0071, "Marvin Attack" timing sidechannel
+    # during RSA *private-key* operations). As of Phase E (2026-05-31),
+    # rsa is in the DEFAULT dep graph via spiffe → jsonwebtoken → rsa
+    # (jsonwebtoken supports RS256/RS384/RS512 JWT verification, which
+    # requires rsa even though we only ever call rsa's verify path, not
+    # its sign path).
+    #
+    # Also reachable via the all-features build through sqlx-mysql, but
+    # that path is feature-gated and not in our default deployment.
+    #
+    # The Marvin Attack is a timing sidechannel on RSA *private-key*
+    # operations (decryption/signing). The Yutha SPIFFE Attestor only
+    # ever VERIFIES JWT-SVIDs — never signs with RSA. The substrate has
+    # zero RSA private-key operations anywhere. The timing sidechannel
+    # is structurally not reachable in our usage.
+    #
+    # Re-evaluate when rsa ships a constant-time release (tracked at
+    # https://github.com/RustCrypto/RSA/issues/626) or when an upstream
+    # bump lets us drop rsa from the graph entirely (e.g., a
+    # jsonwebtoken release that feature-gates RSA support — not on the
+    # roadmap as of 10.4).
+    { id = "RUSTSEC-2023-0071", reason = "rsa Marvin Attack on RSA private-key timing; the substrate only verifies (never signs with RSA), so the sidechannel is structurally unreachable. Transitive via spiffe → jsonwebtoken (Phase E SPIFFE Attestor)." },
 ]
 
 [licenses]

@@ -1,0 +1,36 @@
+{
+  "description": "SVID's header.kid does not match any entry in the trust bundle JWKS. Spec §9 maps to Rejected('kid not found in trust bundle').",
+  "expected_error_message_substring": "kid not found in trust bundle",
+  "expected_error_variant": "Rejected",
+  "expected_outcome": "reject",
+  "inputs": {
+    "attestor_config": {
+      "clock_skew_tolerance_secs": 60,
+      "expected_audience": "yutha-test-audience",
+      "trust_bundle": {
+        "keys": [
+          {
+            "crv": "P-256",
+            "kid": "test-key-1",
+            "kty": "EC",
+            "use": "jwt-svid",
+            "x": "rk0QtD5vz8CTM9HMvNw9nuQjdh87v-K8HOnXJRgmTrQ",
+            "y": "93-d2paYsnCkQINDzMUohP9KVqpkz5PShZuRoh4TmnU"
+          }
+        ],
+        "trust_domain": "example.org"
+      }
+    },
+    "context": {
+      "agent_public_key": {
+        "algorithm": "ed25519",
+        "value_b64": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+      },
+      "claimed_agent_id_hex": "00000000000000000000000000000002",
+      "swarm_id_hex": "00000000000000000000000000000001"
+    },
+    "credential_b64": "ZXlKMGVYQWlPaUpLVjFRaUxDSmhiR2NpT2lKRlV6STFOaUlzSW10cFpDSTZJblZ1YTI1dmQyNHRhMlY1TFdsa0luMC5leUp6ZFdJaU9pSnpjR2xtWm1VNkx5OWxlR0Z0Y0d4bExtOXlaeTkwWlhOMEwzZHZjbXRzYjJGa0lpd2lZWFZrSWpwYklubDFkR2hoTFhSbGMzUXRZWFZrYVdWdVkyVWlYU3dpWlhod0lqbzBNRGN3T1RFeU5EQXdmUS50STliOGd4LXJqUWhHXzNWS2ZmRGNXX3Rka0tfWjhYdEFDeG1DX2NPUnE5SFNCS1dRUXF6aHZ0djNqZGNxQTFEX3RKUjYtSnhZdGtGYUliYWduM1BUdw"
+  },
+  "kind": "attestor-spiffe-verify",
+  "name": "unknown_kid"
+}

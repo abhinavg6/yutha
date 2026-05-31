@@ -1,8 +1,27 @@
 # Workstream A Status — Spec Drafts
 
-> **As of:** 2026-05-30 (Phase D of the identity-keys workstream — entry; prior entries below)
+> **As of:** 2026-05-31 (Phase E of the identity-keys workstream — entry; prior entries below)
 > **Author:** background work session, autonomous
 > **Audience:** Abhinav (returning to the project), incoming Workstream A reviewers
+
+## Phase E — identity-keys workstream, shipped 2026-05-31
+
+Implementation phase for the SPIFFE/SPIRE Attestor — the reference enterprise `Attestor` backend introduced as a sketch in [RFC 0016 §3.5](./rfcs/0016-attestor-interface.md#35-reference-impl-sketch--spiffespire-phase-e) and defined byte-exactly in [`/spec/identity-keys/attestor-spiffe.md`](./identity-keys/attestor-spiffe.md). Lands the crate + the verify path + the JSON conformance vectors + the operator runbook. Production-grade SPIRE integration; OIDC (Phase F) and the enterprise-identity walkthrough (Phase G) remain ahead.
+
+| Artifact | Status |
+|----------|--------|
+| [`/spec/identity-keys/attestor-spiffe.md`](./identity-keys/attestor-spiffe.md) | Byte-exact verification contract: JWT-SVID format pinning, 9-step verification algorithm with ordering rationale, trust-bundle sources (static-file + Workload API stream), bounded-staleness policy (resolves RFC 0016 §9.2), SPIFFE-ID → external_identity mapping, selector → attributes projection with caps, error-mapping table, CLI surface, conformance vector layout, threat-model deltas vs NativeAttestor. |
+| [`crates/yutha-attestor-spiffe/`](../crates/yutha-attestor-spiffe/) | Shipped. `SpiffeAttestor` impl + `SpiffeConfig` + `TrustBundleSource::{StaticFile, WorkloadApi}` + `BundleCache` + `map_spiffe_error`. Built on `spiffe ^0.15` (offline JWT-SVID verify + `JwtSource` for hot bundle rotation). Trust-bundle staleness gated by `JwtSource::is_healthy()` on the Workload-API path; static-file path uses a `max_staleness` window since `loaded_at`. Verify-time error mapping drills into the `jsonwebtoken::ErrorKind` inside `JwtSvidError::InvalidToken` to distinguish "expired" vs "audience mismatch" vs "signature failed". |
+| [`crates/yutha-control-plane/src/main.rs`](../crates/yutha-control-plane/src/main.rs) | `AttestorArg::Spiffe::build` now constructs a real `SpiffeAttestor` (replacing Phase D's `bail!("lands in Phase E")` placeholder). Six new CLI flags: `--attestor-spiffe-{socket,bundle-file,audience,max-staleness-secs,clock-skew-secs,connect-timeout-secs}`, each with `YUTHA_ATTESTOR_SPIFFE_*` env-var equivalent. Validation: audience required + exactly one source (mutex socket/bundle-file). `AttestorArg::build` is now async. |
+| [`/spec/vectors/attestor/spiffe/`](./vectors/attestor/spiffe/) | 9 JSON conformance fixtures committed across 7 subdirectories covering each spec §9 row. Deterministic regen at `crates/yutha-attestor-spiffe/tests/regen_vectors.rs` (`#[ignore]`-gated, EC-P256 keypair seeded from a const, `PSEUDO_NOW = 2099-01-01Z` so fixtures stay valid for decades). Cross-impl JSON contract for Go/Java/Python SPIFFE Attestor implementations. **Deliberate v1 deviation** from spec §11's 45-case target — see the vectors README for rationale. |
+| [`crates/yutha-attestor-spiffe/tests/`](../crates/yutha-attestor-spiffe/tests/) | Three test files: `forged_jwts.rs` (11 cases — fresh EC-P256 keypair per test, real ES256-signed JWTs against an in-tree trust bundle; covers happy path + every reject row), `integration.rs` (env-gated docker-spire end-to-end + audience-mismatch reject path), `vectors.rs` (loader iterating every `*.json` under the spec dir). Local-SPIRE setup recipe at `tests/SPIRE_LOCAL_TESTING.md`. |
+| [`docs/operator/spiffe-attestor.md`](../docs/operator/spiffe-attestor.md) | Operator runbook in the Phase C signer-runbook tradition: source-flavour decision table, audience selection guidance, SPIRE registration entry examples (k8s + bare-metal), CLI + env-var configuration walkthrough, freshness/skew tuning, client-side wiring example (`spiffe.JwtSource` → `AdmissionAPI.register(external_credential=…)`), verification + receipt evidence shape, 5-row troubleshooting table, security posture vs A1/A6/A8 adversaries. Wired into mkdocs nav as "SPIFFE/SPIRE Attestor (identity)" between the signer runbooks and Monitoring. |
+
+Verification gates that passed before declaring Phase E done: `cargo build --workspace`, `cargo test --workspace`, `cargo clippy --workspace --all-targets -- -D warnings`, all in-tree forged-JWT + JSON-vectors tests, `mkdocs --strict`. The docker-spire integration test is `#[ignore]`-gated and verified end-to-end against a locally-built SPIRE 1.15.1 (no native macOS binary; built from source per `tests/SPIRE_LOCAL_TESTING.md`).
+
+Phasing checkpoint: Phase E ends here. Phase F (OIDC Attestor) is the next consequential step; do not roll into Phase F without explicit go-ahead.
+
+---
 
 ## Phase D — identity-keys workstream, shipped 2026-05-30
 

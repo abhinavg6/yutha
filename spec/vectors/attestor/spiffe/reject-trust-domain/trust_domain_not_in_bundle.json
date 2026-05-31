@@ -1,0 +1,36 @@
+{
+  "description": "SVID's sub names a trust domain (other.example.org) that is not in the configured bundle (example.org). Spec §9 maps to Rejected('trust domain not in bundle').",
+  "expected_error_message_substring": "trust domain not in bundle",
+  "expected_error_variant": "Rejected",
+  "expected_outcome": "reject",
+  "inputs": {
+    "attestor_config": {
+      "clock_skew_tolerance_secs": 60,
+      "expected_audience": "yutha-test-audience",
+      "trust_bundle": {
+        "keys": [
+          {
+            "crv": "P-256",
+            "kid": "test-key-1",
+            "kty": "EC",
+            "use": "jwt-svid",
+            "x": "rk0QtD5vz8CTM9HMvNw9nuQjdh87v-K8HOnXJRgmTrQ",
+            "y": "93-d2paYsnCkQINDzMUohP9KVqpkz5PShZuRoh4TmnU"
+          }
+        ],
+        "trust_domain": "example.org"
+      }
+    },
+    "context": {
+      "agent_public_key": {
+        "algorithm": "ed25519",
+        "value_b64": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+      },
+      "claimed_agent_id_hex": "00000000000000000000000000000002",
+      "swarm_id_hex": "00000000000000000000000000000001"
+    },
+    "credential_b64": "ZXlKMGVYQWlPaUpLVjFRaUxDSmhiR2NpT2lKRlV6STFOaUlzSW10cFpDSTZJblJsYzNRdGEyVjVMVEVpZlEuZXlKemRXSWlPaUp6Y0dsbVptVTZMeTl2ZEdobGNpNWxlR0Z0Y0d4bExtOXlaeTkwWlhOMEwzZHZjbXRzYjJGa0lpd2lZWFZrSWpwYklubDFkR2hoTFhSbGMzUXRZWFZrYVdWdVkyVWlYU3dpWlhod0lqbzBNRGN3T1RFeU5EQXdmUS5ONTlJcWNRRzdPakt5RERMVS1XM0JwWkJ2d2pZUUQzN25TdUFwUFZFRE9FdnlBTndqSlFBbUpUMUdDdmFINDYtd1V6eHRnckhhYzVvc2JTZndoTHBOQQ"
+  },
+  "kind": "attestor-spiffe-verify",
+  "name": "trust_domain_not_in_bundle"
+}
