@@ -59,7 +59,14 @@ theme:
     - navigation.instant       # SPA-style page loads (no full reload between pages)
     - navigation.tracking      # URL updates as user scrolls through anchors
     - navigation.tabs          # Top-level sections as tabs
-    - navigation.sections      # Expand groups in the sidebar
+    # navigation.sections deliberately OMITTED: with it on, nested
+    # sub-groups (e.g. Operator Guide → Signer backends / Attestor
+    # backends) render as bold group labels with items always shown
+    # flat, which inflates the sidebar. Without it, those sub-groups
+    # render as collapsible folders that start closed — operators see
+    # the two group titles and click to expand the per-backend pages
+    # they care about. Top-level guides (Concepts, Operator, etc.)
+    # are unaffected because they're tabs, not sidebar entries.
     - navigation.indexes       # Section index pages (so /operator/ resolves to operator/index.md)
     - navigation.top           # "Back to top" button
     - search.suggest
@@ -128,13 +135,18 @@ nav:
       - Quickstart: operator/quickstart.md
       - Authoring constitutions: operator/authoring-constitutions.md
       - Operator credentials: operator/operator-credentials.md
-      - Sui anchoring: operator/sui-anchoring.md
-      - Vault Signer (key custody): operator/vault-signer.md
-      - GCP KMS Signer (key custody): operator/gcp-kms-signer.md
-      - Azure Key Vault Signer (key custody): operator/azure-kv-signer.md
-      - SPIFFE/SPIRE Attestor (identity): operator/spiffe-attestor.md
-      - OIDC Attestor (identity): operator/oidc-attestor.md
+      - Enterprise identity (end-to-end): operator/enterprise-identity.md
+      - Signer backends (key custody):
+          - Overview: operator/signers.md
+          - Vault: operator/vault-signer.md
+          - GCP KMS: operator/gcp-kms-signer.md
+          - Azure Key Vault: operator/azure-kv-signer.md
+      - Attestor backends (admission attestation):
+          - Overview: operator/attestors.md
+          - SPIFFE/SPIRE: operator/spiffe-attestor.md
+          - OIDC: operator/oidc-attestor.md
       - Monitoring & receipts: operator/monitoring.md
+      - Sui anchoring: operator/sui-anchoring.md
       - Deployment: operator/deployment.md
   - Developer Guide:
       - developer/index.md

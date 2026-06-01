@@ -290,6 +290,29 @@ playbook end to end.
 
 ---
 
+## Enterprise identity (KMS custody + workload attestation)
+
+The defaults above hold the control plane's signing key in process
+memory and accept any well-formed passport at `Register` time.
+Enterprises with compliance requirements typically want two things on
+top: the bootstrap signing key in a KMS / HSM the operator doesn't
+extract from, and every registration verified against an external
+workload-identity system before the agent joins the swarm.
+
+Both are opt-in via single CLI flags: `--signer
+{vault,gcp-kms,azure-kv}` for custody, `--attestor {spiffe,oidc}` for
+attestation. Start with the
+[Signer backends](signers.md) and [Attestor backends](attestors.md)
+overview pages to decide which backends fit your environment — each
+overview links onward to the per-backend runbook for provisioning
+and operational specifics. When both seams matter to your deployment,
+the [enterprise identity end-to-end](enterprise-identity.md)
+walkthrough shows the integrated setup — usually Vault + SPIRE for
+on-prem / Kubernetes, or a cloud-KMS + cloud-OIDC pair for the
+matching cloud.
+
+---
+
 ## What's NOT yet supported
 
 Short list so you don't waste an evening looking:

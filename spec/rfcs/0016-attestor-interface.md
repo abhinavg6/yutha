@@ -592,7 +592,7 @@ For v1: document that the agent is responsible for re-registering with a fresh c
   - [x] F8 conformance vectors — 7 JSON fixtures under `/spec/vectors/attestor/oidc/` + deterministic regen + loader test *(deliberate v1 deviation from spec §11's 25-case target: see vectors README)*
   - [x] F9 operator runbook — `docs/operator/oidc-attestor.md` wired into mkdocs nav (Discovery / JWKS-URI / static-file source-decision table, per-IdP recipes for Auth0/Okta/Keycloak/Azure AD/Google, failure-mode → diagnosis table, docker-keycloak local-test recipe)
   - [x] F10 verification gate — workspace cargo build/test/clippy clean, mkdocs strict clean, cross-spec sweep
-- [ ] Phase G work tracked: `docs/operator/enterprise-identity.md` end-to-end walkthrough
+- [x] Phase G work tracked: `docs/operator/enterprise-identity.md` end-to-end walkthrough — shipped 2026-05-31. Combines SPIRE Attestor + Vault transit Signer into one integrated deployment narrative; per-backend runbooks (Vault / GCP KMS / Azure KV / SPIFFE / OIDC) updated to lead with `--signer …` / `--attestor …` CLI flags; the bootstrap-CP-identity vs bootstrap-agent-identity distinction explained; alternative-backends 2×2 table for the four pairings operators most often pick. Plus the Phase G Signer CLI wiring on the control plane (12 new `--signer*` flags; `SignerArg::build` mirrors the `AttestorArg::build` pattern from Phase E/F).
 - [ ] mkdocs `--strict`, ruff check, mypy strict, cargo build, cargo clippy all clean *(D11 — verification gate; Phase E re-affirmed at E10)*
 - [ ] At least one reviewer approves (per RFC 0001 process)
 - [ ] Public review window expired

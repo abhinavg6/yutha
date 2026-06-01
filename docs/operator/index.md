@@ -17,8 +17,8 @@ If you're building agents that *join* a swarm someone else operates, you're a de
 - **[Authoring constitutions](authoring-constitutions.md)** — how to write Cedar+ policy that says what you mean.
 - **[Operator credentials](operator-credentials.md)** — how the operator identity works, how to rotate it, how to revoke an agent.
 - **[Sui anchoring](sui-anchoring.md)** — opt-in cryptographic verifiability via on-chain Merkle commitments.
-- **[Vault Signer](vault-signer.md)** — opt-in key-custody: move the bootstrap Ed25519 key out of process memory into HashiCorp Vault.
-- **[GCP KMS Signer](gcp-kms-signer.md)** — opt-in key-custody: hold the bootstrap Ed25519 key in Google Cloud KMS (`EC_SIGN_ED25519`).
-- **[Azure Key Vault Signer](azure-kv-signer.md)** — opt-in key-custody: hold the bootstrap Ed25519 key in Azure Managed HSM (`OKP-HSM` / `Ed25519`).
+- **[Signer backends — overview](signers.md)** — opt-in key custody: hold the control plane's Ed25519 signing key in HashiCorp Vault, GCP KMS, or Azure Managed HSM instead of process memory. Links to the per-backend runbooks.
+- **[Attestor backends — overview](attestors.md)** — opt-in admission attestation: verify every `Register` against an external workload-identity system (SPIFFE/SPIRE or OIDC). Links to the per-backend runbooks.
+- **[Enterprise identity end-to-end](enterprise-identity.md)** — the integrated playbook that combines a Signer backend with an Attestor backend in one production deployment.
 - **[Monitoring & receipts](monitoring.md)** — what to watch, what to alert on.
 - **[Deployment](deployment.md)** — Postgres backend, scaling, single-tenant defaults.

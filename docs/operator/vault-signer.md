@@ -158,16 +158,22 @@ vault token create \
   -format=json | jq -r '.auth.client_token'
 ```
 
-Save that token into the env var the control plane reads:
+Write the token to a file the control-plane process can read.
+Yutha takes the Vault token as a file path (not a raw flag value or
+env var) so the secret never appears in `ps aux`, shell history, or
+process-listing scrapes:
 
 ```bash
-export YUTHA_SIGNER_VAULT_TOKEN='<paste the token here>'
+mkdir -p ~/.yutha
+# Paste the token between the quotes.
+echo -n '<paste the token here>' > ~/.yutha/vault-token
+chmod 600 ~/.yutha/vault-token
 ```
 
 A periodic token renews itself on every read up to its `period`, so
 as long as the control plane calls `lookup-self` / `renew-self`
-periodically (or you run a Vault Agent sidecar that does this for
-you), the token doesn't expire.
+periodically (or you run a Vault Agent sidecar that rewrites the
+file before expiry), the token doesn't expire.
 
 ### Option B — AppRole auth (recommended for cloud VMs)
 
@@ -188,8 +194,15 @@ vault write auth/approle/role/yutha-control-plane \
 ROLE_ID=$(vault read -field=role_id auth/approle/role/yutha-control-plane/role-id)
 SECRET_ID=$(vault write -f -field=secret_id auth/approle/role/yutha-control-plane/secret-id)
 
-export YUTHA_SIGNER_VAULT_APPROLE_ROLE_ID=$ROLE_ID
-export YUTHA_SIGNER_VAULT_APPROLE_SECRET_ID=$SECRET_ID
+# role_id is durable and not secret — env var or flag is fine.
+# secret_id IS secret — write to a file the control-plane process
+# can read, same posture as the Token path above.
+mkdir -p ~/.yutha
+echo -n "$SECRET_ID" > ~/.yutha/vault-secret-id
+chmod 600 ~/.yutha/vault-secret-id
+
+echo "ROLE_ID: $ROLE_ID"
+echo "secret_id file: ~/.yutha/vault-secret-id"
 ```
 
 The `secret_id` is single-use by default — once `VaultSigner::connect`
@@ -201,25 +214,50 @@ consumed. To run again you mint a fresh one (or configure
 
 ## 5. Tell the control plane to use Vault
 
-Three env vars wire `VaultSigner` into the control-plane binary
-alongside whichever auth env var you set above:
+`--signer vault` plus four flags wire `VaultSigner` into the
+control-plane binary. The exact flag set depends on the auth method
+you picked in §4.
+
+**Token auth:**
 
 ```bash
-export YUTHA_SIGNER_VAULT_ADDR=$VAULT_ADDR        # http://127.0.0.1:8200
-export YUTHA_SIGNER_VAULT_KEY=yutha-bootstrap     # the key name from step 2
-# Optional: override the mount if you mounted transit somewhere else.
-# export YUTHA_SIGNER_VAULT_MOUNT=transit
-# Optional: Vault Enterprise namespace.
-# export YUTHA_SIGNER_VAULT_NAMESPACE=ns1
+./yutha \
+  --signer vault \
+  --signer-vault-addr "$VAULT_ADDR" \
+  --signer-vault-key yutha-bootstrap \
+  --signer-vault-token-file ~/.yutha/vault-token \
+  [other flags from the quickstart]
 ```
 
-The full env-var matrix is in the
-[crate README](https://github.com/abhinavg6/yutha/blob/main/crates/yutha-signer-vault/README.md).
+**AppRole auth:**
 
-Then start the control plane normally. The bootstrap-seed flow you
-used in the [quickstart](quickstart.md) is no longer needed — the
-identity now lives in Vault, not in a seed env var. Remove
-`YUTHA_BOOTSTRAP_SEED` from the process environment if it was set.
+```bash
+./yutha \
+  --signer vault \
+  --signer-vault-addr "$VAULT_ADDR" \
+  --signer-vault-key yutha-bootstrap \
+  --signer-vault-approle-role-id "$ROLE_ID" \
+  --signer-vault-approle-secret-id-file ~/.yutha/vault-secret-id \
+  [other flags from the quickstart]
+```
+
+The full per-backend flag matrix (including the optional
+`--signer-vault-mount`, `--signer-vault-namespace`,
+`--signer-vault-approle-mount`) is documented inline with
+`./yutha --help` and on the
+[crate README](https://github.com/abhinavg6/yutha/blob/main/crates/yutha-signer-vault/README.md).
+Every flag has a matching `YUTHA_SIGNER_VAULT_*` env var if you
+prefer env-driven config; secrets always go via a `*_FILE` flag
+(`--signer-vault-token-file` ↔ `YUTHA_SIGNER_VAULT_TOKEN_FILE`,
+`--signer-vault-approle-secret-id-file` ↔
+`YUTHA_SIGNER_VAULT_APPROLE_SECRET_ID_FILE`) — never as raw values.
+
+The bootstrap-seed flow from the [quickstart](quickstart.md) is no
+longer needed for the *control plane's* identity — that identity now
+lives in Vault. The bootstrap *agent* still uses an in-process key
+seeded by `YUTHA_BOOTSTRAP_SEED` if you've set it (per the
+[enterprise identity walkthrough](enterprise-identity.md) — the two
+identities are separate).
 
 When the server starts you should see a log line like:
 
@@ -233,6 +271,14 @@ That's `VaultSigner::connect` having authenticated, fetched the
 public key, and cached it. From this point every passport / envelope
 / capability / bearer-token / receipt signing call is a network
 round-trip to Vault.
+
+> **Library users:** the `VaultConfig::from_env()` helper consumes a
+> separate env-var family (`YUTHA_SIGNER_VAULT_TOKEN`,
+> `YUTHA_SIGNER_VAULT_APPROLE_SECRET_ID`) that holds raw secret
+> values, intended for programmatic use of the crate outside the
+> control-plane binary. **Operators should not set those env vars** —
+> the control plane never reads them, and using them mixes the file-
+> path posture above with raw secrets in process env.
 
 ---
 

@@ -1,8 +1,28 @@
 # Workstream A Status — Spec Drafts
 
-> **As of:** 2026-05-31 (Phase F of the identity-keys workstream — entry; prior entries below)
+> **As of:** 2026-05-31 (Phase G of the identity-keys workstream — entry; prior entries below)
 > **Author:** background work session, autonomous
 > **Audience:** Abhinav (returning to the project), incoming Workstream A reviewers
+
+## Phase G — identity-keys workstream, shipped 2026-05-31
+
+Final phase of the enterprise-identity workstream: the end-to-end deployment narrative tying the Signer seam (RFC 0015 / RFC 0017, shipped Phase B + C) and the Attestor seam (RFC 0016, shipped Phase D + E + F) into one operator-facing story. Scope expanded mid-phase from "doc-only" to "doc + Signer CLI wiring" — the control plane gains a `--signer {in-process,vault,gcp-kms,azure-kv}` flag set so operators no longer need to edit `main.rs` to swap custody backends. With Phase G done the workstream is complete; the entire D→E→F→G commit chain pushes to remote here.
+
+| Artifact | Status |
+|----------|--------|
+| [`docs/operator/enterprise-identity.md`](../docs/operator/enterprise-identity.md) | Shipped. End-to-end walkthrough modeled on `sui-anchoring.md`'s shape: SPIRE workload entry → Vault transit key + AppRole + least-privilege policy → integrated `--signer vault` + `--attestor spiffe` control-plane startup → first-agent register with SVID + receipt evidence → deny-path verification (SVID rejection, signer outage, audience mismatch) → alternative backend matrix (Vault/GCP-KMS/Azure-KV × SPIFFE/OIDC) → what does/doesn't change → failure-modes table → deferrals → cross-doc pointers. Per-backend deep details deferred to the per-backend runbooks. |
+| [`crates/yutha-control-plane/src/main.rs`](../crates/yutha-control-plane/src/main.rs) | `SignerArg::Vault::build` / `::GcpKms::build` / `::AzureKv::build` now construct real backends (replacing the prior "edit source" requirement). 12 new CLI flags: `--signer`, `--signer-vault-{addr,mount,key,namespace,token-file,approle-{mount,role-id,secret-id-file}}`, `--signer-gcp-kms-{key-version,endpoint}`, `--signer-azure-kv-{vault-url,key-name,key-version}`. Each with matching `YUTHA_SIGNER_*` env var. Secrets always file-path (`*_FILE` flags), never raw values — same posture as `--anchor-sealer-key-file` from H6. `--signer in-process` (the default) short-circuits to `Arc::new(InProcessSigner::generate())` so the existing zero-config posture is preserved byte-for-byte. `SignerArg::build` mirrors the `AttestorArg::build` pattern from Phase E/F: async, fails-fast at startup with flag-named errors before any signing call runs. `bootstrap_backends` grew an `Arc<dyn Signer>` parameter (8th, with `#[allow(clippy::too_many_arguments)]` and rationale comment) and threads it through `ControlPlaneIdentity` construction; the bootstrap-*agent* signer (line 1950) is deliberately NOT governed by `--signer` — it stays InProcess because operators don't externalise the bootstrap agent's identity. |
+| [`docs/operator/{vault,gcp-kms,azure-kv}-signer.md`](../docs/operator/) | Step-5/§6 "Tell the control plane to use this backend" sections rewritten to lead with the new CLI flags. Vault runbook §4 (auth methods) updated: Token and AppRole `secret_id` now go to files (`echo > ~/.yutha/vault-{token,secret-id}; chmod 600`) — same posture as the new doc. New callout in vault-signer.md §5 explaining the two env-var families (`YUTHA_SIGNER_VAULT_*_FILE` for operators ↔ `YUTHA_SIGNER_VAULT_TOKEN` / `_SECRET_ID` for library users of `VaultConfig::from_env()`). |
+| [`docs/operator/index.md`](../docs/operator/index.md) | Added SPIFFE/OIDC Attestor entries (they were absent pre-G even though `attestor-{spiffe,oidc}.md` shipped in Phase E/F) plus the enterprise-identity entry. |
+| [`docs/operator/deployment.md`](../docs/operator/deployment.md) | New short subsection "Enterprise identity (KMS custody + workload attestation)" after the Sui-anchoring section, pointing operators at `enterprise-identity.md` as the integration story. |
+| [`docs/index.md`](../docs/index.md) | "Pluggable backends" bullet expanded one sentence: now mentions Vault / GCP KMS / Azure Managed HSM (key custody) + SPIFFE/SPIRE / OIDC (workload attestation) alongside receipt storage and Sui anchoring. No new bullet; no card-grid bloat. |
+| [`mkdocs.yml`](../mkdocs.yml) | Operator nav restructured: per-backend Signer pages grouped under "Signer backends (key custody)" sub-section, per-backend Attestor pages grouped under "Attestor backends (admission attestation)" sub-section, "Enterprise identity (end-to-end)" added as a top-level operator entry before the two backend groupings, Sui anchoring moved after Monitoring & receipts and before Deployment. |
+
+Verification gates that passed before declaring Phase G done: `cargo build --workspace`, `cargo test --workspace`, `cargo clippy --workspace --all-targets -- -D warnings` (after one `#[allow(clippy::too_many_arguments)]` fix on `bootstrap_backends`), `cargo deny check`, `mkdocs build --strict`. The clippy fix follows established precedent — five conformance scenarios (S1, S4–S7) already use the same attribute on similarly construction-heavy entry points.
+
+Workstream-close: Phase G ends here, and the enterprise-identity workstream ends here. Per the per-phase-commit-end-of-workstream-push posture, the local commits accumulated since Phase D push to remote at this boundary — covering D (Attestor scaffold) → E (SPIFFE) → F (OIDC) → G (enterprise-identity walkthrough + Signer CLI wiring) as one coherent landing.
+
+---
 
 ## Phase F — identity-keys workstream, shipped 2026-05-31
 

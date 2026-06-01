@@ -265,6 +265,16 @@ authoritative open-questions list; the short version:
   to a new operator key under v1. Acceptable while operator
   activity is low-frequency; a future RFC will add the in-band
   protocol.
+- **KMS-backed custody for the operator key.** The control
+  plane's signing identity can now live in Vault / GCP KMS /
+  Azure Managed HSM via `--signer {vault,gcp-kms,azure-kv}`
+  (Phase G; see [Enterprise identity](enterprise-identity.md)),
+  but `yutha-ops` still derives the operator key in-process
+  from the seed and signs every operator-bearer token with an
+  in-memory `InProcessSigner`. Extending `yutha-ops` with the
+  same `--signer` flag set is a natural follow-on tracked
+  alongside this work — until then, protect the seed as the
+  load-bearing secret on the operator-tool side.
 
 When you hit a gap that hurts, file it against RFC 0009.
 

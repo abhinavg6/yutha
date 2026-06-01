@@ -5,7 +5,7 @@ for groups of AI agents. Identity, capability, accountability, and norms — bui
 once, framework-agnostic.
 
 > **Status — early-stage pre-release.** Currently
-> [`v0.1.0-alpha.2`](https://github.com/abhinavg6/yutha/releases).
+> [`v0.1.0-alpha.3`](https://github.com/abhinavg6/yutha/releases).
 > Solid enough to play with end-to-end, intentionally pre-1.0. Wire formats and
 > API surfaces may shift before 1.0; pin tightly if you build on it.
 

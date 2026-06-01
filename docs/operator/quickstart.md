@@ -138,6 +138,15 @@ A few notes on each:
 - **`--grpc-addr 127.0.0.1:50051`.** Default. Listed for
   completeness; bind to `0.0.0.0` only behind TLS termination.
 
+The control plane defaults its signing identity to an in-process
+Ed25519 keypair and accepts any well-formed passport at registration
+— fine for the walkthrough and local dev. Enterprises typically swap
+both: `--signer {vault,gcp-kms,azure-kv}` moves the bootstrap key
+into a KMS / HSM; `--attestor {spiffe,oidc}` verifies every
+`Register` against a workload-identity system before admission. Both
+opt in via a single flag; the [enterprise identity walkthrough](enterprise-identity.md)
+covers the integrated deployment story end to end.
+
 You'll see a few startup lines: receipt backend chosen, workload
 extensions loaded, operator credentials enabled, gRPC listening.
 Leave this terminal running.
@@ -507,10 +516,16 @@ Guide goes deeper on each piece:
   patterns beyond the one-liner above, audit-trail reconstruction
   recipes, alerting thresholds for the four enforcement stages,
   structured logs and tracing, dashboard suggestions.
-- **[Deployment](deployment.md)** — production-grade startup, TLS
-  + mTLS, the Postgres backend and its backup story, scaling
+- **[Deployment](deployment.md)** — production-grade startup,
+  TLS and mTLS, the Postgres backend and its backup story, scaling
   posture (single-tenant by design today), what is and is not yet
   supported.
+- **[Enterprise identity (end-to-end)](enterprise-identity.md)** —
+  the other optional layer: KMS-backed key custody
+  (`--signer {vault,gcp-kms,azure-kv}`) + workload attestation
+  (`--attestor {spiffe,oidc}`) integrated into one deployment.
+  Walks the SPIRE + Vault transit reference pair end to end, with
+  alternative-backend matrix for the cloud-native pairs.
 - **[Sui anchoring](sui-anchoring.md)** — the optional
   verifiability layer, when a third party needs to verify the log
   without trusting you. Walks publishing the Move package,

@@ -17,6 +17,8 @@ The Python package [`yutha`](https://pypi.org/project/yutha/) is the canonical c
 
 **Want to write an adapter for a framework that doesn't ship today?** See [Writing a new adapter](writing-adapters.md). The contract is small: mint a passport, register on `YuthaClient.admission`, thread `ACTIVE_CAPABILITY_ID` through your tool surface, send envelopes via `YuthaClient.envelope.send`. That's it.
 
+**Joining an Attestor-enabled swarm?** `AdmissionAPI.register(passport, external_credential=...)` takes an optional `external_credential: bytes` parameter — your SPIFFE JWT-SVID or OIDC ID-token. Defaults to empty (the native-attestor path used by every demo and integration test). The operator-side [Attestor backends overview](../operator/attestors.md) covers what the seam does and when an operator turns it on; the SDK-side change is just that one keyword argument.
+
 ## Install at a glance
 
 ```bash

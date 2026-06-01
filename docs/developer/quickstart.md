@@ -140,6 +140,18 @@ Three things to notice:
 - **The framework string is informational.** `"bare"` here; framework adapters set `"langgraph"`, `"crewai"`, etc. Constitutions can policy-key on this field, but the substrate doesn't.
 - **`expires_at` is mandatory under open mode.** The control plane rejects passports without a wall-clock expiry — that's how revocation has an outer bound even if the operator never explicitly evicts.
 
+!!! info "Joining a swarm with workload attestation"
+
+    If the operator stood up the control plane with `--attestor spiffe` or `--attestor oidc`, every `Register` call needs a workload credential — a SPIFFE JWT-SVID or an OIDC ID-token — passed as `external_credential` to `admission.register()`:
+
+    ```python
+    # Fetch from your SPIRE agent / OIDC IdP first.
+    svid = await fetch_svid_from_spire(...)
+    await sender.admission.register(sender_pp, external_credential=svid.encode("utf-8"))
+    ```
+
+    Without a valid credential the call returns `PERMISSION_DENIED` and the control plane writes an `agent.register.deny` receipt. The operator-side [Attestor backends overview](../operator/attestors.md) explains what the Attestor seam does and which backend the operator picked; the developer side is just this one extra parameter.
+
 ## Step 4 — connect, register, mint a capability, send
 
 This is the body of the demo. Comments inline:

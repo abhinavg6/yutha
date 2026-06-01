@@ -130,10 +130,24 @@ A short orientation. The
 [full catalog](https://github.com/abhinavg6/yutha/blob/main/spec/receipt/canonical-actions.md)
 covers every domain, payload shape, and evidence schema.
 
-**Agent lifecycle** — `agent.register`, `agent.revoke` (self),
+**Agent lifecycle** — `agent.register`, `agent.register.deny`
+(Attestor rejection — only emitted when the swarm runs with
+`--attestor spiffe|oidc`; carries `claimed_agent_id`,
+`attestor_id`, and a `deny_reason` that names the rejection
+without leaking credential bytes), `agent.revoke` (self),
 `agent.operator_revoke` (operator eviction, with optional
 `cascade_receipt_ids` for capabilities revoked in the same
-operation), `agent.rotate_key`, `agent.heartbeat.missed`.
+operation), `agent.rotate_key`, `agent.heartbeat.missed`. The
+`agent.register` evidence on successful admission gains three
+keys when an external Attestor is wired in:
+`attested_external_identity` (the verified principal — e.g.
+`spiffe://example.org/yutha/agent-alpha` or
+`oidc:https://issuer/:subject`), `attestor_id` (which Attestor
+returned the verdict — `native` / `spiffe` / `oidc`), and
+optionally `attributes.<key>` for operator-allowlisted projected
+claims (SPIFFE selectors, OIDC custom claims). See
+[Enterprise identity](enterprise-identity.md) for the
+Attestor-side configuration.
 
 **Capability** — `capability.issue`, `capability.attenuate`,
 `capability.revoke`, `capability.check.pass` / `.deny`. The check

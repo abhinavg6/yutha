@@ -18,6 +18,16 @@ path = "src/main.rs"
 yutha-core.workspace = true
 yutha-crypto.workspace = true
 yutha-signer.workspace = true
+# Phase G: external Signer backends (RFC 0017 §4.x). Wired through
+# `--signer {in-process,vault,gcp-kms,azure-kv}` + the per-backend
+# `--signer-{vault,gcp-kms,azure-kv}-*` CLI flag sets. Dead-weight
+# when --signer=in-process (the default): a backend's `connect()` only
+# runs when the operator opts in, so the cloud-KMS HTTP clients are
+# never constructed in local dev. The default keeps the existing
+# zero-config posture intact for the test suite and demos.
+yutha-signer-vault.workspace = true
+yutha-signer-gcp-kms.workspace = true
+yutha-signer-azure-kv.workspace = true
 yutha-attestor.workspace = true
 # Phase E: SPIFFE/SPIRE Attestor backend. Wired through `--attestor spiffe`
 # + `--attestor-spiffe-{socket,bundle-file,audience,...}` CLI flags

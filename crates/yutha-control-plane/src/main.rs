@@ -356,6 +356,163 @@ struct Cli {
     )]
     attestor_oidc_allow_insecure_http: bool,
 
+    // -------------------------------------------------------------------
+    // External Signer backends (Phase G, RFC 0017 §4).
+    //
+    // `--signer=in-process` (the default) keeps the existing zero-config
+    // posture: an `InProcessSigner` keypair is generated at startup and
+    // never persisted. Operators promoting to enterprise custody select
+    // one of the cloud-KMS backends and pair it with that backend's
+    // `--signer-{vault,gcp-kms,azure-kv}-*` flag set. Backend-specific
+    // validation (required fields, mutually-exclusive auth methods)
+    // lives on [`SignerArg::build`] so a misconfigured `--signer` fails
+    // the operator at startup, before any signing call runs.
+    //
+    // Secret material is always taken via a file path
+    // (`--signer-vault-token-file`, `--signer-vault-approle-secret-id-file`)
+    // rather than as a raw command-line value, so secrets never appear
+    // in `ps aux` output. Cloud-KMS backends use their SDK's standard
+    // credential chain (ADC for GCP, DefaultAzureCredential for Azure)
+    // and need no Yutha-side secret material in flags.
+    // -------------------------------------------------------------------
+    /// Custody backend for the control plane's signing identity
+    /// (RFC 0015 / RFC 0017).
+    ///
+    /// - `in-process` (default) — `InProcessSigner`: Ed25519 keypair
+    ///   generated at startup, held in process memory only, never
+    ///   persisted. Suitable for local dev, integration tests, and the
+    ///   existing zero-config posture. No extra flags required.
+    /// - `vault` — `yutha-signer-vault` (RFC 0017 §4.1). Signs against a
+    ///   HashiCorp Vault transit Ed25519 key. Pair with the
+    ///   `--signer-vault-*` flags: REQUIRED `--signer-vault-addr` and
+    ///   `--signer-vault-key`; EXACTLY ONE auth method via
+    ///   `--signer-vault-token-file` OR the AppRole pair
+    ///   (`--signer-vault-approle-role-id` +
+    ///   `--signer-vault-approle-secret-id-file`).
+    /// - `gcp-kms` — `yutha-signer-gcp-kms` (RFC 0017 §4.2). Signs
+    ///   against a GCP Cloud KMS Ed25519 crypto-key version. REQUIRED
+    ///   `--signer-gcp-kms-key-version` (full resource path including
+    ///   `/cryptoKeyVersions/<n>`). Auth uses Application Default
+    ///   Credentials (ADC) — set `GOOGLE_APPLICATION_CREDENTIALS` or
+    ///   run on a GCE/GKE instance with the right service account
+    ///   attached.
+    /// - `azure-kv` — `yutha-signer-azure-kv` (RFC 0017 §4.3). Signs
+    ///   against an Azure Managed HSM Ed25519 key. REQUIRED
+    ///   `--signer-azure-kv-vault-url` (must be
+    ///   `https://*.managedhsm.azure.net` — standard Key Vault does
+    ///   not support Ed25519) and `--signer-azure-kv-key-name`. Auth
+    ///   uses `DefaultAzureCredential` (env / managed identity /
+    ///   Azure CLI, in order).
+    ///
+    /// The selected backend's `connect()` only runs when the flag is
+    /// set away from `in-process`; cloud-KMS HTTP clients are never
+    /// constructed in the default configuration.
+    #[arg(long, env = "YUTHA_SIGNER", value_enum, default_value_t = SignerArg::InProcess)]
+    signer: SignerArg,
+
+    /// Vault HTTPS endpoint, e.g. `https://vault.internal:8200`.
+    /// REQUIRED when `--signer=vault`. Plain `http://` is supported for
+    /// local dev (`vault server -dev`) but emits a warning at startup.
+    #[arg(long, env = "YUTHA_SIGNER_VAULT_ADDR")]
+    signer_vault_addr: Option<String>,
+
+    /// Mount path of the Vault transit secrets engine. Default
+    /// `transit`. Override to e.g. `transit-yutha` if the operator
+    /// mounted the engine elsewhere for tenant isolation. No leading
+    /// or trailing slash.
+    #[arg(long, env = "YUTHA_SIGNER_VAULT_MOUNT", default_value = "transit")]
+    signer_vault_mount: String,
+
+    /// Name of the Vault transit Ed25519 key Yutha will sign with,
+    /// e.g. `yutha-bootstrap`. REQUIRED when `--signer=vault`. The key
+    /// must be created out-of-band by the operator
+    /// (`vault write -f transit/keys/<name> type=ed25519`) before
+    /// startup.
+    #[arg(long, env = "YUTHA_SIGNER_VAULT_KEY")]
+    signer_vault_key: Option<String>,
+
+    /// Vault Enterprise namespace (`X-Vault-Namespace` header). Set
+    /// when the transit key lives under a non-root namespace; leave
+    /// unset for OSS Vault or the root namespace.
+    #[arg(long, env = "YUTHA_SIGNER_VAULT_NAMESPACE")]
+    signer_vault_namespace: Option<String>,
+
+    /// Path to a file containing the Vault client token. Read once at
+    /// startup; recommended `chmod 600`. Mutually exclusive with the
+    /// `--signer-vault-approle-*` pair (Token > AppRole precedence;
+    /// see RFC 0017 §3.2). Use this path for `vault server -dev`
+    /// integration tests or when a sidecar (e.g. Vault Agent)
+    /// pre-provisions a token file the control plane consumes.
+    ///
+    /// Why a file (not a raw `--signer-vault-token`): keeps the token
+    /// out of `ps aux`, shell history, and process-listing scrapes.
+    /// Mirrors the Sui-anchoring sealer-key flag's posture
+    /// (`--anchor-sealer-key-file`).
+    #[arg(long, env = "YUTHA_SIGNER_VAULT_TOKEN_FILE")]
+    signer_vault_token_file: Option<PathBuf>,
+
+    /// Mount path of the Vault AppRole auth backend. Default `approle`.
+    /// Override if the operator mounted AppRole at a custom path
+    /// (e.g. `auth/approle-yutha`).
+    #[arg(
+        long,
+        env = "YUTHA_SIGNER_VAULT_APPROLE_MOUNT",
+        default_value = "approle"
+    )]
+    signer_vault_approle_mount: String,
+
+    /// AppRole `role_id` (typically a UUID, operator-issued). Required
+    /// when using AppRole auth. Pair with
+    /// `--signer-vault-approle-secret-id-file`.
+    #[arg(long, env = "YUTHA_SIGNER_VAULT_APPROLE_ROLE_ID")]
+    signer_vault_approle_role_id: Option<String>,
+
+    /// Path to a file containing the AppRole `secret_id`. Read once at
+    /// startup; recommended `chmod 600`. Required when using AppRole
+    /// auth. Same file-not-raw-value rationale as
+    /// `--signer-vault-token-file`.
+    #[arg(long, env = "YUTHA_SIGNER_VAULT_APPROLE_SECRET_ID_FILE")]
+    signer_vault_approle_secret_id_file: Option<PathBuf>,
+
+    /// Full resource path of the GCP Cloud KMS crypto-key *version*,
+    /// e.g.
+    /// `projects/yutha-prod/locations/us-central1/keyRings/yutha/cryptoKeys/bootstrap/cryptoKeyVersions/1`.
+    /// REQUIRED when `--signer=gcp-kms`. Must include the
+    /// `/cryptoKeyVersions/<n>` segment — pinning a specific version
+    /// means rotation is operator-controlled per RFC 0017 §3.6.
+    #[arg(long, env = "YUTHA_SIGNER_GCP_KMS_KEY_VERSION")]
+    signer_gcp_kms_key_version: Option<String>,
+
+    /// Override the default Cloud KMS endpoint
+    /// (`https://cloudkms.googleapis.com`). Useful for regional
+    /// endpoints (e.g. `https://us-central1-cloudkms.googleapis.com`)
+    /// or for proxying through a VPC Service Controls perimeter.
+    #[arg(long, env = "YUTHA_SIGNER_GCP_KMS_ENDPOINT")]
+    signer_gcp_kms_endpoint: Option<String>,
+
+    /// Full HTTPS URL of the Azure Managed HSM, e.g.
+    /// `https://yutha-hsm.managedhsm.azure.net`. REQUIRED when
+    /// `--signer=azure-kv`. Must be a Managed HSM
+    /// (`*.managedhsm.azure.net`) — standard Key Vault
+    /// (`*.vault.azure.net`) does not support Ed25519.
+    #[arg(long, env = "YUTHA_SIGNER_AZURE_KV_VAULT_URL")]
+    signer_azure_kv_vault_url: Option<String>,
+
+    /// Name of the Ed25519 key inside the Managed HSM. REQUIRED when
+    /// `--signer=azure-kv`.
+    #[arg(long, env = "YUTHA_SIGNER_AZURE_KV_KEY_NAME")]
+    signer_azure_kv_key_name: Option<String>,
+
+    /// Explicit key-version hex string (32 hex chars typical). When
+    /// unset, the signer uses the *latest* version — STRONGLY
+    /// DISCOURAGED in production because Azure can auto-rotate the
+    /// underlying key behind your back, invalidating previously-issued
+    /// signatures from the point of view of any verifier that cached
+    /// the old public key. Pin explicitly per RFC 0017 §3.6 for
+    /// operator-controlled rotation.
+    #[arg(long, env = "YUTHA_SIGNER_AZURE_KV_KEY_VERSION")]
+    signer_azure_kv_key_version: Option<String>,
+
     /// Deterministic 32-byte hex seed for the bootstrap agent's
     /// identity (signing key + AgentId + SwarmId).
     ///
@@ -627,6 +784,97 @@ impl OidcCliOpts {
     }
 }
 
+/// CLI shadow of the configured custody backend for the control plane's
+/// signing identity (RFC 0017). `InProcess` is the v1 default; the three
+/// cloud-KMS backends are wired in Phase G via `--signer` + the per-
+/// backend `--signer-{vault,gcp-kms,azure-kv}-*` flag sets.
+///
+/// `--signer=in-process` preserves the existing zero-config posture:
+/// integration tests, demos, and local-dev flows that don't set the
+/// flag pick up an `InProcessSigner` exactly as before.
+#[derive(Debug, Clone, Copy, ValueEnum)]
+enum SignerArg {
+    InProcess,
+    Vault,
+    GcpKms,
+    AzureKv,
+}
+
+/// Vault-specific Signer options harvested from [`Cli`]. Built once at
+/// startup so [`SignerArg::build`] can consume the shape that matters
+/// to it without growing a `&Cli` dependency.
+///
+/// The validation rules (addr/key required + EXACTLY ONE auth method)
+/// live on [`SignerArg::build`]; this struct is just the value
+/// passthrough. Mirrors the [`SpiffeCliOpts`] / [`OidcCliOpts`]
+/// pattern.
+#[derive(Debug, Clone)]
+struct VaultSignerCliOpts {
+    addr: Option<String>,
+    mount: String,
+    key: Option<String>,
+    namespace: Option<String>,
+    token_file: Option<PathBuf>,
+    approle_mount: String,
+    approle_role_id: Option<String>,
+    approle_secret_id_file: Option<PathBuf>,
+}
+
+impl VaultSignerCliOpts {
+    fn from_cli(cli: &Cli) -> Self {
+        Self {
+            addr: cli.signer_vault_addr.clone(),
+            mount: cli.signer_vault_mount.clone(),
+            key: cli.signer_vault_key.clone(),
+            namespace: cli.signer_vault_namespace.clone(),
+            token_file: cli.signer_vault_token_file.clone(),
+            approle_mount: cli.signer_vault_approle_mount.clone(),
+            approle_role_id: cli.signer_vault_approle_role_id.clone(),
+            approle_secret_id_file: cli.signer_vault_approle_secret_id_file.clone(),
+        }
+    }
+}
+
+/// GCP-KMS-specific Signer options harvested from [`Cli`]. Same
+/// passthrough pattern as [`VaultSignerCliOpts`]; validation rule
+/// (key-version required + `/cryptoKeyVersions/` shape) lives on
+/// [`SignerArg::build`].
+#[derive(Debug, Clone)]
+struct GcpKmsSignerCliOpts {
+    key_version: Option<String>,
+    endpoint: Option<String>,
+}
+
+impl GcpKmsSignerCliOpts {
+    fn from_cli(cli: &Cli) -> Self {
+        Self {
+            key_version: cli.signer_gcp_kms_key_version.clone(),
+            endpoint: cli.signer_gcp_kms_endpoint.clone(),
+        }
+    }
+}
+
+/// Azure-KV-specific Signer options harvested from [`Cli`]. Same
+/// passthrough pattern as the others; validation rules (HTTPS URL +
+/// Managed HSM host + non-empty key name) live on
+/// [`SignerArg::build`].
+#[derive(Debug, Clone)]
+struct AzureKvSignerCliOpts {
+    vault_url: Option<String>,
+    key_name: Option<String>,
+    key_version: Option<String>,
+}
+
+impl AzureKvSignerCliOpts {
+    fn from_cli(cli: &Cli) -> Self {
+        Self {
+            vault_url: cli.signer_azure_kv_vault_url.clone(),
+            key_name: cli.signer_azure_kv_key_name.clone(),
+            key_version: cli.signer_azure_kv_key_version.clone(),
+        }
+    }
+}
+
 impl AttestorArg {
     /// Construct the configured Attestor.
     ///
@@ -806,6 +1054,288 @@ async fn build_oidc_attestor(
     Ok(Arc::new(attestor))
 }
 
+impl SignerArg {
+    /// Construct the configured Signer.
+    ///
+    /// Async because every cloud-KMS backend's `connect()` performs at
+    /// least one round-trip at startup: Vault logs in (AppRole) or
+    /// validates the token (Token auth), GCP KMS fetches the public
+    /// key via `GetPublicKey`, Azure Managed HSM does the same via
+    /// `get_key`. All construction-time I/O happens here so a
+    /// misconfigured `--signer` fails the operator at startup, before
+    /// any signing call runs. RFC 0017 §3.2.
+    ///
+    /// `InProcess` short-circuits without consuming the cloud-KMS
+    /// option structs — its `Arc::new(InProcessSigner::generate())`
+    /// matches the pre-Phase-G behaviour byte-for-byte and is the
+    /// default, so the zero-config posture is preserved for
+    /// integration tests and demos.
+    async fn build(
+        self,
+        vault: VaultSignerCliOpts,
+        gcp_kms: GcpKmsSignerCliOpts,
+        azure_kv: AzureKvSignerCliOpts,
+    ) -> Result<Arc<dyn Signer>, anyhow::Error> {
+        match self {
+            Self::InProcess => Ok(Arc::new(InProcessSigner::generate())),
+            Self::Vault => build_vault_signer(vault).await,
+            Self::GcpKms => build_gcp_kms_signer(gcp_kms).await,
+            Self::AzureKv => build_azure_kv_signer(azure_kv).await,
+        }
+    }
+}
+
+/// Translate [`VaultSignerCliOpts`] into a constructed [`VaultSigner`].
+///
+/// Validates the operator-facing invariants from RFC 0017 §3.2 and
+/// docs/operator/vault-signer.md:
+///
+///   - `--signer-vault-addr` is REQUIRED and non-empty.
+///   - `--signer-vault-key` is REQUIRED and non-empty.
+///   - EXACTLY ONE of (a) `--signer-vault-token-file` or
+///     (b) `--signer-vault-approle-role-id` +
+///     `--signer-vault-approle-secret-id-file` is provided.
+///
+/// Token and secret-id files are read synchronously at startup (this
+/// runs before the gRPC server binds; blocking I/O is fine for one-
+/// shot config) and trimmed of trailing whitespace so files written
+/// by `echo "$TOKEN" > token` work without surprise.
+///
+/// All checks fail at startup with operator-actionable messages that
+/// name the offending flags, before any backend wiring runs.
+///
+/// [`VaultSigner`]: yutha_signer_vault::VaultSigner
+async fn build_vault_signer(opts: VaultSignerCliOpts) -> Result<Arc<dyn Signer>, anyhow::Error> {
+    let address = opts
+        .addr
+        .as_deref()
+        .filter(|s| !s.is_empty())
+        .ok_or_else(|| {
+            anyhow::anyhow!(
+                "--signer vault requires --signer-vault-addr \
+                 (Vault HTTPS endpoint; see docs/operator/vault-signer.md)"
+            )
+        })?
+        .to_string();
+
+    let key_name = opts
+        .key
+        .as_deref()
+        .filter(|s| !s.is_empty())
+        .ok_or_else(|| {
+            anyhow::anyhow!(
+                "--signer vault requires --signer-vault-key \
+                 (transit key name; see docs/operator/vault-signer.md)"
+            )
+        })?
+        .to_string();
+
+    // EXACTLY ONE auth method. Token > AppRole precedence mirrors
+    // `VaultAuth::from_env()` so the CLI and env-var entry points
+    // share a single mental model.
+    let auth = match (
+        &opts.token_file,
+        &opts.approle_role_id,
+        &opts.approle_secret_id_file,
+    ) {
+        (Some(token_path), None, None) => {
+            let token = std::fs::read_to_string(token_path)
+                .with_context(|| format!("read Vault token file {}", token_path.display()))?
+                .trim()
+                .to_string();
+            if token.is_empty() {
+                anyhow::bail!(
+                    "Vault token file {} is empty after trim",
+                    token_path.display()
+                );
+            }
+            yutha_signer_vault::VaultAuth::Token(token)
+        }
+        (None, Some(role_id), Some(secret_id_path)) => {
+            let secret_id = std::fs::read_to_string(secret_id_path)
+                .with_context(|| {
+                    format!(
+                        "read Vault AppRole secret-id file {}",
+                        secret_id_path.display()
+                    )
+                })?
+                .trim()
+                .to_string();
+            if secret_id.is_empty() {
+                anyhow::bail!(
+                    "Vault AppRole secret-id file {} is empty after trim",
+                    secret_id_path.display()
+                );
+            }
+            yutha_signer_vault::VaultAuth::AppRole {
+                mount: opts.approle_mount.clone(),
+                role_id: role_id.clone(),
+                secret_id,
+            }
+        }
+        (None, None, None) => anyhow::bail!(
+            "--signer vault requires EXACTLY ONE auth method: \
+             --signer-vault-token-file <path>, OR \
+             --signer-vault-approle-role-id <id> + \
+             --signer-vault-approle-secret-id-file <path>. \
+             See docs/operator/vault-signer.md."
+        ),
+        (Some(_), Some(_), _) | (Some(_), _, Some(_)) => anyhow::bail!(
+            "--signer vault requires EXACTLY ONE auth method; \
+             --signer-vault-token-file is mutually exclusive with the \
+             --signer-vault-approle-* pair. See docs/operator/vault-signer.md."
+        ),
+        (None, Some(_), None) | (None, None, Some(_)) => anyhow::bail!(
+            "--signer vault AppRole auth requires BOTH \
+             --signer-vault-approle-role-id and \
+             --signer-vault-approle-secret-id-file; only one is set. \
+             See docs/operator/vault-signer.md."
+        ),
+    };
+
+    let config = yutha_signer_vault::VaultConfig {
+        address,
+        mount: opts.mount,
+        key_name,
+        auth,
+        namespace: opts.namespace,
+    };
+
+    let signer = yutha_signer_vault::VaultSigner::connect(config)
+        .await
+        .map_err(|e| {
+            anyhow::anyhow!(
+                "Vault Signer construction failed: {e}. See \
+                 docs/operator/vault-signer.md for troubleshooting \
+                 (mount path, key type=ed25519, auth-method credentials)."
+            )
+        })?;
+
+    Ok(Arc::new(signer))
+}
+
+/// Translate [`GcpKmsSignerCliOpts`] into a constructed [`GcpKmsSigner`].
+///
+/// Validates the operator-facing invariants from RFC 0017 §3.2 and
+/// docs/operator/gcp-kms-signer.md:
+///
+///   - `--signer-gcp-kms-key-version` is REQUIRED and non-empty.
+///
+/// The full Cloud KMS resource-path shape check
+/// (`/cryptoKeyVersions/<n>` present) is delegated to
+/// [`GcpKmsConfig::new`] which fails fast with a Path-named error.
+/// Auth is via Application Default Credentials (ADC); set
+/// `GOOGLE_APPLICATION_CREDENTIALS` or run on a GCE/GKE instance
+/// with the right service account attached.
+///
+/// [`GcpKmsSigner`]: yutha_signer_gcp_kms::GcpKmsSigner
+/// [`GcpKmsConfig::new`]: yutha_signer_gcp_kms::GcpKmsConfig::new
+async fn build_gcp_kms_signer(opts: GcpKmsSignerCliOpts) -> Result<Arc<dyn Signer>, anyhow::Error> {
+    let key_version = opts
+        .key_version
+        .as_deref()
+        .filter(|s| !s.is_empty())
+        .ok_or_else(|| {
+            anyhow::anyhow!(
+                "--signer gcp-kms requires --signer-gcp-kms-key-version \
+                 (full Cloud KMS resource path including /cryptoKeyVersions/<n>; \
+                 see docs/operator/gcp-kms-signer.md)"
+            )
+        })?
+        .to_string();
+
+    let config =
+        yutha_signer_gcp_kms::GcpKmsConfig::new(key_version, opts.endpoint).map_err(|e| {
+            anyhow::anyhow!(
+                "--signer gcp-kms: invalid configuration: {e}. \
+                 See docs/operator/gcp-kms-signer.md."
+            )
+        })?;
+
+    let signer = yutha_signer_gcp_kms::GcpKmsSigner::connect(config)
+        .await
+        .map_err(|e| {
+            anyhow::anyhow!(
+                "GCP KMS Signer construction failed: {e}. See \
+                 docs/operator/gcp-kms-signer.md for troubleshooting \
+                 (ADC credentials, key purpose=ASYMMETRIC_SIGN, \
+                 algorithm=EC_SIGN_ED25519)."
+            )
+        })?;
+
+    Ok(Arc::new(signer))
+}
+
+/// Translate [`AzureKvSignerCliOpts`] into a constructed [`AzureKvSigner`].
+///
+/// Validates the operator-facing invariants from RFC 0017 §3.2 and
+/// docs/operator/azure-kv-signer.md:
+///
+///   - `--signer-azure-kv-vault-url` is REQUIRED and non-empty.
+///   - `--signer-azure-kv-key-name` is REQUIRED and non-empty.
+///
+/// The HTTPS and non-empty-key-name shape checks are delegated to
+/// [`AzureKvConfig::new`]. The Managed-HSM-vs-standard-Key-Vault
+/// distinction surfaces at `connect()` time (the SDK fails with
+/// [`SignerError::UnsupportedAlgorithm`] when pointed at a standard
+/// Key Vault that doesn't support Ed25519); the backend also emits a
+/// startup warning to make the diagnosis obvious. Auth is via
+/// `DefaultAzureCredential` — env vars / managed identity / Azure CLI
+/// in that order.
+///
+/// [`AzureKvSigner`]: yutha_signer_azure_kv::AzureKvSigner
+/// [`AzureKvConfig::new`]: yutha_signer_azure_kv::AzureKvConfig::new
+/// [`SignerError::UnsupportedAlgorithm`]: yutha_signer::SignerError::UnsupportedAlgorithm
+async fn build_azure_kv_signer(
+    opts: AzureKvSignerCliOpts,
+) -> Result<Arc<dyn Signer>, anyhow::Error> {
+    let vault_url = opts
+        .vault_url
+        .as_deref()
+        .filter(|s| !s.is_empty())
+        .ok_or_else(|| {
+            anyhow::anyhow!(
+                "--signer azure-kv requires --signer-azure-kv-vault-url \
+                 (Managed HSM URL, https://*.managedhsm.azure.net; \
+                 see docs/operator/azure-kv-signer.md)"
+            )
+        })?
+        .to_string();
+
+    let key_name = opts
+        .key_name
+        .as_deref()
+        .filter(|s| !s.is_empty())
+        .ok_or_else(|| {
+            anyhow::anyhow!(
+                "--signer azure-kv requires --signer-azure-kv-key-name \
+                 (HSM key name; see docs/operator/azure-kv-signer.md)"
+            )
+        })?
+        .to_string();
+
+    let config = yutha_signer_azure_kv::AzureKvConfig::new(vault_url, key_name, opts.key_version)
+        .map_err(|e| {
+        anyhow::anyhow!(
+            "--signer azure-kv: invalid configuration: {e}. \
+                 See docs/operator/azure-kv-signer.md."
+        )
+    })?;
+
+    let signer = yutha_signer_azure_kv::AzureKvSigner::connect(config)
+        .await
+        .map_err(|e| {
+            anyhow::anyhow!(
+                "Azure Managed HSM Signer construction failed: {e}. See \
+                 docs/operator/azure-kv-signer.md for troubleshooting \
+                 (Managed HSM tier required for Ed25519, \
+                 DefaultAzureCredential setup, key permissions)."
+            )
+        })?;
+
+    Ok(Arc::new(signer))
+}
+
 /// Three-way control for `Topology.require_capability_for_send`. See
 /// RFC 0007. `Auto` derives from `AdmissionModeArg`; the explicit
 /// values let operators force-set during migration windows.
@@ -954,6 +1484,27 @@ async fn main() -> anyhow::Result<()> {
     let attestor: Arc<dyn yutha_attestor::Attestor> =
         cli.attestor.build(spiffe_opts, oidc_opts).await?;
 
+    // Phase G: construct the control plane's signing identity from the
+    // configured `--signer` backend BEFORE `bootstrap_backends`, so a
+    // misconfigured signer fails the operator at startup with a flag-
+    // named error (rather than partway through backend wiring). The
+    // selected `InProcess` default short-circuits to a generated
+    // keypair and preserves the pre-Phase-G zero-config posture.
+    //
+    // The bootstrap-agent signer (built inside `bootstrap_backends`
+    // from `--bootstrap-seed` or randomly) is intentionally kept as
+    // `InProcessSigner` and is NOT governed by `--signer`. It's a
+    // testing-only identity that operators don't externalise to a
+    // cloud KMS — see /spec/identity-keys/attestor-*.md for the
+    // distinction.
+    let vault_signer_opts = VaultSignerCliOpts::from_cli(&cli);
+    let gcp_kms_signer_opts = GcpKmsSignerCliOpts::from_cli(&cli);
+    let azure_kv_signer_opts = AzureKvSignerCliOpts::from_cli(&cli);
+    let cp_signer: Arc<dyn Signer> = cli
+        .signer
+        .build(vault_signer_opts, gcp_kms_signer_opts, azure_kv_signer_opts)
+        .await?;
+
     let (state, enforcement_rx) = bootstrap_backends(
         bootstrap_identity,
         cli.admission_mode,
@@ -962,6 +1513,7 @@ async fn main() -> anyhow::Result<()> {
         &workload_sources,
         inner_receipt_store,
         attestor,
+        cp_signer,
     )
     .await?;
 
@@ -1283,6 +1835,13 @@ impl BootstrapIdentity {
 /// is admitted, and the audit trail is sanity-checked. Same logic as the
 /// pre-gRPC binary; we just return the assembled state at the end so the
 /// gRPC handlers can share it.
+// 8 params (was 7 pre-Phase-G; `cp_signer` joined as the per-backend
+// custody handle for the control plane's signing identity). Bundling
+// into a config struct would obscure the parameter origins (`cli.*`
+// vs constructed-once values) without buying call-site clarity — the
+// only call site is `main()`. Matches the s1/s4/s5/s6/s7 conformance
+// scenarios' posture for similarly construction-heavy entry points.
+#[allow(clippy::too_many_arguments)]
 async fn bootstrap_backends(
     bootstrap_identity: Option<BootstrapIdentity>,
     admission_mode: AdmissionModeArg,
@@ -1291,6 +1850,7 @@ async fn bootstrap_backends(
     workload_extensions: &[&str],
     inner_receipt_store: Arc<dyn ReceiptStore>,
     attestor: Arc<dyn yutha_attestor::Attestor>,
+    cp_signer: Arc<dyn Signer>,
 ) -> anyhow::Result<(
     Arc<ControlPlaneState>,
     mpsc::Receiver<EnforcementReceiptView>,
@@ -1331,14 +1891,15 @@ async fn bootstrap_backends(
         Arc::new(PassportResolverAdapter::new(Arc::clone(&passport_store)));
     info!("resolver adapter wired (passport → receipt)");
 
-    // Construct as concrete `InProcessSigner` first so we can capture the
-    // public key via the inherent `public_key()` accessor (no need to
-    // bring the `Signer` trait into scope), then wrap in
-    // `Arc<dyn Signer>` for the downstream `ControlPlaneIdentity::new` +
-    // passport signing.
-    let cp_signer = InProcessSigner::generate();
+    // Phase G: `cp_signer` is now constructed in `main()` from the
+    // configured `--signer` backend (InProcess by default; Vault /
+    // GCP KMS / Azure KV when the operator opts in) and threaded
+    // through as an `Arc<dyn Signer>`. We pull the public key via the
+    // trait method here — works uniformly across all backends because
+    // every Signer implementation exposes `public_key()` synchronously
+    // (RFC 0015 §3.1; the underlying material is cached at connect
+    // time so this is a pure accessor, not a network call).
     let cp_public_key = cp_signer.public_key();
-    let cp_signer: Arc<dyn Signer> = Arc::new(cp_signer);
     let cp_agent_id = AgentId::new();
     let cp_passport = Passport::builder()
         .spec_version(SpecVersion::parse("1.0.0").context("parse spec version")?)

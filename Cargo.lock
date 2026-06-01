@@ -6787,6 +6787,9 @@ dependencies = [
  "yutha-receipt",
  "yutha-registry",
  "yutha-signer",
+ "yutha-signer-azure-kv",
+ "yutha-signer-gcp-kms",
+ "yutha-signer-vault",
  "yutha-transport",
 ]
 

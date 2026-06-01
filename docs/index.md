@@ -10,7 +10,7 @@ hide:
 
 !!! info "Status — early-stage pre-release"
 
-    Yutha is at **[v0.1.0-alpha.2](https://github.com/abhinavg6/yutha/releases/tag/v0.1.0-alpha.2)** — solid enough to play with end-to-end, intentionally pre-1.0. The shape of the project is settled; wire formats and API surfaces may shift before 1.0. Pin tightly if you build on it, and [open an issue](https://github.com/abhinavg6/yutha/issues) if you hit something.
+    Yutha is at **[v0.1.0-alpha.3](https://github.com/abhinavg6/yutha/releases/tag/v0.1.0-alpha.3)** — solid enough to play with end-to-end, intentionally pre-1.0. The shape of the project is settled; wire formats and API surfaces may shift before 1.0. Pin tightly if you build on it, and [open an issue](https://github.com/abhinavg6/yutha/issues) if you hit something.
 
 **Yutha** — from the Sanskrit [यूथ (*yūtha*)](https://www.wisdomlib.org/definition/yutha) meaning a herd, troop, or band moving together — is open-source infrastructure for groups of AI agents. Two friends running hobby agents in a Discord, a marketing team coordinating a half-dozen agents inside one company, a regulated workflow with hundreds of agents across departments, or thousands of agents collaborating across organizations: same primitives, same audit log, same enforcement, same Yutha.
 
@@ -31,6 +31,8 @@ flowchart TB
         A5["Any other framework"]
     end
 
+    Attest["Workload identity<br/>SPIFFE / OIDC"]
+
     SDK["Yutha SDK<br/>+ framework adapter"]
 
     subgraph CP["Yutha control plane · self-hosted"]
@@ -41,17 +43,21 @@ flowchart TB
         Rec["Append-only<br/>receipt log"]
     end
 
+    KMS["KMS key custody<br/>Vault / GCP KMS / Azure HSM"]
     Audit["Audit and monitoring"]
     Sui["Sui anchoring<br/>(verifiable to third parties)"]
 
     YA --> SDK
+    YA -.->|"opt-in"| Attest
+    Attest -.->|"opt-in"| Reg
     SDK <-->|gRPC| CP
     Op -->|"constitution, capabilities, topology"| CP
+    Reg -.->|"opt-in"| KMS
     Rec --> Audit
     Rec -.->|"opt-in"| Sui
 ```
 
-*How it fits together: your agents talk to the self-hosted control plane through the Yutha SDK. The control plane gates every consequential action against capabilities and the active constitution, and writes a signed receipt for each one. Audit and monitoring follow from the receipt log; Sui anchoring is an opt-in layer for when a third party needs to verify the trail without trusting the operator.*
+*How it fits together: your agents talk to the self-hosted control plane through the Yutha SDK. The control plane gates every consequential action against capabilities and the active constitution, and writes a signed receipt for each one. Audit and monitoring follow from the receipt log. Three opt-in layers extend the substrate further: workload identity (agents fetch a SPIFFE SVID or OIDC ID-token from your existing identity system, the control plane verifies it at admission); KMS key custody (the control plane signs receipts and passports through Vault, GCP KMS, or Azure Managed HSM instead of in-process keys); and Sui anchoring for when a third party needs to verify the trail without trusting the operator.*
 
 <div class="grid cards" markdown>
 
@@ -97,7 +103,7 @@ These are not framework problems. They're substrate problems. They show up no ma
 
 **Optional cryptographic verification.** When the operator needs to prove the audit trail to a third party — a regulator, a customer, a downstream system — Yutha can anchor Merkle roots of receipt batches to a public blockchain ([Sui](https://www.sui.io/) today). Anyone can independently verify the seal without trusting the operator.
 
-**Pluggable backends.** Receipt storage in Postgres for production or in-memory for development, optional anchoring on Sui — same APIs, swap the implementation behind the spec.
+**Pluggable backends.** Receipt storage in Postgres for production or in-memory for development, optional anchoring on Sui, optional enterprise identity (HashiCorp Vault / GCP KMS / Azure Managed HSM for key custody; SPIFFE/SPIRE or OIDC for workload attestation) — same APIs, swap the implementation behind the spec.
 
 ## Who it's for
 

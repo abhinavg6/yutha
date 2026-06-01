@@ -211,15 +211,31 @@ server handles the exchange.
 
 ## 6. Tell the control plane to use GCP KMS
 
+`--signer gcp-kms` plus one required flag wires `GcpKmsSigner` into
+the control-plane binary. Auth is via ADC (configured in §5) — no
+Yutha-side credential flag.
+
 ```bash
-export YUTHA_SIGNER_GCP_KMS_KEY_VERSION="$KEY_VERSION_NAME"
+./yutha \
+  --signer gcp-kms \
+  --signer-gcp-kms-key-version "$KEY_VERSION_NAME" \
+  [other flags from the quickstart]
+
 # Optional regional endpoint (lower latency, VPC SC compatibility):
-# export YUTHA_SIGNER_GCP_KMS_ENDPOINT="https://us-central1-cloudkms.googleapis.com"
+#   --signer-gcp-kms-endpoint https://us-central1-cloudkms.googleapis.com
 ```
 
-Then start the control plane normally. Remove `YUTHA_BOOTSTRAP_SEED`
-from the environment — the identity now lives in GCP KMS, not in a
-seed.
+Every flag has a matching `YUTHA_SIGNER_GCP_KMS_*` env var
+(`YUTHA_SIGNER_GCP_KMS_KEY_VERSION`, `YUTHA_SIGNER_GCP_KMS_ENDPOINT`)
+if you prefer env-driven config — pick one mode for your deployment
+to keep startup auditable.
+
+The bootstrap-seed flow from the [quickstart](quickstart.md) is no
+longer needed for the *control plane's* identity — that identity now
+lives in GCP KMS. The bootstrap *agent* is unaffected (still in-
+process, seedable via `YUTHA_BOOTSTRAP_SEED` if set) — see the
+[enterprise identity walkthrough](enterprise-identity.md) for the
+two-identity distinction.
 
 When the server starts you should see:
 

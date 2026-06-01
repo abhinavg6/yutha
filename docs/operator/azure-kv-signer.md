@@ -266,15 +266,36 @@ projected service account token automatically.
 
 ## 6. Tell the control plane to use Azure Key Vault
 
+`--signer azure-kv` plus two required flags wires `AzureKvSigner`
+into the control-plane binary. Auth is via `DefaultAzureCredential`
+(configured in §5) — no Yutha-side credential flag.
+
 ```bash
-export YUTHA_SIGNER_AZURE_KV_VAULT_URL="https://$HSM_NAME.managedhsm.azure.net"
-export YUTHA_SIGNER_AZURE_KV_KEY_NAME=$KEY_NAME
-# Strongly recommended in production — pin the version captured in §2:
-export YUTHA_SIGNER_AZURE_KV_KEY_VERSION="<32-char-hex from §2>"
+./yutha \
+  --signer azure-kv \
+  --signer-azure-kv-vault-url "https://$HSM_NAME.managedhsm.azure.net" \
+  --signer-azure-kv-key-name $KEY_NAME \
+  --signer-azure-kv-key-version "<32-char-hex from §2>" \
+  [other flags from the quickstart]
 ```
 
-Then start the control plane normally. Remove `YUTHA_BOOTSTRAP_SEED`
-from the environment.
+`--signer-azure-kv-key-version` is technically optional (without it
+the signer takes the latest version) but **strongly recommended in
+production** — leaving it unset means Azure can auto-rotate the
+underlying key behind your back and invalidate signatures from the
+perspective of any verifier that cached the old public key. Pin per
+[RFC 0017 §3.6](https://github.com/abhinavg6/yutha/blob/main/spec/rfcs/0017-external-signer-backends.md#36-rotation-and-key-versions).
+
+Every flag has a matching `YUTHA_SIGNER_AZURE_KV_*` env var
+(`YUTHA_SIGNER_AZURE_KV_VAULT_URL`, `YUTHA_SIGNER_AZURE_KV_KEY_NAME`,
+`YUTHA_SIGNER_AZURE_KV_KEY_VERSION`) if you prefer env-driven config.
+
+The bootstrap-seed flow from the [quickstart](quickstart.md) is no
+longer needed for the *control plane's* identity — that identity now
+lives in the Managed HSM. The bootstrap *agent* is unaffected (still
+in-process, seedable via `YUTHA_BOOTSTRAP_SEED` if set) — see the
+[enterprise identity walkthrough](enterprise-identity.md) for the
+two-identity distinction.
 
 When the server starts you should see:
 
