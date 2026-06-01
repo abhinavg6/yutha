@@ -13,7 +13,10 @@ Open-source infrastructure for groups of AI agents. Identity, capability, accoun
 ```
 /spec        — wire & artifact specs (RFC-governed; the contract)
 /crates      — Rust workspace: control plane, registry, capability, transport,
-               receipts, Cedar+ engine, ops CLI, proto crate, conformance suite
+               receipts, Cedar+ engine, Signer trait + external Signer backends
+               (Vault, GCP KMS, Azure Managed HSM), Attestor trait + external
+               Attestor backends (SPIFFE, OIDC), ops CLI, proto crate,
+               conformance suite
 /backends    — Pluggable backends: postgres-receipt (production receipt
                store), sui-anchor (optional verifiability layer)
 /contracts   — Move package for Sui receipt anchoring (sources/, tests/)
@@ -105,6 +108,8 @@ cargo run -p yutha-control-plane -- \
 **Private material never enters git.** `*.key`, `Pub.*.toml`, `*.log`, sealer keys, bootstrap seeds — all gitignored. If you generate one of these during a debugging session, double-check it isn't in your staged changes.
 
 **Sui anchoring is optional.** The path through the control plane works fully without any Sui dependency at runtime. Don't tighten this — `--anchor-*` flags are an opt-in surface, not a requirement.
+
+**Signer and Attestor backends are optional.** The default `InProcessSigner` and `NativeAttestor` keep the substrate fully self-contained at runtime — no Vault, no cloud KMS, no SPIRE, no IdP required. `--signer {vault,gcp-kms,azure-kv}` and `--attestor {spiffe,oidc}` are opt-in surfaces, parallel to `--anchor-*`. Don't tighten the defaults — every test, demo, and integration run assumes the zero-config posture holds.
 
 ## Where to find what
 
