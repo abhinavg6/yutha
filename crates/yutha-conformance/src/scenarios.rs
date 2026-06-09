@@ -31,6 +31,12 @@
 //!   `quarantine.expires_after` elapsing without an explicit operator
 //!   reverse. Verifies the engine's `Stage::Reverse` plumbing + the
 //!   cap layer flipping back to "permitted" after reverse.
+//! - **S9: Principal-attribute Cedar rules fire honestly (Phase 3a
+//!   regression guard).** Three SendEnvelope evaluations against a
+//!   constitution with two forbid rules — one keying on
+//!   `principal.framework`, one on `principal.reputation`. Locks the
+//!   post-Phase-3a behaviour in: pre-3a these placeholder attrs caused
+//!   policies to silently degrade to permit-all.
 
 pub mod s1_queue_mode;
 pub mod s2_send_path_cap_check;
@@ -39,6 +45,7 @@ pub mod s5_support_queue_refunds;
 pub mod s6_memory_privacy;
 pub mod s7_reverse_path;
 pub mod s8_attestation_deny;
+pub mod s9_principal_attrs;
 
 pub use s1_queue_mode::{run_s1, S1Outcome};
 pub use s2_send_path_cap_check::{run_s2, S2Outcome};
@@ -47,3 +54,4 @@ pub use s5_support_queue_refunds::{run_s5, S5Outcome};
 pub use s6_memory_privacy::{run_s6, S6Outcome};
 pub use s7_reverse_path::{run_s7, S7Outcome};
 pub use s8_attestation_deny::{run_s8, S8Outcome};
+pub use s9_principal_attrs::{run_s9, S9Outcome};

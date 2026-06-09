@@ -70,7 +70,9 @@ pub mod scoring;
 pub(crate) mod validate;
 
 pub use constitution::Constitution;
-pub use enforcement::{EnforcementEffect, EnforcementEngine, ReceiptView};
+pub use enforcement::{
+    AgentSnapshot, AgentStage, BudgetSnapshot, EnforcementEffect, EnforcementEngine, ReceiptView,
+};
 pub use engine_config::{
     CoachConfig, ComplianceCheck, DetectConfig, DetectTrigger, EnforcementRule, EngineConfig,
     EvictConfig, NamedPredicate, Procedure, ProcedureTransition, ProcedureTrigger,

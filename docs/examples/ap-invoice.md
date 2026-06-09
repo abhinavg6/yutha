@@ -180,35 +180,31 @@ forbid when {
 
 The approver's framework is part of its
 [passport](../concepts/primitives.md) — signed at construction,
-validated by the registry at registration, and *should* be
-surfaced by the control plane as a trusted attribute on every
-constitution evaluation. The approver can mutate its envelope
-tags, but it cannot change the framework on its registered
-passport without re-registering, which itself leaves an
-`agent.register` receipt.
+validated by the registry at registration, and surfaced by the
+control plane as a trusted attribute on every constitution
+evaluation. The approver can mutate its envelope tags, but it
+cannot change the framework on its registered passport without
+re-registering, which itself leaves an `agent.register` receipt.
 
-The catch: at the time of writing, the gRPC EnvelopeHandler
-**hasn't yet wired the passport resolver into the Cedar entity
-snapshot.** The handler synthesizes the principal's Agent entity
-with placeholder values — empty framework, minimal tier,
-all-zero passport_hash — and the substrate carries a comment
-acknowledging that this is a known follow-on from RFC 0011's
-attribute-enrichment design. A `principal.framework == "..."`
-policy compiles fine but never matches at runtime; the forbid
-rule silently degrades to permit-all.
+When this demo was first authored the gRPC EnvelopeHandler
+synthesized placeholder values for `principal.framework`,
+`principal.passport_tier`, and `principal.reputation` — Cedar
+policies keying on them silently degraded to permit-all. The
+Phase 3a substrate work (task #282, shipped 2026-05-31) wired
+the passport resolver + enforcement-engine reputation snapshot
+into the gRPC eval path, so the framework-gated rule above now
+fires honestly. The demo continues to use the tag-presence form
+so its narrative stays focused on the enforcement-chain
+mechanics; updating it to the framework-gated form is a clean
+single-line change you can make locally if you want to see the
+substrate-correct shape end-to-end.
 
-So the demo uses the tag-presence version above. It still
-demonstrates the substrate's enforcement loop end-to-end, and the
-narrative explanation holds — but a sufficiently adversarial
-approver agent could append `supervisor_approved` to its own
-sends and bypass. In production today you'd want to reinforce
-this with capability caveats: issue the approver a cap whose
-scope explicitly does NOT permit the `supervisor_approved` tag,
-and gate the supervisor's authorize-payment cap on a
-supervisor-tier passport. Both are within reach with the existing
-cap-scope machinery; both are tracked in the "what to try next"
-section. Wiring the passport resolver — the right long-term
-fix — is itself a Phase 3 substrate item.
+Either form benefits from defence in depth at the cap layer:
+issue the approver a cap whose scope explicitly does NOT permit
+the `supervisor_approved` tag, and gate the supervisor's
+authorize-payment cap on a supervisor-tier passport. Both are
+within reach with the existing cap-scope machinery; both are
+tracked in the "what to try next" section.
 
 ---
 
@@ -483,14 +479,14 @@ A few directions to extend the example:
   layers compose: even if a bug in the approver's code adds the
   tag, the cap layer would deny before the constitution gets a
   chance to evaluate.
-- **Wire the passport resolver in the control plane.** The
-  substrate-correct version of this constitution would gate on
-  `principal.framework == "ap-invoice-approver"`. That requires
-  the gRPC EnvelopeHandler to enrich the Cedar Agent entity with
-  real attributes from the PassportStore (RFC 0011's
-  attribute-enrichment design). Once that pass lands, every demo
-  that wants to discriminate by role gets a server-trusted
-  channel for it.
+- **Switch to the `principal.framework`-gated form.** Now that
+  Phase 3a has wired the passport resolver into the gRPC eval
+  path, the substrate-correct version of this constitution
+  (`principal.framework == "ap-invoice-approver"`) fires
+  honestly. Swap the tag check in the demo's constitution YAML
+  for the framework check, recompile, re-activate, and you'll see
+  the same enforcement chain but now gated on a passport-trusted
+  attribute the approver agent can't lie about.
 - **Duplicate-invoice detection.** Add an enforcement rule whose
   `detect.trigger.receipt_kind` is `envelope.send` and whose
   pattern groups by `vendor + amount` within a 24-hour window.

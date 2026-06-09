@@ -253,6 +253,35 @@ constitution simply gates on it. Misalignment (the SDK forgot
 to populate `estimated_cost_*`) surfaces as
 `evaluator_internal_error` in the deny receipt.
 
+!!! note "Budget tracking is still placeholder substrate today"
+
+    Phase 3a wired real passport-derived attributes (`framework`,
+    `passport_tier`, `passport_hash`) and real engine-tracked
+    `reputation` into every evaluation. **Budget remaining is
+    still placeholder** — the enforcement engine doesn't yet
+    track per-agent budget consumption, so
+    `principal.budget_remaining_*` evaluates to `i64::MAX` for
+    every request. Forbid rules keying on it silently permit-all
+    until budget-norms (RFC 0011 §4) ship in the engine. Author
+    your budget rules now — they'll start firing the moment that
+    phase lands — but don't expect them to enforce anything
+    today.
+
+### Cedar gotchas worth knowing up front
+
+A few rough edges that catch first-time constitution authors:
+
+- **`decimal` doesn't dispatch to infix operators.** A rule like
+  `principal.reputation < decimal("0.5")` fails Cedar's validator
+  with `expected Long but saw decimal`. Use the extension method
+  instead: `principal.reputation.lessThan(decimal("0.5"))`. The
+  same applies to `.greaterThan()`, `.lessThanOrEqual()`,
+  `.greaterThanOrEqual()`.
+- **`Set` membership is `.contains()`, not `in`.** The `in` operator
+  is reserved for entity-hierarchy traversal (`principal in
+  Yutha::Swarm::"<id>"`). For `Set<String>` membership use
+  `context.tags.contains("approved")`.
+
 ---
 
 ## A worked example — code-review approvals

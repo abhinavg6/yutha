@@ -43,11 +43,13 @@ use tonic::{Request, Response, Status};
 use tracing::debug;
 use yutha_capability::ActionDescriptor;
 use yutha_cedar_plus::{
-    ConstitutionEvaluator, Decision, EntityRecord, EntitySnapshot, EntityUid, EvaluationOutcome,
-    EvaluationRequest,
+    ConstitutionEvaluator, Decision, EnforcementEngine, EntityRecord, EntitySnapshot, EntityUid,
+    EvaluationOutcome, EvaluationRequest,
 };
 use yutha_core::{AgentId, Hash, SpecVersion, Timestamp};
 use yutha_crypto::canonical::Canonical;
+use yutha_crypto::hash::sha256;
+use yutha_passport::{PassportStore, PassportTier};
 use yutha_proto::control_plane::v1::{
     envelope_service_server::EnvelopeService, SendEnvelopeRequest, SendEnvelopeResponse,
     SubscribeRequest, SubscribedEnvelope,
@@ -92,16 +94,27 @@ fn recipient_descriptor_string(r: &Recipient) -> String {
 /// Construct an [`EvaluationRequest`] for a SendEnvelope action, plus a
 /// minimal [`EntitySnapshot`] containing the sender Agent + Swarm.
 ///
-/// F10d intentionally keeps the snapshot lean — sender Agent (with the
-/// Swarm as parent for Cedar's `in [Swarm]` relation) and the Swarm
-/// itself. Cedar policies that only check action/principal identity
-/// work out of the box; policies that reference rich Agent attributes
-/// (`passport_tier`, `framework`, `reputation`, budget fields) need
-/// the F11/F12 enrichment pass that walks the passport store + the
-/// enforcement engine. Until that lands, such expressions will see
-/// `null` for unprovided attrs and Cedar will deny on the attribute
-/// lookup — which is the fail-closed default per evaluation.md §2.3.
-fn build_eval_request_for_send(
+/// Phase 3a (post-3a-3): the snapshot's `Yutha::Agent` entities carry
+/// real `framework` / `passport_tier` / `passport_hash` from the
+/// passport store and real `reputation` from the enforcement engine
+/// snapshot via [`resolve_agent_attrs`]. Cedar policies keying on
+/// those four attrs now fire honestly — previously they silently
+/// degraded to permit-all because every entity had placeholder
+/// values. Budgets stay at `i64::MAX` until budget norms
+/// (RFC 0011 §4) ship in the engine.
+///
+/// Originally F10d kept the snapshot lean and intentionally
+/// placeholder-populated; this fn is the unblock for task #282 that
+/// the simulation + observability pillars (Phases 3b–3g) both depend
+/// on.
+// 9 params (was 7 pre-Phase-3a; passport_store + enforcement joined
+// for the resolver wiring). Same posture as `bootstrap_backends` in
+// main.rs and the s1/s4–s7 conformance scenarios — bundling these
+// into a config struct would obscure the parameter origins (cli/
+// state-derived vs evaluation-derived) without buying call-site
+// clarity, since the only call site is `EnvelopeHandler::send`.
+#[allow(clippy::too_many_arguments)]
+async fn build_eval_request_for_send(
     constitution_hash: Hash,
     principal_id: &AgentId,
     envelope: &Envelope,
@@ -109,6 +122,8 @@ fn build_eval_request_for_send(
     swarm_id: &yutha_core::SwarmId,
     constitution_version: &str,
     topology_mode: &str,
+    passport_store: &dyn PassportStore,
+    enforcement: &EnforcementEngine,
 ) -> EvaluationRequest {
     let principal_uid_str = principal_id.to_string();
     let swarm_uid_str = swarm_id.to_string();
@@ -153,17 +168,19 @@ fn build_eval_request_for_send(
     // Swarm + (optionally) the recipient Agent. Every entity carries
     // the FULL attribute surface the v1.1 canonical schema declares,
     // because Cedar's Strict-mode entity validation rejects partial
-    // entities even when no policy reads the missing attrs. The
-    // values here are stand-ins: the control plane hasn't yet wired
-    // the resolvers that would pull real passport_tier / framework /
-    // reputation / budgets for the principal (those land alongside
-    // the supervisor-layer + budget-substrate work). The permissive
-    // permit-all policy doesn't read them; rule-authoring operators
-    // who need real values will need the resolver wiring before
-    // those rules evaluate correctly.
+    // entities even when no policy reads the missing attrs.
+    //
+    // `resolve_agent_attrs` populates `framework` / `passport_tier` /
+    // `passport_hash` from the passport store (Phase 3a-2) and
+    // `reputation` from the enforcement engine snapshot (Phase 3a-3)
+    // for both sender and (if different) recipient. `budget_remaining_*`
+    // stays at `i64::MAX` until budget norms (RFC 0011 §4) ship in the
+    // engine — Cedar policies that gate on budgets silently permit-all
+    // until then. Honest signal; not a wiring bug.
     let now = Timestamp::now();
+    let sender_attrs = resolve_agent_attrs(principal_id, passport_store, enforcement).await;
     let mut entities = vec![
-        agent_entity(&principal_uid_str, &swarm_uid_str),
+        agent_entity(&principal_uid_str, &swarm_uid_str, &sender_attrs),
         swarm_entity(&swarm_uid_str, topology_mode, constitution_version),
     ];
     // Only add the recipient when it's a *different* agent — Cedar
@@ -171,7 +188,12 @@ fn build_eval_request_for_send(
     // otherwise produce (the sender entity is already in the list).
     if let Recipient::Agent(rid) = &envelope.recipient {
         if rid != principal_id {
-            entities.push(agent_entity(&rid.to_string(), &swarm_uid_str));
+            let recipient_attrs = resolve_agent_attrs(rid, passport_store, enforcement).await;
+            entities.push(agent_entity(
+                &rid.to_string(),
+                &swarm_uid_str,
+                &recipient_attrs,
+            ));
         }
     }
     // Non-Agent recipients (Role / Swarm / External) need their
@@ -240,14 +262,177 @@ fn build_eval_request_for_send(
     }
 }
 
+/// Pre-resolved Cedar `Yutha::Agent` entity attrs for the gRPC
+/// constitution-evaluation path. Decouples I/O (passport store +
+/// enforcement engine lookups) from data shaping (entity record
+/// construction) so [`agent_entity`] stays sync and trivially
+/// testable.
+///
+/// **Phase 3a posture:**
+///
+/// - `framework`, `passport_tier`, `passport_hash` — real values from
+///   the passport store (Phase 3a-2).
+/// - `reputation` — real current scalar from the enforcement engine
+///   (Phase 3a-3). Never-seen agents get the engine default `"1.0"`,
+///   which equals the placeholder.
+/// - `budget_remaining_*` — placeholder `i64::MAX`. Budget norms
+///   (RFC 0011 §4) are not yet tracked in the engine; until they
+///   are, Cedar policies that gate on `principal.budget_remaining_*`
+///   silently permit-all because every check compares against
+///   `MAX`. Honest signal; not a wiring bug.
+struct ResolvedAgentAttrs {
+    framework: String,
+    passport_tier: String,
+    /// Hex SHA256 over canonical Passport bytes (64 hex chars).
+    passport_hash: String,
+    /// Cedar decimal-form string.
+    reputation: String,
+    budget_remaining_usd_cents: i64,
+    budget_remaining_tool_calls: i64,
+    budget_remaining_compute_ms: i64,
+}
+
+impl ResolvedAgentAttrs {
+    /// Defaults used for agents the passport store doesn't know
+    /// about, or as the starting shape that [`resolve_agent_attrs`]
+    /// overwrites field-by-field with real values.
+    ///
+    /// Today the sender path always has a passport (bearer auth
+    /// verified it before send); the only case this fires is a
+    /// cross-agent envelope to a recipient that hasn't registered.
+    fn placeholder() -> Self {
+        Self {
+            framework: String::new(),
+            passport_tier: "minimal".into(),
+            passport_hash: "0".repeat(64),
+            reputation: "1.0".into(),
+            budget_remaining_usd_cents: i64::MAX,
+            budget_remaining_tool_calls: i64::MAX,
+            budget_remaining_compute_ms: i64::MAX,
+        }
+    }
+}
+
+/// Render a [`PassportTier`] as the lowercase Cedar string form the
+/// v1.1 canonical schema expects (`"minimal" / "standard" /
+/// "verifiable"`).
+fn passport_tier_str(t: PassportTier) -> &'static str {
+    match t {
+        PassportTier::Minimal => "minimal",
+        PassportTier::Standard => "standard",
+        PassportTier::Verifiable => "verifiable",
+    }
+}
+
+/// Resolve the per-agent Cedar attrs for the gRPC `EvaluateEnvelope`
+/// path against the v1.1 canonical schema.
+///
+/// Two independent reads — a [`PassportStore`] lookup for the
+/// passport-derived attrs and an [`EnforcementEngine::get_agent_state`]
+/// snapshot for reputation — composed into a single
+/// [`ResolvedAgentAttrs`] before [`agent_entity`] consumes it.
+///
+/// **Honest fields (Phase 3a-2 + 3a-3):**
+///
+/// - `framework`, `passport_tier`, `passport_hash` — real passport
+///   values for registered agents; placeholders on miss (see
+///   below). `passport_hash` is SHA256 over canonical Passport bytes,
+///   hex-encoded.
+/// - `reputation` — real current reputation from the enforcement
+///   engine. Never-seen agents get `"1.0"` (matches both the engine
+///   default and the placeholder), so the call is safe to make
+///   unconditionally before the passport lookup.
+///
+/// **Still placeholder:** `budget_remaining_*` stays at `i64::MAX`
+/// because budget norms (RFC 0011 §4) aren't yet tracked in the
+/// engine. When they ship, `AgentSnapshot::budgets` becomes `Some(_)`
+/// and this resolver will read from it directly.
+///
+/// **Passport-lookup failure handling.** Three paths fall back to the
+/// passport-store half of [`ResolvedAgentAttrs::placeholder`] with a
+/// `tracing::warn!`:
+///
+/// 1. Passport not in the store (an unregistered cross-agent
+///    recipient; the sender path is always present because bearer
+///    auth verified it).
+/// 2. Passport store lookup errored (transport / backend failure).
+/// 3. Canonical-bytes serialization errored (substrate bug — shouldn't
+///    happen, but we'd rather permit-all-degradation than a 500).
+///
+/// All three keep the gRPC call alive; Cedar policies keying on the
+/// real passport-derived attrs degrade to permit-all for that one
+/// entity. Reputation is still honest in every fallback path because
+/// it's read independently.
+async fn resolve_agent_attrs(
+    agent_id: &AgentId,
+    passport_store: &dyn PassportStore,
+    enforcement: &EnforcementEngine,
+) -> ResolvedAgentAttrs {
+    let mut attrs = ResolvedAgentAttrs::placeholder();
+
+    // Reputation read is independent of the passport lookup and
+    // always honest: `get_agent_state` returns `"1.0"` for agents
+    // the engine has never seen, matching the placeholder default.
+    // Budgets stay at `i64::MAX` until budget norms (RFC 0011 §4)
+    // are tracked in the engine — `snapshot.budgets` is `None`
+    // today by design.
+    let snapshot = enforcement.get_agent_state(&agent_id.to_string()).await;
+    attrs.reputation = snapshot.reputation.0.clone();
+
+    // Passport-derived attrs. Failures fall through with a warn;
+    // reputation we set above is preserved regardless.
+    match passport_store.lookup(agent_id).await {
+        Ok(Some(passport)) => {
+            attrs.framework = passport.framework.clone();
+            attrs.passport_tier = passport_tier_str(passport.tier).to_string();
+            attrs.passport_hash = match passport.canonical_bytes() {
+                Ok(bytes) => hex::encode(&sha256(&bytes).digest),
+                Err(e) => {
+                    tracing::warn!(
+                        agent_id = %agent_id,
+                        error = %e,
+                        "passport canonical_bytes failed; falling back to all-zero passport_hash"
+                    );
+                    "0".repeat(64)
+                }
+            };
+        }
+        Ok(None) => {
+            tracing::warn!(
+                agent_id = %agent_id,
+                "agent passport not in store; passport-derived Cedar attrs using placeholders"
+            );
+        }
+        Err(e) => {
+            tracing::warn!(
+                agent_id = %agent_id,
+                error = %e,
+                "passport_store lookup failed; passport-derived Cedar attrs using placeholders"
+            );
+        }
+    }
+
+    attrs
+}
+
 /// Build a `Yutha::Agent` entity record populated with all attributes
-/// the canonical v1.1 schema declares. Values are scaffolding-tier
-/// placeholders — minimal tier, empty framework, all-zero passport
-/// hash, reputation 1.0, generous budgets. Replaced with real values
-/// (wired from the passport store and supervisor layer) when those
-/// resolvers land. Cedar 3.x decimal extension values use the
-/// implicit string form, which the JSON entity parser accepts.
-fn agent_entity(agent_uid: &str, swarm_uid: &str) -> EntityRecord {
+/// the canonical v1.1 schema declares.
+///
+/// Phase 3a (post-3a-2): `framework` / `passport_tier` / `passport_hash`
+/// come from the resolved attrs (real passport-store values for known
+/// agents, placeholder fallbacks for unknown). Reputation lands real
+/// in Phase 3a-3; budgets stay at the `i64::MAX` placeholder until a
+/// future phase implements RFC 0011 §4 budget tracking in the engine.
+///
+/// Cedar 3.x: extension types use the explicit `__extn` shape with
+/// `fn` + `arg`. The implicit short-form (`"1.0"`) also works in the
+/// Cedar 3.x JSON entity format, but explicit is unambiguous and
+/// trivially diffable.
+fn agent_entity(
+    agent_uid: &str,
+    swarm_uid: &str,
+    attrs_resolved: &ResolvedAgentAttrs,
+) -> EntityRecord {
     let mut attrs: HashMap<String, serde_json::Value> = HashMap::new();
     attrs.insert(
         "agent_id".into(),
@@ -255,35 +440,33 @@ fn agent_entity(agent_uid: &str, swarm_uid: &str) -> EntityRecord {
     );
     attrs.insert(
         "passport_tier".into(),
-        serde_json::Value::String("minimal".into()),
+        serde_json::Value::String(attrs_resolved.passport_tier.clone()),
     );
-    attrs.insert("framework".into(), serde_json::Value::String(String::new()));
+    attrs.insert(
+        "framework".into(),
+        serde_json::Value::String(attrs_resolved.framework.clone()),
+    );
     attrs.insert(
         "passport_hash".into(),
-        // 64-char hex stand-in. Real value lands once the passport
-        // resolver is wired into this path.
-        serde_json::Value::String("0".repeat(64)),
+        serde_json::Value::String(attrs_resolved.passport_hash.clone()),
     );
-    // Cedar 3.x: extension types use the explicit __extn shape with
-    // "fn" + "arg". The implicit short-form ("1.0") also works in
-    // Cedar 3.x JSON entity format, but explicit is unambiguous.
     attrs.insert(
         "reputation".into(),
         serde_json::json!({
-            "__extn": { "fn": "decimal", "arg": "1.0" }
+            "__extn": { "fn": "decimal", "arg": attrs_resolved.reputation }
         }),
     );
     attrs.insert(
         "budget_remaining_usd_cents".into(),
-        serde_json::Value::Number(i64::MAX.into()),
+        serde_json::Value::Number(attrs_resolved.budget_remaining_usd_cents.into()),
     );
     attrs.insert(
         "budget_remaining_tool_calls".into(),
-        serde_json::Value::Number(i64::MAX.into()),
+        serde_json::Value::Number(attrs_resolved.budget_remaining_tool_calls.into()),
     );
     attrs.insert(
         "budget_remaining_compute_ms".into(),
-        serde_json::Value::Number(i64::MAX.into()),
+        serde_json::Value::Number(attrs_resolved.budget_remaining_compute_ms.into()),
     );
     EntityRecord {
         uid: EntityUid::new("Yutha::Agent", agent_uid.to_string()),
@@ -583,7 +766,10 @@ impl EnvelopeService for EnvelopeHandler {
             &topology.swarm_id,
             &constitution_version,
             topology_mode_str,
-        );
+            self.state.passport_store.as_ref(),
+            self.state.enforcement.as_ref(),
+        )
+        .await;
         let outcome = self
             .state
             .cedar_plus

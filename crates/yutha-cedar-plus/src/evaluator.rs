@@ -51,7 +51,7 @@ use yutha_core::{Hash, Timestamp};
 use crate::constitution::Constitution;
 use crate::error::{CedarPlusError, EvalBoundReason, Result};
 use crate::eval::{
-    ConstitutionEvaluator, Decision, EntitySnapshot, EntityUid, EvaluationOutcome,
+    ConstitutionEvaluator, Decision, EntityRecord, EntitySnapshot, EntityUid, EvaluationOutcome,
     EvaluationRequest, ProcedureEffect, ScoreContribution,
 };
 use crate::loader::{ActivatedConstitution, ConstitutionLoader};
@@ -363,9 +363,22 @@ fn map_cedar_response(
 /// nesting level. `context_attrs` is converted from `HashMap` to a
 /// sorted `BTreeMap` before serialization so byte-equivalence holds
 /// across runs and implementations per evaluation.md §4.
+///
+/// The entity snapshot is canonicalized via [`canonicalize_entity_snapshot`]:
+/// entities sorted by `(entity_type, entity_id)`, attrs as sorted
+/// BTreeMap per record, parents UID-lex-sorted. This is the contract
+/// the spec pins (evaluation.md §9 — "input_attribute_digest is
+/// sha256 over the entity snapshot's canonical bytes plus the
+/// context attrs"). Pre-Phase-3a-4 this function only hashed
+/// `snapshot.entity_count()`, which was effectively equivalent while
+/// all entity attrs were placeholders but became a spec-conformance
+/// bug once 3a-2/3 wired real per-agent passport_tier / framework /
+/// reputation values — two evaluations with different agent state
+/// would have produced identical digests.
 fn hash_input_attributes(request: &EvaluationRequest, snapshot: &EntitySnapshot) -> Hash {
     let context_sorted: BTreeMap<&String, &serde_json::Value> =
         request.context_attrs.iter().collect();
+    let entities_canonical = canonicalize_entity_snapshot(snapshot);
     let canonical = json!({
         "action_kind": request.action_kind,
         "principal_id": request.principal_id.to_string(),
@@ -374,11 +387,71 @@ fn hash_input_attributes(request: &EvaluationRequest, snapshot: &EntitySnapshot)
             "id": request.resource_uid.entity_id,
         },
         "context_attrs": context_sorted,
-        "entity_count": snapshot.entity_count(),
+        "entity_snapshot": entities_canonical,
         "current_wall_clock": &request.current_wall_clock,
     });
     let bytes = serde_json::to_vec(&canonical).unwrap_or_default();
     yutha_crypto::sha256(&bytes)
+}
+
+/// Canonicalize an [`EntitySnapshot`] for inclusion in the
+/// `input_attribute_digest` per evaluation.md §9.
+///
+/// Determinism rules:
+///
+/// - Entities sorted by `(entity_type, entity_id)` UID-lex.
+/// - Within each entity, attrs serialized as a sorted `BTreeMap`
+///   (sorted by attr name).
+/// - Parents UID-lex-sorted by the same `(entity_type, entity_id)`
+///   ordering as the outer entity list.
+///
+/// `serde_json::Value` nested inside attr values relies on serde_json's
+/// default `Map = BTreeMap` (no `preserve_order` feature in this
+/// crate's dep tree) so any nested objects also serialize with sorted
+/// keys, end-to-end.
+///
+/// The result is a `Vec<serde_json::Value>` that `hash_input_attributes`
+/// embeds under the `"entity_snapshot"` key. Two snapshots that
+/// differ only in iteration order of the underlying `Vec<EntityRecord>`
+/// or `HashMap<String, Value>` produce identical bytes; two snapshots
+/// that differ in any actual attr value produce different bytes.
+fn canonicalize_entity_snapshot(snapshot: &EntitySnapshot) -> Vec<serde_json::Value> {
+    let mut sorted: Vec<&EntityRecord> = snapshot.entities.iter().collect();
+    sorted.sort_by(|a, b| {
+        a.uid
+            .entity_type
+            .cmp(&b.uid.entity_type)
+            .then_with(|| a.uid.entity_id.cmp(&b.uid.entity_id))
+    });
+    sorted
+        .into_iter()
+        .map(|e| {
+            let attrs_sorted: BTreeMap<&String, &serde_json::Value> = e.attrs.iter().collect();
+            let mut parents_sorted: Vec<&EntityUid> = e.parents.iter().collect();
+            parents_sorted.sort_by(|a, b| {
+                a.entity_type
+                    .cmp(&b.entity_type)
+                    .then_with(|| a.entity_id.cmp(&b.entity_id))
+            });
+            let parents_json: Vec<serde_json::Value> = parents_sorted
+                .into_iter()
+                .map(|p| {
+                    json!({
+                        "type": &p.entity_type,
+                        "id": &p.entity_id,
+                    })
+                })
+                .collect();
+            json!({
+                "uid": {
+                    "type": &e.uid.entity_type,
+                    "id": &e.uid.entity_id,
+                },
+                "attrs": attrs_sorted,
+                "parents": parents_json,
+            })
+        })
+        .collect()
 }
 
 /// Compute the evidence digest per evaluation.md §9: hash over
@@ -544,4 +617,116 @@ mod tests {
     // synthetic Swarm entity. F8 builds the test fixtures alongside
     // the engine-eval layer; F7's coverage stops at the structural
     // paths (activation, sandbox bounds, constitution-hash matching).
+
+    // ---- 3a-4 regression guards: input_attribute_digest covers entity attrs ----
+    //
+    // evaluation.md §9 contract: the digest is sha256 over the entity
+    // snapshot's canonical bytes plus context attrs. Pre-Phase-3a-4 the
+    // implementation only hashed `entity_count`, which was effectively
+    // equivalent while all entity attrs were placeholders but became a
+    // spec-conformance bug once 3a-2/3 wired real per-agent values into
+    // the snapshot. These tests are the regression guard.
+
+    fn agent_record_with_reputation(rep: &str) -> EntityRecord {
+        let mut attrs: HashMap<String, serde_json::Value> = HashMap::new();
+        attrs.insert("agent_id".into(), serde_json::Value::String("alice".into()));
+        attrs.insert(
+            "passport_tier".into(),
+            serde_json::Value::String("minimal".into()),
+        );
+        attrs.insert("framework".into(), serde_json::Value::String("".into()));
+        attrs.insert(
+            "passport_hash".into(),
+            serde_json::Value::String("0".repeat(64)),
+        );
+        attrs.insert(
+            "reputation".into(),
+            serde_json::json!({ "__extn": { "fn": "decimal", "arg": rep } }),
+        );
+        attrs.insert(
+            "budget_remaining_usd_cents".into(),
+            serde_json::Value::Number(i64::MAX.into()),
+        );
+        attrs.insert(
+            "budget_remaining_tool_calls".into(),
+            serde_json::Value::Number(i64::MAX.into()),
+        );
+        attrs.insert(
+            "budget_remaining_compute_ms".into(),
+            serde_json::Value::Number(i64::MAX.into()),
+        );
+        EntityRecord {
+            uid: EntityUid::new("Yutha::Agent", "alice"),
+            attrs,
+            parents: vec![EntityUid::new("Yutha::Swarm", "swarm-1")],
+        }
+    }
+
+    #[test]
+    fn input_digest_differs_when_entity_attrs_differ() {
+        // Two snapshots that differ ONLY in agent reputation must
+        // produce different input_attribute_digests. Pre-Phase-3a-4
+        // they produced identical digests because only entity_count
+        // was hashed.
+        let req = make_request(
+            "SendEnvelope",
+            AgentId::new(),
+            EntityUid::new("Yutha::Agent", "alice"),
+        );
+
+        let snap_a = EntitySnapshot {
+            entities: vec![agent_record_with_reputation("1.0")],
+        };
+        let snap_b = EntitySnapshot {
+            entities: vec![agent_record_with_reputation("0.5")],
+        };
+
+        let digest_a = hash_input_attributes(&req, &snap_a);
+        let digest_b = hash_input_attributes(&req, &snap_b);
+        assert_ne!(
+            digest_a.digest, digest_b.digest,
+            "input_attribute_digest must reflect entity attr differences \
+             per evaluation.md §9; pre-3a-4 this assertion was false"
+        );
+    }
+
+    #[test]
+    fn input_digest_stable_across_attr_insertion_order() {
+        // The canonicalizer must be insertion-order-independent —
+        // a HashMap iterating attrs in different orders for two
+        // semantically equal snapshots must still hash equal.
+        let req = make_request(
+            "SendEnvelope",
+            AgentId::new(),
+            EntityUid::new("Yutha::Agent", "alice"),
+        );
+
+        let record_x = agent_record_with_reputation("0.75");
+        let mut record_y = agent_record_with_reputation("0.75");
+
+        // Re-insert each attr from y's map under a fresh HashMap built
+        // in reverse alphabetical order. serde_json's default
+        // BTreeMap-backed Map serializes attrs sorted regardless, so
+        // both records must hash the same bytes.
+        let mut reversed: Vec<(String, serde_json::Value)> = record_y.attrs.drain().collect();
+        reversed.sort_by(|a, b| b.0.cmp(&a.0));
+        record_y.attrs.extend(reversed);
+
+        // Light sanity that the HashMap state isn't somehow identical
+        // by accident — only the iteration order changed.
+        assert_eq!(record_x.attrs.len(), record_y.attrs.len());
+
+        let snap_x = EntitySnapshot {
+            entities: vec![record_x],
+        };
+        let snap_y = EntitySnapshot {
+            entities: vec![record_y],
+        };
+
+        assert_eq!(
+            hash_input_attributes(&req, &snap_x).digest,
+            hash_input_attributes(&req, &snap_y).digest,
+            "input_attribute_digest must be HashMap-insertion-order-independent"
+        );
+    }
 }

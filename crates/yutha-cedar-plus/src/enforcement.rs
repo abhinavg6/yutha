@@ -171,6 +171,117 @@ impl Stage {
     }
 }
 
+/// Public mirror of the internal [`Stage`] enum, exposed via
+/// [`AgentSnapshot::current_stage`]. Decoupled from the private
+/// [`Stage`] so the engine's internal stage representation can
+/// change without breaking the observability + Phase 3a Cedar
+/// resolver call sites.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum AgentStage {
+    /// The detect stage — a sliding-window pattern just completed
+    /// for an enforcement rule. The agent is flagged; nothing
+    /// agent-visible has happened yet.
+    Detect,
+    /// The coach stage — an `ADVISE` envelope was sent to the
+    /// agent asking it to correct course. First agent-visible
+    /// signal.
+    Coach,
+    /// The quarantine stage — the cap layer now denies every
+    /// `Issue` and `Check` for this agent with
+    /// `SubjectQuarantined`. First capability-affecting signal.
+    Quarantine,
+    /// The evict stage — the agent has been removed from the
+    /// swarm; every held capability revoked; any active subscribe
+    /// streams torn down. Terminal.
+    Evict,
+    /// Quarantine reversal — `quarantine.expires_after` elapsed
+    /// without an explicit operator reverse, or the operator
+    /// reversed the quarantine. Carries the partial-restoration
+    /// reputation delta per RFC 0013 §4.3 / §5.
+    Reverse,
+}
+
+impl AgentStage {
+    fn from_internal(s: Stage) -> Self {
+        match s {
+            Stage::Detect => Self::Detect,
+            Stage::Coach => Self::Coach,
+            Stage::Quarantine => Self::Quarantine,
+            Stage::Evict => Self::Evict,
+            Stage::Reverse => Self::Reverse,
+        }
+    }
+
+    /// The canonical receipt-action-kind string this stage emits.
+    /// Matches the internal `Stage::action_kind` mapping byte-for-
+    /// byte so observability consumers can correlate snapshot
+    /// state with the audit log without a separate lookup table.
+    pub fn action_kind(&self) -> &'static str {
+        match self {
+            Self::Detect => "enforcement.detect",
+            Self::Coach => "enforcement.coach",
+            Self::Quarantine => "enforcement.quarantine",
+            Self::Evict => "enforcement.evict",
+            Self::Reverse => "enforcement.reverse",
+        }
+    }
+}
+
+/// Per-agent budget-remaining snapshot for the three canonical
+/// budget axes the Cedar schema declares
+/// (`Yutha::Agent.budget_remaining_{usd_cents,tool_calls,compute_ms}`).
+///
+/// **Phase 3a posture: not yet populated.** Budget norms (RFC 0011 §4)
+/// are declared in the canonical schema but the engine doesn't yet
+/// track per-agent budget consumption. [`AgentSnapshot::budgets`] is
+/// `None` today. When budget tracking lands in a future phase,
+/// `Some(_)` becomes the source of truth for the schema's three
+/// `budget_remaining_*` attrs.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct BudgetSnapshot {
+    /// Remaining USD budget, in cents, for actions the agent can
+    /// still authorize against `context.estimated_cost_usd_cents`.
+    pub remaining_usd_cents: i64,
+    /// Remaining tool-call budget — number of tool invocations
+    /// the agent can still make against
+    /// `context.estimated_cost_tool_calls`.
+    pub remaining_tool_calls: i64,
+    /// Remaining compute-time budget, in milliseconds, for
+    /// actions gated on `context.estimated_cost_compute_ms`.
+    pub remaining_compute_ms: i64,
+}
+
+/// Coalesced observable state for one agent — the single read shape
+/// the gRPC eval path (Phase 3a), the future `ObservabilityService`
+/// RPC (Phase 3g), and the replay engine (Phase 3c) all consume.
+///
+/// Returned by [`EnforcementEngine::get_agent_state`]. Agents the
+/// engine has never seen are reported with `reputation = "1.0"`,
+/// `quarantined = false`, `current_stage = None`, `budgets = None` —
+/// the same defaults the internal state machine starts each agent
+/// with.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AgentSnapshot {
+    /// The agent's id, mirrored back so callers can correlate
+    /// snapshots in a multi-agent observability query without
+    /// retaining the lookup key separately.
+    pub agent_id: String,
+    /// Cedar-decimal-form reputation scalar (e.g. `"1.0"`,
+    /// `"0.45"`). Matches the rendering used by
+    /// [`EnforcementEngine::agent_reputation`].
+    pub reputation: Score,
+    /// `true` iff the agent is currently quarantined per the
+    /// enforcement engine. The cap layer's `is_agent_quarantined`
+    /// check reads the same value.
+    pub quarantined: bool,
+    /// Most recently observed enforcement stage for this agent.
+    /// `None` means the agent has never tripped a rule.
+    pub current_stage: Option<AgentStage>,
+    /// Per-agent budget remaining. `None` until budget norms
+    /// (RFC 0011 §4) land in the engine; see [`BudgetSnapshot`].
+    pub budgets: Option<BudgetSnapshot>,
+}
+
 /// Sliding-window counter entry for a single (rule_name, group_key)
 /// bucket.
 #[derive(Debug, Clone, Default)]
@@ -335,6 +446,52 @@ impl EnforcementEngine {
             .map(|a| a.reputation_scaled)
             .unwrap_or(INITIAL_REPUTATION_SCALED);
         render_score_scaled(scaled)
+    }
+
+    /// Coalesced read of every observable per-agent state the engine
+    /// tracks. Agents the engine has never seen return defaults
+    /// (initial reputation `"1.0"`, not quarantined, no stage,
+    /// budgets unavailable).
+    ///
+    /// Pinned by Phase 3 of the simulation-and-observability workstream
+    /// as the single read surface that
+    ///
+    /// - the gRPC `EnvelopeHandler` calls to populate `Yutha::Agent`
+    ///   entity attrs at evaluation time (Phase 3a);
+    /// - the future `ObservabilityService.GetAgentState` RPC will
+    ///   serve to operators (Phase 3g);
+    /// - replay (Phase 3c) reconstructs from a historical receipt
+    ///   window by playing receipts through a fresh
+    ///   [`EnforcementEngine`] instance and reading the same shape.
+    ///
+    /// The `is_agent_quarantined` and `agent_reputation` methods
+    /// remain available for callers that want one specific field
+    /// without paying for the snapshot construction (e.g. the
+    /// `yutha-capability` quarantine consultation on every check).
+    pub async fn get_agent_state(&self, agent_id: &str) -> AgentSnapshot {
+        let state = self.inner.read().await;
+        match state.agents.get(agent_id) {
+            None => AgentSnapshot {
+                agent_id: agent_id.to_string(),
+                reputation: render_score_scaled(INITIAL_REPUTATION_SCALED),
+                quarantined: false,
+                current_stage: None,
+                budgets: None,
+            },
+            Some(a) => AgentSnapshot {
+                agent_id: agent_id.to_string(),
+                reputation: render_score_scaled(a.reputation_scaled),
+                quarantined: a.quarantined,
+                current_stage: a.current_stage.map(AgentStage::from_internal),
+                // Budget norms (RFC 0011 §4) are declared on the
+                // canonical Cedar schema (`Yutha::Agent.budget_remaining_*`)
+                // but not yet implemented in this engine; the internal
+                // `AgentState` carries no budget counters. Wire `Some`
+                // here when budget tracking lands in a future phase
+                // and the schema fields will start firing honestly.
+                budgets: None,
+            },
+        }
     }
 
     /// Poll the scheduled-transitions queue. Any transitions whose
@@ -860,5 +1017,44 @@ mod tests {
     async fn quarantine_default_false() {
         let engine = EnforcementEngine::new();
         assert!(!engine.is_agent_quarantined("alice").await);
+    }
+
+    #[tokio::test]
+    async fn snapshot_unknown_agent_returns_defaults() {
+        // For agents the engine has never seen, get_agent_state must
+        // return the same defaults the standalone read methods do,
+        // and Some(_) snapshots are reserved for state the engine
+        // actually tracks. Budgets stay None until budget norms
+        // (RFC 0011 §4) land.
+        let engine = EnforcementEngine::new();
+        let snap = engine.get_agent_state("alice").await;
+        assert_eq!(snap.agent_id, "alice");
+        assert_eq!(snap.reputation, Score("1.0".into()));
+        assert!(!snap.quarantined);
+        assert!(snap.current_stage.is_none());
+        assert!(snap.budgets.is_none());
+
+        // Snapshot reputation must equal the per-field read so
+        // observability + the Phase 3a Cedar resolver can swap one
+        // call for the other without surface divergence.
+        assert_eq!(snap.reputation, engine.agent_reputation("alice").await);
+    }
+
+    #[test]
+    fn agent_stage_action_kinds_match_internal_stage() {
+        // The public AgentStage mirror must produce the same
+        // action_kind strings as the private Stage enum, otherwise
+        // observability consumers correlating snapshot state with
+        // the receipt log would see ghost mismatches.
+        let pairs = [
+            (AgentStage::Detect, Stage::Detect),
+            (AgentStage::Coach, Stage::Coach),
+            (AgentStage::Quarantine, Stage::Quarantine),
+            (AgentStage::Evict, Stage::Evict),
+            (AgentStage::Reverse, Stage::Reverse),
+        ];
+        for (public, internal) in pairs {
+            assert_eq!(public.action_kind(), internal.action_kind());
+        }
     }
 }
