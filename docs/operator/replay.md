@@ -360,12 +360,15 @@ entries are documented in full there.
   a `replay.session.close` receipt with reason
   `auto_closed_idle_ttl`. Persist what you care about before walking
   away.
-- **`PostgresReplayStore` is a follow-on.** The current release ships
-  `MemoryReplayStore` only — session emissions are in-process,
-  per-control-plane-instance, and lost on restart. For workflows
-  where the session needs to survive a restart, wait for the
-  Postgres backing follow-on or persist session emissions out of
-  band via `replay-query`.
+- **Backing store follows `--receipt-backend`.** When the control
+  plane runs with `--receipt-backend memory`, sessions and their
+  per-session receipts live in process memory and are lost on
+  restart. When it runs with `--receipt-backend postgres`,
+  `PostgresReplayStore` shares the same pool as the production
+  receipt store and survives restarts. The `replay_*` table family
+  is provisioned automatically by the standard
+  `PostgresStore::migrate()` call at startup; no separate migrate
+  step needed.
 - **No rate-limit / read-budget on `RunSession` today.** See [Same
   control plane, isolated by construction](#same-control-plane-isolated-by-construction).
   Discipline-only mitigation: run replay during off-peak windows,

@@ -1417,16 +1417,23 @@ async fn main() -> anyhow::Result<()> {
     // Once the dyn cast happens via `Arc::new(store as Arc<dyn ...>)`,
     // we can't recover the other trait object from it — so the fork
     // has to happen here, at the typed Arc.
-    let (inner_receipt_store, anchor_seal_store): (
+    let (inner_receipt_store, anchor_seal_store, replay_store): (
         Arc<dyn ReceiptStore>,
         Arc<dyn yutha_receipt::SealStore>,
+        Arc<dyn yutha_receipt::ReplayStore>,
     ) = match cli.receipt_backend {
         ReceiptBackendArg::Memory => {
             info!("receipt backend: in-memory (non-persistent)");
             let store = Arc::new(MemoryReceiptStore::new());
+            // MemoryReplayStore for in-memory deployments; sessions
+            // and per-session receipts are lost on restart, same
+            // posture as the production receipt store.
+            let replay = Arc::new(yutha_receipt::MemoryReplayStore::new())
+                as Arc<dyn yutha_receipt::ReplayStore>;
             (
                 Arc::clone(&store) as Arc<dyn ReceiptStore>,
                 store as Arc<dyn yutha_receipt::SealStore>,
+                replay,
             )
         }
         ReceiptBackendArg::Postgres => {
@@ -1442,11 +1449,22 @@ async fn main() -> anyhow::Result<()> {
                 .connect(url)
                 .await
                 .with_context(|| format!("connect postgres {url}"))?;
-            let store = Arc::new(yutha_backend_postgres_receipt::PostgresStore::new(pool));
+            let store = Arc::new(yutha_backend_postgres_receipt::PostgresStore::new(
+                pool.clone(),
+            ));
             store.migrate().await.context("postgres migrate")?;
+            // Postgres replay store shares the same pool — the replay
+            // migration lands as part of PostgresStore::migrate (both
+            // crates share one `migrations/` directory). Session
+            // emissions survive control-plane restarts; RFC 0018 §4.1
+            // isolation is enforced at the schema level via the
+            // `replay_*` table family.
+            let replay = Arc::new(yutha_backend_postgres_receipt::PostgresReplayStore::new(pool))
+                as Arc<dyn yutha_receipt::ReplayStore>;
             (
                 Arc::clone(&store) as Arc<dyn ReceiptStore>,
                 store as Arc<dyn yutha_receipt::SealStore>,
+                replay,
             )
         }
     };
@@ -1513,6 +1531,7 @@ async fn main() -> anyhow::Result<()> {
         operator_public_key,
         &workload_sources,
         inner_receipt_store,
+        replay_store,
         attestor,
         cp_signer,
     )
@@ -1871,6 +1890,7 @@ async fn bootstrap_backends(
     operator_public_key: Option<yutha_core::PublicKey>,
     workload_extensions: &[&str],
     inner_receipt_store: Arc<dyn ReceiptStore>,
+    replay_store: Arc<dyn yutha_receipt::ReplayStore>,
     attestor: Arc<dyn yutha_attestor::Attestor>,
     cp_signer: Arc<dyn Signer>,
 ) -> anyhow::Result<(
@@ -2134,10 +2154,11 @@ async fn bootstrap_backends(
     // `enforcement` was constructed earlier (F10g hookup) so the cap
     // store can share it; we just re-use that Arc below.
 
-    // Phase 3c (RFC 0018 §4): replay engine backing. Memory backend
-    // ships in 3c-C; Postgres impl is a 3c follow-on.
-    let replay_store: Arc<dyn yutha_receipt::ReplayStore> =
-        Arc::new(yutha_receipt::MemoryReplayStore::new());
+    // Phase 3c (RFC 0018 §4): replay engine backing. Memory or
+    // Postgres impl selected by `--receipt-backend` upstream and
+    // passed in as the `replay_store` parameter (3c follow-on wired
+    // PostgresReplayStore through the same flag as the production
+    // receipt store).
     let replay_sessions = Arc::new(tokio::sync::RwLock::new(std::collections::HashMap::new()));
 
     Ok((

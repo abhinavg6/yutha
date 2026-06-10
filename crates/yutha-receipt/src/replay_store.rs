@@ -22,27 +22,26 @@
 //!   is bound to the production store only — replay handles are
 //!   distinct `Arc`s and the anchor driver provably can't see them.
 //!
-//! ## Postgres impl
+//! ## Backends
 //!
-//! The memory backend (this file) is the substrate Phase 3c-D through
-//! 3c-H build on. A production Postgres `ReplayStore` impl is a Phase
-//! 3c follow-on — scoped scope-call at 3c-C boundary. Provisional
-//! schema design (for the follow-on):
+//! - **Memory backend (this file).** [`MemoryReplayStore`] is the
+//!   reference implementation; used by tests, by the conformance
+//!   harness, and by `yutha-control-plane --receipt-backend memory`.
+//!   Each session gets its own [`MemoryStore`] instance for
+//!   isolation. Not for production: no durability, no
+//!   cross-process visibility.
+//! - **Postgres backend** lives in
+//!   [`yutha-backend-postgres-receipt`'s `replay` module] —
+//!   `PostgresReplayStore` shares the same pool as `PostgresStore`
+//!   (the production receipt store), and the replay schema is
+//!   provisioned by the same `PostgresStore::migrate()` call. RFC
+//!   0018 §4.1 isolation is enforced at the schema level: per-session
+//!   receipts live in a distinct `replay_*` table family with
+//!   composite `(session_id, receipt_id)` primary keys, and the
+//!   session-scoped handle does NOT implement [`crate::SealStore`]
+//!   (type-system enforcement of the never-anchors invariant).
 //!
-//! - `replay_sessions(session_id UUID PK, candidate_constitution_hash
-//!   BYTEA, candidate_constitution_version TEXT, window_from_ns BIGINT,
-//!   window_to_ns BIGINT, action_kind_filter TEXT[], mode TEXT,
-//!   warm_lookback_hours INT, created_at_wall_clock TEXT,
-//!   created_at_monotonic_ns BIGINT, last_active_at_wall_clock TEXT,
-//!   last_active_at_monotonic_ns BIGINT, receipts_replayed BIGINT)`
-//! - `replay_receipts` — same shape as `receipts` but with an
-//!   additional `session_id UUID` FK and `ON DELETE CASCADE` on the
-//!   sessions row so `delete_session` clears in one statement.
-//! - `replay_receipt_predecessors`, `replay_receipt_signatures`,
-//!   `replay_receipt_evidence` — parallel join tables, also FK-cascaded.
-//!
-//! The `session_store(id)` impl returns a `PostgresStoreSession`
-//! wrapper that scopes every query to `WHERE session_id = $1`.
+//! [`yutha-backend-postgres-receipt`'s `replay` module]: https://github.com/abhinavg6/yutha/blob/main/backends/postgres-receipt/src/replay.rs
 
 use std::collections::HashMap;
 use std::str::FromStr;

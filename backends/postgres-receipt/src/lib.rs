@@ -33,6 +33,9 @@
 #![forbid(unsafe_code)]
 #![warn(missing_docs, rust_2018_idioms)]
 
+pub mod replay;
+pub use replay::{PostgresReplayStore, PostgresSessionScopedStore};
+
 use async_trait::async_trait;
 use sqlx::postgres::{PgPool, PgRow};
 use sqlx::{Postgres, Row, Transaction};
@@ -528,7 +531,10 @@ fn hex_short(bytes: &[u8]) -> String {
 // Pre-append verification (mirrors MemoryStore policy)
 // -----------------------------------------------------------------------------
 
-async fn verify_pre_append(receipt: &Receipt, resolver: &dyn PassportResolver) -> Result<()> {
+pub(crate) async fn verify_pre_append(
+    receipt: &Receipt,
+    resolver: &dyn PassportResolver,
+) -> Result<()> {
     let actor_pk = resolver
         .resolve_actor(&receipt.actor)
         .await?
@@ -900,7 +906,7 @@ async fn fetch_cost(pool: &PgPool, id: &Hash) -> Result<Option<CostAnnotation>> 
 
 /// Extract the 32-byte SHA-256 digest from a [`Hash`]; reject other
 /// algorithms because the schema only stores SHA-256 digests at v1.0.
-fn require_sha256(h: &Hash) -> Result<Vec<u8>> {
+pub(crate) fn require_sha256(h: &Hash) -> Result<Vec<u8>> {
     match h.algorithm {
         HashAlgorithm::Sha256 => Ok(h.digest.clone()),
         other => Err(ReceiptError::Backend(format!(
@@ -909,7 +915,7 @@ fn require_sha256(h: &Hash) -> Result<Vec<u8>> {
     }
 }
 
-fn role_from_rank(rank: i32) -> Result<SignatureRole> {
+pub(crate) fn role_from_rank(rank: i32) -> Result<SignatureRole> {
     Ok(match rank {
         0 => SignatureRole::Actor,
         1 => SignatureRole::ControlPlane,
@@ -927,11 +933,11 @@ fn role_from_rank(rank: i32) -> Result<SignatureRole> {
 /// Translate Rust `u64` (monotonic_ns / token counts) to Postgres `BIGINT`
 /// (`i64`). Values above `i64::MAX` are saturated; for monotonic_ns this is
 /// well outside any realistic process lifetime.
-fn u64_to_i64(v: u64) -> i64 {
+pub(crate) fn u64_to_i64(v: u64) -> i64 {
     i64::try_from(v).unwrap_or(i64::MAX)
 }
 
-fn i64_to_u64(v: i64) -> u64 {
+pub(crate) fn i64_to_u64(v: i64) -> u64 {
     u64::try_from(v).unwrap_or(0)
 }
 
@@ -957,9 +963,9 @@ const DEFAULT_PAGE_LIMIT: usize = 256;
 /// receipt_id_digest)`". The next page starts strictly after this position
 /// in `(occurred_at_ns, receipt_id)` lex order.
 #[derive(Debug, Clone)]
-struct Cursor {
-    occurred_at_ns: i64,
-    receipt_id_digest: Vec<u8>,
+pub(crate) struct Cursor {
+    pub(crate) occurred_at_ns: i64,
+    pub(crate) receipt_id_digest: Vec<u8>,
 }
 
 /// Cursor token format: 40 raw bytes.
@@ -977,7 +983,7 @@ struct Cursor {
 /// it, we'll add a leading version byte and bump.
 const CURSOR_LEN: usize = 8 + 32;
 
-fn encode_cursor(c: &Cursor) -> Vec<u8> {
+pub(crate) fn encode_cursor(c: &Cursor) -> Vec<u8> {
     let mut out = Vec::with_capacity(CURSOR_LEN);
     out.extend_from_slice(&c.occurred_at_ns.to_be_bytes());
     // Defensive: pad/truncate to 32 bytes. The schema enforces 32-byte
@@ -990,7 +996,7 @@ fn encode_cursor(c: &Cursor) -> Vec<u8> {
     out
 }
 
-fn decode_cursor(bytes: &[u8]) -> Result<Cursor> {
+pub(crate) fn decode_cursor(bytes: &[u8]) -> Result<Cursor> {
     if bytes.len() != CURSOR_LEN {
         return Err(ReceiptError::InvalidQuery(format!(
             "page token has wrong length: expected {CURSOR_LEN}, got {}",
