@@ -61,7 +61,7 @@ class Evidence(_message.Message):
     type_url: str
     value: bytes
     sensitive: bool
-    def __init__(self, key: _Optional[str] = ..., type_url: _Optional[str] = ..., value: _Optional[bytes] = ..., sensitive: bool = ...) -> None: ...
+    def __init__(self, key: _Optional[str] = ..., type_url: _Optional[str] = ..., value: _Optional[bytes] = ..., sensitive: _Optional[bool] = ...) -> None: ...
 
 class SignedBy(_message.Message):
     __slots__ = ("role", "signature", "signed_at")
@@ -103,7 +103,7 @@ class AppendRequest(_message.Message):
     WAIT_FOR_SEAL_FIELD_NUMBER: _ClassVar[int]
     receipt: Receipt
     wait_for_seal: bool
-    def __init__(self, receipt: _Optional[_Union[Receipt, _Mapping]] = ..., wait_for_seal: bool = ...) -> None: ...
+    def __init__(self, receipt: _Optional[_Union[Receipt, _Mapping]] = ..., wait_for_seal: _Optional[bool] = ...) -> None: ...
 
 class AppendResponse(_message.Message):
     __slots__ = ("receipt_id", "seal")
@@ -172,7 +172,7 @@ class ExportRequest(_message.Message):
     range: TimeRangeQuery
     action_kinds: _containers.RepeatedScalarFieldContainer[str]
     include_unsealed: bool
-    def __init__(self, range: _Optional[_Union[TimeRangeQuery, _Mapping]] = ..., action_kinds: _Optional[_Iterable[str]] = ..., include_unsealed: bool = ...) -> None: ...
+    def __init__(self, range: _Optional[_Union[TimeRangeQuery, _Mapping]] = ..., action_kinds: _Optional[_Iterable[str]] = ..., include_unsealed: _Optional[bool] = ...) -> None: ...
 
 class ExportManifest(_message.Message):
     __slots__ = ("receipt_ids", "manifest_root", "manifest_signature", "generated_at")

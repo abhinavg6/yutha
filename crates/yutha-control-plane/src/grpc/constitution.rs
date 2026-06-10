@@ -23,8 +23,12 @@ use yutha_core::{Hash, SpecVersion, SwarmId, Timestamp};
 use yutha_crypto::canonical::Canonical;
 use yutha_proto::control_plane::v1::{
     constitution_service_server::ConstitutionService, ActivateConstitutionRequest,
-    ActivateConstitutionResponse, Constitution as ConstitutionProto, GetActiveConstitutionRequest,
-    GetActiveConstitutionResponse,
+    ActivateConstitutionResponse, ActivateShadowConstitutionRequest,
+    ActivateShadowConstitutionResponse, ClearShadowConstitutionRequest,
+    ClearShadowConstitutionResponse, Constitution as ConstitutionProto,
+    GetActiveConstitutionRequest, GetActiveConstitutionResponse,
+    GetActiveShadowConstitutionRequest, GetActiveShadowConstitutionResponse,
+    PromoteShadowConstitutionRequest, PromoteShadowConstitutionResponse,
 };
 use yutha_receipt::{AppendOptions, Evidence, Receipt, SignatureRole, SignedBy};
 
@@ -127,6 +131,195 @@ impl ConstitutionService for ConstitutionHandler {
         Ok(Response::new(GetActiveConstitutionResponse {
             constitution: Some(proto),
             constitution_hash: Some((&constitution_hash).into()),
+        }))
+    }
+
+    // ---- Phase 3b shadow-mode handlers (RFC 0018 §3.2) ----
+
+    async fn activate_shadow(
+        &self,
+        request: Request<ActivateShadowConstitutionRequest>,
+    ) -> Result<Response<ActivateShadowConstitutionResponse>, Status> {
+        // Operator-only per RFC 0018 §3.2 — shadow activation reshapes
+        // the operator's preview surface and produces a receipt
+        // attributed to the operator. Same auth posture as `activate`.
+        let op_auth = require_operator_bearer_auth(&request, &self.state).await?;
+
+        let req = request.into_inner();
+        let constitution_proto = req
+            .constitution
+            .as_ref()
+            .ok_or_else(|| missing_field("constitution"))?;
+        let constitution = constitution_from_proto(constitution_proto)?;
+
+        // Capture the parent-active hash BEFORE the activate_shadow
+        // write — the receipt's `parent_active_constitution_hash`
+        // evidence reflects what was active at the moment the shadow
+        // got loaded. A concurrent direct `Activate` between this
+        // read and the activate_shadow write would race for the
+        // recorded parent; the race is benign (audit clarity holds at
+        // single-operator cadence; concurrent operator activates are
+        // rare and the parent_active is best-effort context).
+        let parent_active_hash = self
+            .state
+            .cedar_plus
+            .current()
+            .await
+            .map(|a| a.constitution.constitution_hash.clone());
+
+        let shadow_constitution_hash = self
+            .state
+            .cedar_plus
+            .activate_shadow(constitution)
+            .await
+            .map_err(|e| cedar_plus_to_status(&e))?;
+
+        // Re-read the shadow slot to capture `constitution_version` +
+        // `schema_version` for the receipt. Defensive — activate_shadow
+        // just wrote the slot, so current_shadow() should always
+        // return Some. If a concurrent `clear_shadow` / `promote_shadow`
+        // races between our write and this read, fall back to the
+        // shapes pulled from the wire proto.
+        let (shadow_constitution_version, schema_version) =
+            if let Some(shadow_active) = self.state.cedar_plus.current_shadow().await {
+                (
+                    shadow_active.constitution.constitution_version.clone(),
+                    shadow_active.constitution.schema_version.clone(),
+                )
+            } else {
+                (
+                    constitution_proto.constitution_version.clone(),
+                    constitution_proto.schema_version.clone(),
+                )
+            };
+
+        let activate_receipt = emit_constitution_shadow_activate_receipt(
+            &self.state,
+            &shadow_constitution_hash,
+            &shadow_constitution_version,
+            parent_active_hash.as_ref(),
+            &schema_version,
+            &op_auth.swarm_id,
+        )
+        .await?;
+
+        Ok(Response::new(ActivateShadowConstitutionResponse {
+            shadow_constitution_hash: Some((&shadow_constitution_hash).into()),
+            shadow_activate_receipt: Some((&activate_receipt).into()),
+        }))
+    }
+
+    async fn clear_shadow(
+        &self,
+        request: Request<ClearShadowConstitutionRequest>,
+    ) -> Result<Response<ClearShadowConstitutionResponse>, Status> {
+        let op_auth = require_operator_bearer_auth(&request, &self.state).await?;
+
+        // Capture the constitution_version of whatever shadow we're
+        // about to evict — used for the receipt's
+        // `constitution_version` builder field. Read BEFORE
+        // clear_shadow drops the slot.
+        let shadow_constitution_version = self
+            .state
+            .cedar_plus
+            .current_shadow()
+            .await
+            .map(|a| a.constitution.constitution_version.clone());
+
+        let previously_shadowed = self.state.cedar_plus.clear_shadow().await;
+
+        let clear_receipt = emit_constitution_shadow_clear_receipt(
+            &self.state,
+            previously_shadowed.as_ref(),
+            shadow_constitution_version.as_deref(),
+            &op_auth.swarm_id,
+        )
+        .await?;
+
+        Ok(Response::new(ClearShadowConstitutionResponse {
+            shadow_clear_receipt: Some((&clear_receipt).into()),
+            previously_shadowed_constitution_hash: previously_shadowed.as_ref().map(|h| h.into()),
+        }))
+    }
+
+    async fn promote_shadow(
+        &self,
+        request: Request<PromoteShadowConstitutionRequest>,
+    ) -> Result<Response<PromoteShadowConstitutionResponse>, Status> {
+        let op_auth = require_operator_bearer_auth(&request, &self.state).await?;
+
+        let outcome = self
+            .state
+            .cedar_plus
+            .promote_shadow()
+            .await
+            .ok_or_else(|| {
+                Status::failed_precondition(
+                    "no shadow constitution to promote; call ActivateShadow first",
+                )
+            })?;
+
+        // Rebind the enforcement engine onto the new active
+        // constitution. Per RFC 0018 §3.2: per-agent reputation +
+        // quarantine state is preserved across promote (it's
+        // agent-keyed, not constitution-keyed); sliding-window
+        // counters reset to match the existing
+        // `EnforcementEngine::activate` posture (the new constitution's
+        // enforcement_rules may differ in their windowing, so prior
+        // counters are no longer meaningful).
+        self.state
+            .enforcement
+            .activate(outcome.promoted.clone())
+            .await;
+
+        let promote_receipt = emit_constitution_shadow_promote_receipt(
+            &self.state,
+            outcome.from_active_constitution_hash.as_ref(),
+            &outcome.to_active_constitution_hash,
+            &outcome.to_constitution_version,
+            &outcome.schema_version,
+            &op_auth.swarm_id,
+        )
+        .await?;
+
+        Ok(Response::new(PromoteShadowConstitutionResponse {
+            to_active_constitution_hash: Some((&outcome.to_active_constitution_hash).into()),
+            shadow_promote_receipt: Some((&promote_receipt).into()),
+            from_active_constitution_hash: outcome
+                .from_active_constitution_hash
+                .as_ref()
+                .map(|h| h.into()),
+        }))
+    }
+
+    async fn get_active_shadow(
+        &self,
+        request: Request<GetActiveShadowConstitutionRequest>,
+    ) -> Result<Response<GetActiveShadowConstitutionResponse>, Status> {
+        // Agent-bearer-authenticated for read symmetry with GetActive
+        // — any registered agent may inspect what shadow (if any) is
+        // loaded.
+        let _auth = require_active_bearer_auth(&request, &self.state).await?;
+
+        let Some(shadow_active) = self.state.cedar_plus.current_shadow().await else {
+            // Empty shadow slot is not an error — it's the default
+            // posture. Return an empty response per the proto's
+            // optional-field semantics. Symmetric with how GetActive
+            // returns NOT_FOUND when nothing is active; we return OK
+            // with absent fields here because "no shadow" is a stable
+            // operator state, not an error.
+            return Ok(Response::new(GetActiveShadowConstitutionResponse {
+                constitution: None,
+                shadow_constitution_hash: None,
+            }));
+        };
+
+        let shadow_constitution_hash = shadow_active.constitution.constitution_hash.clone();
+        let proto = constitution_to_proto(&shadow_active.constitution);
+
+        Ok(Response::new(GetActiveShadowConstitutionResponse {
+            constitution: Some(proto),
+            shadow_constitution_hash: Some((&shadow_constitution_hash).into()),
         }))
     }
 }
@@ -285,6 +478,258 @@ async fn emit_constitution_activate_receipt(
         .append(receipt, AppendOptions::default(), state.resolver.as_ref())
         .await
         .map_err(|e| Status::internal(format!("constitution.activate append: {e}")))?;
+    Ok(outcome.receipt_id)
+}
+
+/// Emit a `constitution.shadow_activate` receipt (RFC 0018 §3.2).
+/// Audit-trail anchor for shadow-mode previews. Same emission pattern
+/// as `emit_constitution_activate_receipt`; evidence shape per
+/// `/spec/receipt/canonical-actions.md`:
+///
+/// - `shadow_constitution_hash` — content-address of the loaded shadow.
+/// - `shadow_constitution_version` — version string of the loaded
+///   shadow.
+/// - `parent_active_constitution_hash` — content-address of the
+///   constitution that was active at the moment of shadow load.
+///   Omitted when no active was loaded (fresh-swarm case).
+/// - `schema_version` — schema version the shadow was authored
+///   against.
+async fn emit_constitution_shadow_activate_receipt(
+    state: &ControlPlaneState,
+    shadow_constitution_hash: &Hash,
+    shadow_constitution_version: &str,
+    parent_active_hash: Option<&Hash>,
+    schema_version: &str,
+    swarm_id: &SwarmId,
+) -> Result<Hash, Status> {
+    let spec_version = SpecVersion::parse("1.0.0").map_err(|e| {
+        Status::internal(format!(
+            "constitution.shadow_activate receipt spec_version: {e}"
+        ))
+    })?;
+
+    let mut evidence: Vec<Evidence> = vec![
+        Evidence::new(
+            "shadow_constitution_hash",
+            "type.yutha.dev/v1/Hash",
+            shadow_constitution_hash.digest.clone(),
+        ),
+        Evidence::new(
+            "shadow_constitution_version",
+            "type.yutha.dev/v1/String",
+            shadow_constitution_version.as_bytes().to_vec(),
+        ),
+        Evidence::new(
+            "schema_version",
+            "type.yutha.dev/v1/String",
+            schema_version.as_bytes().to_vec(),
+        ),
+    ];
+    if let Some(parent) = parent_active_hash {
+        evidence.push(Evidence::new(
+            "parent_active_constitution_hash",
+            "type.yutha.dev/v1/Hash",
+            parent.digest.clone(),
+        ));
+    }
+
+    let mut builder = Receipt::builder()
+        .spec_version(spec_version)
+        .swarm_id(*swarm_id)
+        .actor(state.control_plane_identity.agent_id)
+        .action_kind("constitution.shadow_activate")
+        .constitution_version(shadow_constitution_version)
+        .occurred_at(Timestamp::now());
+    for e in evidence {
+        builder = builder.evidence(e);
+    }
+    let mut receipt = builder.build().map_err(|e| {
+        Status::internal(format!("constitution.shadow_activate receipt build: {e}"))
+    })?;
+
+    let bytes = receipt
+        .canonical_bytes()
+        .map_err(|e| Status::internal(format!("constitution.shadow_activate canonical: {e}")))?;
+    let sig = state
+        .control_plane_identity
+        .sign(&bytes)
+        .await
+        .map_err(|e| Status::internal(format!("constitution.shadow_activate signer: {e}")))?;
+    receipt
+        .signatures
+        .push(SignedBy::new(SignatureRole::Actor, sig, Timestamp::now()));
+
+    let outcome = state
+        .receipt_store
+        .append(receipt, AppendOptions::default(), state.resolver.as_ref())
+        .await
+        .map_err(|e| Status::internal(format!("constitution.shadow_activate append: {e}")))?;
+    Ok(outcome.receipt_id)
+}
+
+/// Emit a `constitution.shadow_clear` receipt (RFC 0018 §3.2).
+/// Idempotent: emitted even when the slot was already empty at the
+/// time of the call (the receipt records the operator's intent). When
+/// the slot was empty, `previously_shadowed_constitution_hash`
+/// evidence is omitted; the `constitution_version` builder field
+/// falls back to the swarm's active constitution version if known, or
+/// `"0.0.0"` if the swarm has no active either.
+async fn emit_constitution_shadow_clear_receipt(
+    state: &ControlPlaneState,
+    previously_shadowed: Option<&Hash>,
+    previously_shadowed_constitution_version: Option<&str>,
+    swarm_id: &SwarmId,
+) -> Result<Hash, Status> {
+    let spec_version = SpecVersion::parse("1.0.0").map_err(|e| {
+        Status::internal(format!(
+            "constitution.shadow_clear receipt spec_version: {e}"
+        ))
+    })?;
+
+    // For the builder's constitution_version field: prefer the
+    // shadow's version (it's the most accurate marker of which
+    // constitution this clear receipt is about); fall back to the
+    // active constitution's version; fall back to "0.0.0" for the
+    // pre-genesis swarm case. The Receipt::builder requires a
+    // non-empty constitution_version regardless of receipt content.
+    let constitution_version_for_builder: String =
+        if let Some(v) = previously_shadowed_constitution_version {
+            v.to_string()
+        } else if let Some(active) = state.cedar_plus.current().await {
+            active.constitution.constitution_version.clone()
+        } else {
+            "0.0.0".to_string()
+        };
+
+    let mut evidence: Vec<Evidence> = Vec::new();
+    if let Some(prev) = previously_shadowed {
+        evidence.push(Evidence::new(
+            "previously_shadowed_constitution_hash",
+            "type.yutha.dev/v1/Hash",
+            prev.digest.clone(),
+        ));
+    }
+
+    let mut builder = Receipt::builder()
+        .spec_version(spec_version)
+        .swarm_id(*swarm_id)
+        .actor(state.control_plane_identity.agent_id)
+        .action_kind("constitution.shadow_clear")
+        .constitution_version(&constitution_version_for_builder)
+        .occurred_at(Timestamp::now());
+    for e in evidence {
+        builder = builder.evidence(e);
+    }
+    let mut receipt = builder
+        .build()
+        .map_err(|e| Status::internal(format!("constitution.shadow_clear receipt build: {e}")))?;
+
+    let bytes = receipt
+        .canonical_bytes()
+        .map_err(|e| Status::internal(format!("constitution.shadow_clear canonical: {e}")))?;
+    let sig = state
+        .control_plane_identity
+        .sign(&bytes)
+        .await
+        .map_err(|e| Status::internal(format!("constitution.shadow_clear signer: {e}")))?;
+    receipt
+        .signatures
+        .push(SignedBy::new(SignatureRole::Actor, sig, Timestamp::now()));
+
+    let outcome = state
+        .receipt_store
+        .append(receipt, AppendOptions::default(), state.resolver.as_ref())
+        .await
+        .map_err(|e| Status::internal(format!("constitution.shadow_clear append: {e}")))?;
+    Ok(outcome.receipt_id)
+}
+
+/// Emit a `constitution.shadow_promote` receipt (RFC 0018 §3.2).
+/// Distinct from `constitution.activate` for audit clarity — auditors
+/// reviewing the constitution chain can distinguish "arrived via
+/// direct activation" from "arrived via shadow-preview-then-promote"
+/// (mirrors the `agent.operator_revoke` vs `agent.revoke` precedent
+/// per RFC 0009).
+///
+/// Evidence:
+///
+/// - `to_active_constitution_hash` — content-address of the new
+///   active (the formerly-shadowed constitution).
+/// - `to_constitution_version` — version of the new active.
+/// - `schema_version` — schema the new active was authored against.
+/// - `from_active_constitution_hash` — content-address of the
+///   previous active. Omitted when no active was loaded at the time
+///   of promote (fresh-swarm case).
+async fn emit_constitution_shadow_promote_receipt(
+    state: &ControlPlaneState,
+    from_active_hash: Option<&Hash>,
+    to_active_hash: &Hash,
+    to_constitution_version: &str,
+    schema_version: &str,
+    swarm_id: &SwarmId,
+) -> Result<Hash, Status> {
+    let spec_version = SpecVersion::parse("1.0.0").map_err(|e| {
+        Status::internal(format!(
+            "constitution.shadow_promote receipt spec_version: {e}"
+        ))
+    })?;
+
+    let mut evidence: Vec<Evidence> = vec![
+        Evidence::new(
+            "to_active_constitution_hash",
+            "type.yutha.dev/v1/Hash",
+            to_active_hash.digest.clone(),
+        ),
+        Evidence::new(
+            "to_constitution_version",
+            "type.yutha.dev/v1/String",
+            to_constitution_version.as_bytes().to_vec(),
+        ),
+        Evidence::new(
+            "schema_version",
+            "type.yutha.dev/v1/String",
+            schema_version.as_bytes().to_vec(),
+        ),
+    ];
+    if let Some(from) = from_active_hash {
+        evidence.push(Evidence::new(
+            "from_active_constitution_hash",
+            "type.yutha.dev/v1/Hash",
+            from.digest.clone(),
+        ));
+    }
+
+    let mut builder = Receipt::builder()
+        .spec_version(spec_version)
+        .swarm_id(*swarm_id)
+        .actor(state.control_plane_identity.agent_id)
+        .action_kind("constitution.shadow_promote")
+        .constitution_version(to_constitution_version)
+        .occurred_at(Timestamp::now());
+    for e in evidence {
+        builder = builder.evidence(e);
+    }
+    let mut receipt = builder
+        .build()
+        .map_err(|e| Status::internal(format!("constitution.shadow_promote receipt build: {e}")))?;
+
+    let bytes = receipt
+        .canonical_bytes()
+        .map_err(|e| Status::internal(format!("constitution.shadow_promote canonical: {e}")))?;
+    let sig = state
+        .control_plane_identity
+        .sign(&bytes)
+        .await
+        .map_err(|e| Status::internal(format!("constitution.shadow_promote signer: {e}")))?;
+    receipt
+        .signatures
+        .push(SignedBy::new(SignatureRole::Actor, sig, Timestamp::now()));
+
+    let outcome = state
+        .receipt_store
+        .append(receipt, AppendOptions::default(), state.resolver.as_ref())
+        .await
+        .map_err(|e| Status::internal(format!("constitution.shadow_promote append: {e}")))?;
     Ok(outcome.receipt_id)
 }
 

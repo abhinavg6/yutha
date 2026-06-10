@@ -25,7 +25,9 @@ from yutha.auth import BearerSession, make_interceptors, skip_auth_metadata
 from yutha.channel import make_channel
 from yutha.client import (
     ActivatedConstitution,
+    ActivatedShadowConstitution,
     ActiveConstitution,
+    ActiveShadowConstitution,
     AdmissionAPI,
     CapabilityAPI,
     ConstitutionAPI,
@@ -33,6 +35,8 @@ from yutha.client import (
     EnvelopeAPI,
     OperatorRevokeOutcome,
     ReceiptAPI,
+    ShadowCleared,
+    ShadowPromoted,
     YuthaClient,
 )
 from yutha.crypto import (
@@ -102,6 +106,10 @@ __all__ = [
     "OperatorRevokeOutcome",
     "ActivatedConstitution",
     "ActiveConstitution",
+    "ActivatedShadowConstitution",
+    "ShadowCleared",
+    "ShadowPromoted",
+    "ActiveShadowConstitution",
     "ReceiptAPI",
     "BearerSession",
     "make_interceptors",

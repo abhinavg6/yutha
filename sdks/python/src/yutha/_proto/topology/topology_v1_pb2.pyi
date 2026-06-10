@@ -50,7 +50,7 @@ class Topology(_message.Message):
     require_capability_for_send: bool
     extensions: _common_pb2.Extensions
     operator_signature: _common_pb2.Signature
-    def __init__(self, spec_version: _Optional[_Union[_common_pb2.Version, _Mapping]] = ..., swarm_id: _Optional[_Union[_common_pb2.SwarmId, _Mapping]] = ..., mode: _Optional[_Union[TopologyMode, str]] = ..., admission: _Optional[_Union[AdmissionPolicy, _Mapping]] = ..., max_capability_lifetime_seconds: _Optional[int] = ..., max_capability_chain_depth: _Optional[int] = ..., default_envelope_ttl_seconds: _Optional[int] = ..., max_epoch_skew: _Optional[int] = ..., external_sends_permitted: bool = ..., initial_constitution_version: _Optional[str] = ..., operator_key_fingerprint: _Optional[bytes] = ..., require_capability_for_send: bool = ..., extensions: _Optional[_Union[_common_pb2.Extensions, _Mapping]] = ..., operator_signature: _Optional[_Union[_common_pb2.Signature, _Mapping]] = ...) -> None: ...
+    def __init__(self, spec_version: _Optional[_Union[_common_pb2.Version, _Mapping]] = ..., swarm_id: _Optional[_Union[_common_pb2.SwarmId, _Mapping]] = ..., mode: _Optional[_Union[TopologyMode, str]] = ..., admission: _Optional[_Union[AdmissionPolicy, _Mapping]] = ..., max_capability_lifetime_seconds: _Optional[int] = ..., max_capability_chain_depth: _Optional[int] = ..., default_envelope_ttl_seconds: _Optional[int] = ..., max_epoch_skew: _Optional[int] = ..., external_sends_permitted: _Optional[bool] = ..., initial_constitution_version: _Optional[str] = ..., operator_key_fingerprint: _Optional[bytes] = ..., require_capability_for_send: _Optional[bool] = ..., extensions: _Optional[_Union[_common_pb2.Extensions, _Mapping]] = ..., operator_signature: _Optional[_Union[_common_pb2.Signature, _Mapping]] = ...) -> None: ...
 
 class AdmissionPolicy(_message.Message):
     __slots__ = ("closed", "open", "hybrid")
@@ -70,7 +70,7 @@ class ClosedPolicy(_message.Message):
     allowlisted_agents: _containers.RepeatedCompositeFieldContainer[_common_pb2.AgentId]
     allowlisted_owner_key_fingerprints: _containers.RepeatedScalarFieldContainer[bytes]
     pending_review_on_unknown: bool
-    def __init__(self, allowlisted_agents: _Optional[_Iterable[_Union[_common_pb2.AgentId, _Mapping]]] = ..., allowlisted_owner_key_fingerprints: _Optional[_Iterable[bytes]] = ..., pending_review_on_unknown: bool = ...) -> None: ...
+    def __init__(self, allowlisted_agents: _Optional[_Iterable[_Union[_common_pb2.AgentId, _Mapping]]] = ..., allowlisted_owner_key_fingerprints: _Optional[_Iterable[bytes]] = ..., pending_review_on_unknown: _Optional[bool] = ...) -> None: ...
 
 class OpenPolicy(_message.Message):
     __slots__ = ("requirements", "min_passport_tier", "max_passport_lifetime_seconds", "default_initial_scope")
@@ -94,7 +94,7 @@ class HybridPolicy(_message.Message):
     periphery: OpenPolicy
     periphery_capability_constraint: _capability_v1_pb2.Scope
     periphery_may_delegate: bool
-    def __init__(self, core: _Optional[_Union[ClosedPolicy, _Mapping]] = ..., periphery: _Optional[_Union[OpenPolicy, _Mapping]] = ..., periphery_capability_constraint: _Optional[_Union[_capability_v1_pb2.Scope, _Mapping]] = ..., periphery_may_delegate: bool = ...) -> None: ...
+    def __init__(self, core: _Optional[_Union[ClosedPolicy, _Mapping]] = ..., periphery: _Optional[_Union[OpenPolicy, _Mapping]] = ..., periphery_capability_constraint: _Optional[_Union[_capability_v1_pb2.Scope, _Mapping]] = ..., periphery_may_delegate: _Optional[bool] = ...) -> None: ...
 
 class SybilResistanceRequirement(_message.Message):
     __slots__ = ("proof_of_work", "hardware_attestation", "idp_attestation", "stake", "invite")

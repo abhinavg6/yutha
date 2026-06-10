@@ -54,8 +54,10 @@ use yutha_proto::common::v1 as common;
 use yutha_proto::control_plane::v1::{
     admission_service_client::AdmissionServiceClient,
     constitution_service_client::ConstitutionServiceClient,
-    receipt_service_client::ReceiptServiceClient, ActivateConstitutionRequest, AgentBearerToken,
-    Constitution, OperatorBearerToken, OperatorRevokeRequest, QueryReceiptsRequest,
+    receipt_service_client::ReceiptServiceClient, ActivateConstitutionRequest,
+    ActivateShadowConstitutionRequest, AgentBearerToken, ClearShadowConstitutionRequest,
+    Constitution, OperatorBearerToken, OperatorRevokeRequest, PromoteShadowConstitutionRequest,
+    QueryReceiptsRequest,
 };
 use yutha_proto::receipt::v1::{ActionKindQuery, QueryRequest};
 
@@ -107,6 +109,49 @@ enum Cmd {
         #[arg(long, default_value = "1.1.0")]
         schema_version: String,
     },
+
+    /// Load a candidate constitution into the shadow slot via
+    /// ConstitutionService.ActivateShadow (Phase 3b, RFC 0018 §3.2).
+    ///
+    /// Once loaded, every envelope evaluates against both the active
+    /// and the shadow; the active gates the cap layer + enforcement
+    /// engine, the shadow only emits
+    /// `constitution.evaluate.shadow.{pass,deny}` receipts.
+    ///
+    /// Operator workflow: activate-shadow → watch divergence (e.g.
+    /// `yutha-ops grep constitution.evaluate.shadow.deny`) →
+    /// promote-shadow when satisfied, or clear-shadow + re-activate
+    /// to iterate.
+    ActivateShadow {
+        /// Path to the Cedar policy source file for the shadow.
+        cedar_file: PathBuf,
+        /// Path to the engine-config YAML file for the shadow. Same
+        /// semantics as `activate --engine-config`.
+        #[arg(long)]
+        engine_config: Option<PathBuf>,
+        /// Shadow constitution version (semver). May differ from the
+        /// active's — operators previewing an amendment typically bump
+        /// the version here ahead of the eventual promote.
+        #[arg(long, default_value = "1.0.0")]
+        version: String,
+        /// Cedar+ schema_version the shadow is authored against.
+        #[arg(long, default_value = "1.1.0")]
+        schema_version: String,
+    },
+
+    /// Clear the shadow slot via ConstitutionService.ClearShadow.
+    /// Idempotent — emits a `constitution.shadow_clear` receipt even
+    /// if the slot was already empty (the receipt records the
+    /// operator's intent regardless).
+    ClearShadow,
+
+    /// Atomically promote the shadow slot to active via
+    /// ConstitutionService.PromoteShadow (Phase 3b, RFC 0018 §3.2).
+    /// The shadow slot is left empty. Per-agent reputation +
+    /// quarantine state is preserved; sliding-window counters reset.
+    ///
+    /// Fails with FAILED_PRECONDITION if the shadow slot is empty.
+    PromoteShadow,
 
     /// Query receipts by action_kind via ReceiptService.Query.
     Grep {
@@ -217,6 +262,24 @@ async fn main() -> anyhow::Result<()> {
             )
             .await
         }
+        Cmd::ActivateShadow {
+            cedar_file,
+            engine_config,
+            version,
+            schema_version,
+        } => {
+            cmd_activate_shadow(
+                channel,
+                &identity,
+                cedar_file,
+                engine_config,
+                version,
+                schema_version,
+            )
+            .await
+        }
+        Cmd::ClearShadow => cmd_clear_shadow(channel, &identity).await,
+        Cmd::PromoteShadow => cmd_promote_shadow(channel, &identity).await,
         Cmd::Grep { action_kind, limit } => cmd_grep(channel, &identity, action_kind, limit).await,
         Cmd::Revoke {
             agent_id,
@@ -324,6 +387,135 @@ async fn cmd_activate(
     println!("activated:");
     println!("  constitution_hash: {constitution_hash}");
     println!("  activate_receipt:  {activate_receipt}");
+    Ok(())
+}
+
+// ---- Phase 3b shadow-mode subcommand bodies (RFC 0018 §3.2) ----
+
+async fn cmd_activate_shadow(
+    channel: Channel,
+    identity: &SeedIdentity,
+    cedar_file: PathBuf,
+    engine_config: Option<PathBuf>,
+    version: String,
+    schema_version: String,
+) -> anyhow::Result<()> {
+    let cedar_source = std::fs::read_to_string(&cedar_file)
+        .with_context(|| format!("read cedar source {cedar_file:?}"))?;
+    let engine_config_yaml = match engine_config {
+        Some(path) => std::fs::read_to_string(&path)
+            .with_context(|| format!("read engine config {path:?}"))?,
+        None => DEFAULT_EMPTY_ENGINE_CONFIG_YAML.to_string(),
+    };
+
+    let now = Timestamp::now();
+    let constitution = Constitution {
+        spec_version: Some((&SpecVersion::parse("1.0.0")?).into()),
+        schema_version,
+        constitution_version: version,
+        parent_version: None,
+        swarm_id: Some((&identity.swarm_id).into()),
+        cedar_source,
+        engine_config_yaml,
+        issued_at: Some((&now).into()),
+    };
+
+    let token_hex = mint_operator_token(identity)?;
+    let mut client = ConstitutionServiceClient::new(channel);
+    let mut request = Request::new(ActivateShadowConstitutionRequest {
+        constitution: Some(constitution),
+    });
+    request.metadata_mut().insert(
+        "authorization",
+        MetadataValue::try_from(format!("bearer operator {token_hex}"))?,
+    );
+    let response = client.activate_shadow(request).await?.into_inner();
+
+    let shadow_constitution_hash = response
+        .shadow_constitution_hash
+        .as_ref()
+        .map(|h| hex::encode(&h.digest))
+        .unwrap_or_default();
+    let shadow_activate_receipt = response
+        .shadow_activate_receipt
+        .as_ref()
+        .map(|h| hex::encode(&h.digest))
+        .unwrap_or_default();
+    println!("shadow activated:");
+    println!("  shadow_constitution_hash: {shadow_constitution_hash}");
+    println!("  shadow_activate_receipt:  {shadow_activate_receipt}");
+    println!();
+    println!("Watch divergence with:");
+    println!("  yutha-ops grep constitution.evaluate.shadow.deny");
+    println!("  yutha-ops grep constitution.evaluate.shadow.pass");
+    println!("Promote when satisfied:");
+    println!("  yutha-ops promote-shadow");
+    Ok(())
+}
+
+async fn cmd_clear_shadow(channel: Channel, identity: &SeedIdentity) -> anyhow::Result<()> {
+    let token_hex = mint_operator_token(identity)?;
+    let mut client = ConstitutionServiceClient::new(channel);
+    let mut request = Request::new(ClearShadowConstitutionRequest {});
+    request.metadata_mut().insert(
+        "authorization",
+        MetadataValue::try_from(format!("bearer operator {token_hex}"))?,
+    );
+    let response = client.clear_shadow(request).await?.into_inner();
+
+    let shadow_clear_receipt = response
+        .shadow_clear_receipt
+        .as_ref()
+        .map(|h| hex::encode(&h.digest))
+        .unwrap_or_default();
+    let previously_shadowed = response
+        .previously_shadowed_constitution_hash
+        .as_ref()
+        .map(|h| hex::encode(&h.digest));
+    println!("shadow cleared:");
+    println!("  shadow_clear_receipt: {shadow_clear_receipt}");
+    match previously_shadowed {
+        Some(hash) => println!("  previously_shadowed:  {hash}"),
+        None => println!("  previously_shadowed:  (slot was empty)"),
+    }
+    Ok(())
+}
+
+async fn cmd_promote_shadow(channel: Channel, identity: &SeedIdentity) -> anyhow::Result<()> {
+    let token_hex = mint_operator_token(identity)?;
+    let mut client = ConstitutionServiceClient::new(channel);
+    let mut request = Request::new(PromoteShadowConstitutionRequest {});
+    request.metadata_mut().insert(
+        "authorization",
+        MetadataValue::try_from(format!("bearer operator {token_hex}"))?,
+    );
+    // FAILED_PRECONDITION surfaces as a tonic Status error here — the
+    // `?` propagation gives the operator a clear server-side message
+    // ("no shadow constitution to promote; call ActivateShadow
+    // first") without any client-side translation.
+    let response = client.promote_shadow(request).await?.into_inner();
+
+    let to_active = response
+        .to_active_constitution_hash
+        .as_ref()
+        .map(|h| hex::encode(&h.digest))
+        .unwrap_or_default();
+    let shadow_promote_receipt = response
+        .shadow_promote_receipt
+        .as_ref()
+        .map(|h| hex::encode(&h.digest))
+        .unwrap_or_default();
+    let from_active = response
+        .from_active_constitution_hash
+        .as_ref()
+        .map(|h| hex::encode(&h.digest));
+    println!("shadow promoted:");
+    println!("  to_active_constitution_hash: {to_active}");
+    println!("  shadow_promote_receipt:      {shadow_promote_receipt}");
+    match from_active {
+        Some(hash) => println!("  from_active_constitution_hash: {hash}"),
+        None => println!("  from_active_constitution_hash: (no active was loaded)"),
+    }
     Ok(())
 }
 

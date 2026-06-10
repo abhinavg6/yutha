@@ -574,16 +574,109 @@ class ActiveConstitution:
     constitution_hash: Hash
 
 
-class ConstitutionAPI:
-    """Wraps :class:`ConstitutionServiceStub` (RFCs 0010-0013, F10a-h).
+@dataclass(frozen=True)
+class ActivatedShadowConstitution:
+    """Both halves of a successful
+    :meth:`ConstitutionAPI.activate_shadow` call (Phase 3b, RFC 0018
+    §3.2).
 
-    Two RPCs:
+    ``shadow_constitution_hash`` is the content-address of the
+    activated shadow — the same hash the constitution will carry if
+    the operator later promotes it via
+    :meth:`ConstitutionAPI.promote_shadow` (content-addressing is over
+    the constitution's canonical bytes, not over slot history).
+
+    ``shadow_activate_receipt`` is the content-address of the
+    ``constitution.shadow_activate`` substrate receipt; queryable via
+    :class:`ReceiptAPI`.
+    """
+
+    shadow_constitution_hash: Hash
+    shadow_activate_receipt: Hash
+
+
+@dataclass(frozen=True)
+class ShadowCleared:
+    """Result of :meth:`ConstitutionAPI.clear_shadow` (Phase 3b, RFC
+    0018 §3.2).
+
+    ``shadow_clear_receipt`` is always present — the receipt records
+    the operator's intent even when the slot was already empty at the
+    time of call (idempotent semantics).
+
+    ``previously_shadowed_constitution_hash`` is the content-address
+    of the constitution that was in the shadow slot at the moment of
+    clear, or ``None`` when the slot was already empty.
+    """
+
+    shadow_clear_receipt: Hash
+    previously_shadowed_constitution_hash: Hash | None
+
+
+@dataclass(frozen=True)
+class ShadowPromoted:
+    """Result of :meth:`ConstitutionAPI.promote_shadow` (Phase 3b, RFC
+    0018 §3.2).
+
+    ``to_active_constitution_hash`` is the content-address of the new
+    active constitution — equal to the content-address the shadow held
+    immediately before the promote.
+
+    ``shadow_promote_receipt`` is the content-address of the
+    ``constitution.shadow_promote`` substrate receipt. Distinct from
+    ``constitution.activate`` for audit clarity per RFC 0018 §3.2.
+
+    ``from_active_constitution_hash`` is the content-address of the
+    constitution that was active immediately before the promote, or
+    ``None`` for the fresh-swarm case (no active was loaded at the
+    moment of promote — bring a constitution up via shadow then
+    promote without ever calling :meth:`activate` directly).
+    """
+
+    to_active_constitution_hash: Hash
+    shadow_promote_receipt: Hash
+    from_active_constitution_hash: Hash | None
+
+
+@dataclass(frozen=True)
+class ActiveShadowConstitution:
+    """Result of :meth:`ConstitutionAPI.get_active_shadow` when a
+    shadow constitution is loaded (Phase 3b, RFC 0018 §3.2). Same
+    shape as :class:`ActiveConstitution`; returned as ``None`` when
+    the shadow slot is empty (which is a stable operator state, not
+    an error)."""
+
+    constitution: Constitution
+    shadow_constitution_hash: Hash
+
+
+class ConstitutionAPI:
+    """Wraps :class:`ConstitutionServiceStub` (RFCs 0010-0013, F10a-h;
+    Phase 3b shadow-mode RPCs per RFC 0018).
+
+    Active-slot RPCs:
 
       * :meth:`activate` — operator-bearer-authenticated. Publishes a
         constitution; replaces the swarm's currently-active one.
       * :meth:`get_active` — agent-bearer-authenticated. Reads the
         currently-active constitution; returns ``None`` if none has
         been activated yet.
+
+    Shadow-slot RPCs (Phase 3b, RFC 0018 §3.2):
+
+      * :meth:`activate_shadow` — operator-bearer-authenticated. Loads
+        a candidate constitution into the shadow slot. Both slots
+        evaluate every envelope; the active gates the cap layer + the
+        enforcement engine, the shadow only emits
+        ``constitution.evaluate.shadow.{pass,deny}`` receipts.
+      * :meth:`clear_shadow` — operator-bearer-authenticated.
+        Idempotent.
+      * :meth:`promote_shadow` — operator-bearer-authenticated.
+        Atomic shadow → active swap; rebinds the enforcement engine
+        onto the new active. Raises ``FAILED_PRECONDITION`` when the
+        shadow slot is empty.
+      * :meth:`get_active_shadow` — agent-bearer-authenticated.
+        Returns ``None`` when no shadow is loaded.
 
     The constitution layer gates ``EnvelopeService.Send`` (per F10d),
     so a freshly-started control plane refuses sends with
@@ -638,6 +731,116 @@ class ConstitutionAPI:
         return ActiveConstitution(
             constitution=Constitution.from_proto(resp.constitution),
             constitution_hash=Hash.from_proto(resp.constitution_hash),
+        )
+
+    # ---- Phase 3b shadow-mode methods (RFC 0018 §3.2) ----
+
+    async def activate_shadow(
+        self, constitution: Constitution
+    ) -> ActivatedShadowConstitution:
+        """Activate ``constitution`` into the shadow slot (RFC 0018
+        §3.2).
+
+        Requires an operator-bearer client; agent bearers get
+        ``UNAUTHENTICATED``. The server runs the same load-time
+        validation pass as :meth:`activate` — load-time failures
+        surface here, not at evaluate time. Replaces any
+        previously-loaded shadow without a separate clear receipt;
+        the emitted ``constitution.shadow_activate`` receipt covers
+        the activation regardless of prior slot state.
+
+        Does NOT bind the constitution onto the enforcement engine —
+        the shadow slot is observation-only per RFC 0018 §3.5. To
+        actually swap shadow → active call :meth:`promote_shadow`
+        once divergence review is complete."""
+        resp = cast(
+            cp_pb2.ActivateShadowConstitutionResponse,
+            await self._stub.ActivateShadow(
+                cp_pb2.ActivateShadowConstitutionRequest(
+                    constitution=constitution.to_proto()
+                )
+            ),
+        )
+        return ActivatedShadowConstitution(
+            shadow_constitution_hash=Hash.from_proto(resp.shadow_constitution_hash),
+            shadow_activate_receipt=Hash.from_proto(resp.shadow_activate_receipt),
+        )
+
+    async def clear_shadow(self) -> ShadowCleared:
+        """Clear the shadow slot (RFC 0018 §3.2).
+
+        Idempotent — emits a ``constitution.shadow_clear`` receipt
+        even when the slot was already empty (the receipt records the
+        operator's intent regardless). The returned
+        ``previously_shadowed_constitution_hash`` is ``None`` in the
+        already-empty case."""
+        resp = cast(
+            cp_pb2.ClearShadowConstitutionResponse,
+            await self._stub.ClearShadow(cp_pb2.ClearShadowConstitutionRequest()),
+        )
+        prev_hash: Hash | None = None
+        # The proto field is a message; absence is represented by an
+        # empty (default) Hash message (digest == b""). Translate that
+        # to None for the dataclass.
+        if resp.HasField("previously_shadowed_constitution_hash"):
+            prev_hash = Hash.from_proto(resp.previously_shadowed_constitution_hash)
+        return ShadowCleared(
+            shadow_clear_receipt=Hash.from_proto(resp.shadow_clear_receipt),
+            previously_shadowed_constitution_hash=prev_hash,
+        )
+
+    async def promote_shadow(self) -> ShadowPromoted:
+        """Atomically promote the shadow slot to active (RFC 0018
+        §3.2).
+
+        The shadow slot is left empty. The enforcement engine is
+        rebound onto the new active — per-agent reputation +
+        quarantine state is preserved; sliding-window counters reset
+        to match the existing ``EnforcementEngine::activate`` posture.
+
+        Raises ``grpc.aio.AioRpcError`` with code
+        ``FAILED_PRECONDITION`` when the shadow slot is empty at the
+        moment of call. Callers can catch that as a typed Python
+        exception via standard ``grpc.aio`` patterns; the SDK does
+        not translate it to a domain exception because the operator
+        workflow naturally surfaces it as a CLI message rather than
+        an in-process error."""
+        resp = cast(
+            cp_pb2.PromoteShadowConstitutionResponse,
+            await self._stub.PromoteShadow(
+                cp_pb2.PromoteShadowConstitutionRequest()
+            ),
+        )
+        from_hash: Hash | None = None
+        if resp.HasField("from_active_constitution_hash"):
+            from_hash = Hash.from_proto(resp.from_active_constitution_hash)
+        return ShadowPromoted(
+            to_active_constitution_hash=Hash.from_proto(
+                resp.to_active_constitution_hash
+            ),
+            shadow_promote_receipt=Hash.from_proto(resp.shadow_promote_receipt),
+            from_active_constitution_hash=from_hash,
+        )
+
+    async def get_active_shadow(self) -> ActiveShadowConstitution | None:
+        """Read the currently-loaded shadow constitution.
+
+        Returns ``None`` when the shadow slot is empty — symmetric
+        with :meth:`get_active` but treating "no shadow" as a stable
+        operator state rather than a ``NOT_FOUND`` (the server
+        responds with ``OK`` + absent fields, the SDK collapses to
+        ``None`` for caller ergonomics)."""
+        resp = cast(
+            cp_pb2.GetActiveShadowConstitutionResponse,
+            await self._stub.GetActiveShadow(
+                cp_pb2.GetActiveShadowConstitutionRequest()
+            ),
+        )
+        if not resp.HasField("constitution"):
+            return None
+        return ActiveShadowConstitution(
+            constitution=Constitution.from_proto(resp.constitution),
+            shadow_constitution_hash=Hash.from_proto(resp.shadow_constitution_hash),
         )
 
 
@@ -830,5 +1033,9 @@ __all__ = [
     "ReceiptAPI",
     "ActivatedConstitution",
     "ActiveConstitution",
+    "ActivatedShadowConstitution",
+    "ShadowCleared",
+    "ShadowPromoted",
+    "ActiveShadowConstitution",
     "OperatorRevokeOutcome",
 ]

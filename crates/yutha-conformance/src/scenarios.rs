@@ -37,7 +37,20 @@
 //!   `principal.framework`, one on `principal.reputation`. Locks the
 //!   post-Phase-3a behaviour in: pre-3a these placeholder attrs caused
 //!   policies to silently degrade to permit-all.
+//! - **S10: Shadow-mode evaluator end-to-end (Phase 3b regression
+//!   guard).** Permissive active + restrictive shadow; three
+//!   SendEnvelope evaluations through `evaluate_pair`. Locks the
+//!   three load-bearing properties from RFC 0018: slot
+//!   independence (shadow deny doesn't influence active decision),
+//!   receipt action-kind partitioning
+//!   (`constitution.evaluate.{pass,deny}` vs
+//!   `constitution.evaluate.shadow.{pass,deny}` never cross-pollute),
+//!   and evidence shape (active receipts gain
+//!   `shadow_constitution_hash` when shadow is configured; shadow
+//!   receipts carry `shadow_constitution_hash` and NOT
+//!   `constitution_hash`).
 
+pub mod s10_shadow_mode;
 pub mod s1_queue_mode;
 pub mod s2_send_path_cap_check;
 pub mod s4_enforcement_loop;
@@ -47,6 +60,7 @@ pub mod s7_reverse_path;
 pub mod s8_attestation_deny;
 pub mod s9_principal_attrs;
 
+pub use s10_shadow_mode::{run_s10, S10Outcome};
 pub use s1_queue_mode::{run_s1, S1Outcome};
 pub use s2_send_path_cap_check::{run_s2, S2Outcome};
 pub use s4_enforcement_loop::{run_s4, S4Outcome};

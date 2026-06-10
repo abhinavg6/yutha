@@ -61,10 +61,47 @@ use crate::scoring::evaluate_scoring;
 
 /// The concrete evaluator. Construct once with a [`ConstitutionLoader`]
 /// and [`SandboxConfig`]; reuse across many activations + evaluations.
+///
+/// ## Shadow-mode slot (Phase 3b, RFC 0018)
+///
+/// In addition to the active constitution slot, the evaluator carries an
+/// optional `current_shadow` slot used by the operator-driven shadow-mode
+/// preview workflow. The shadow slot is observation-only:
+///
+/// - The same loader validation pass runs at [`activate_shadow`] time, so
+///   load-time failures surface immediately and never reach the hot path.
+/// - [`evaluate_pair`] runs both slots against one shared
+///   [`EvaluationRequest`]; the caller (gRPC EnvelopeHandler::send) emits
+///   the two receipts in active-then-shadow order.
+/// - Layer B procedure-state mutation runs ONLY for the active path. The
+///   shadow path evaluates Layer A + scoring but skips procedure
+///   transitions per RFC 0018 §3.1.
+/// - The shadow slot has no impact on the enforcement engine — the
+///   receipt-publisher forwarder task filters
+///   `constitution.evaluate.shadow.*` receipts out of the engine fan-out
+///   per RFC 0018 §3.5.
+///
+/// Today the shadow slot is `Option<...>` (one shadow at most); the public
+/// API is shaped so a future RFC can grow it to a Vec for the 1+N case
+/// without churning the surface.
+///
+/// [`activate_shadow`]: CedarPlusEvaluator::activate_shadow
+/// [`evaluate_pair`]: CedarPlusEvaluator::evaluate_pair
 pub struct CedarPlusEvaluator {
     loader: ConstitutionLoader,
     sandbox: SandboxConfig,
     current: RwLock<Option<Arc<ActivatedConstitution>>>,
+    /// Phase 3b: shadow-mode candidate slot. `None` when no shadow
+    /// constitution has been activated. Read by [`evaluate_pair`] and
+    /// [`current_shadow`]; written by [`activate_shadow`],
+    /// [`clear_shadow`], and [`promote_shadow`].
+    ///
+    /// [`evaluate_pair`]: CedarPlusEvaluator::evaluate_pair
+    /// [`current_shadow`]: CedarPlusEvaluator::current_shadow
+    /// [`activate_shadow`]: CedarPlusEvaluator::activate_shadow
+    /// [`clear_shadow`]: CedarPlusEvaluator::clear_shadow
+    /// [`promote_shadow`]: CedarPlusEvaluator::promote_shadow
+    current_shadow: RwLock<Option<Arc<ActivatedConstitution>>>,
     /// In-memory procedure-state index. Held under a `Mutex` because
     /// procedure trigger / transition evaluation mutates the index
     /// optimistically and we don't want two concurrent evaluations
@@ -72,7 +109,61 @@ pub struct CedarPlusEvaluator {
     /// receipt log is authoritative — F9 wires the receipt-driven
     /// reconstruction path that rebuilds this index on cold start
     /// or after a detected divergence.
+    ///
+    /// Phase 3b: the shadow path does NOT mutate this index (RFC 0018
+    /// §3.1). The index is reserved for the active constitution.
     procedure_index: Mutex<ProcedureIndex>,
+}
+
+/// Evaluation mode passed to the internal [`evaluate_against`] helper.
+/// Active runs the full Layer A + Layer B pipeline (scoring + procedure
+/// transitions, with procedure-state mutation); Shadow runs Layer A +
+/// scoring but skips procedure transitions and synthesizes a deny on
+/// shadow-schema-incompatibility failures per RFC 0018 §3.1 / §3.3.
+///
+/// [`evaluate_against`]: CedarPlusEvaluator::evaluate_against
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum EvaluationMode {
+    /// Active-slot evaluation. Full Layer B; procedure-state mutation.
+    Active,
+    /// Shadow-slot evaluation. Layer A + scoring only; no procedure
+    /// mutation; schema-incompatibility maps to a synthesized Deny.
+    Shadow,
+}
+
+/// Result of a successful [`CedarPlusEvaluator::promote_shadow`] call.
+///
+/// Captures the slot transition the operator triggered so the calling
+/// gRPC handler can emit the `constitution.shadow_promote` receipt with
+/// full evidence per `/spec/receipt/canonical-actions.md` and rebind the
+/// enforcement engine onto the new active without re-reading the slot.
+#[derive(Debug, Clone)]
+pub struct PromoteShadowOutcome {
+    /// Content-address of the constitution that was active immediately
+    /// before the promote. `None` when no active was loaded at the time
+    /// of promote (e.g., bringing a fresh swarm online via
+    /// shadow-preview-then-promote).
+    pub from_active_constitution_hash: Option<Hash>,
+    /// Content-address of the new active constitution. Equal to the
+    /// content-address the shadow held immediately before the promote —
+    /// content-addressing is over the constitution's canonical bytes,
+    /// not over slot history.
+    pub to_active_constitution_hash: Hash,
+    /// Convenience: the new active constitution's version string. Used
+    /// by the gRPC handler to populate the
+    /// `constitution.shadow_promote` receipt's
+    /// `to_constitution_version` evidence.
+    pub to_constitution_version: String,
+    /// Convenience: the new active constitution's schema_version
+    /// string. Used to populate the receipt's `schema_version`
+    /// evidence.
+    pub schema_version: String,
+    /// The Arc of the activated constitution that is now in the active
+    /// slot. Returned so the handler can immediately call
+    /// `enforcement.activate(promoted)` without re-reading
+    /// [`CedarPlusEvaluator::current`] (avoiding a TOCTOU race against
+    /// another concurrent promote).
+    pub promoted: Arc<ActivatedConstitution>,
 }
 
 impl CedarPlusEvaluator {
@@ -82,6 +173,7 @@ impl CedarPlusEvaluator {
             loader,
             sandbox,
             current: RwLock::new(None),
+            current_shadow: RwLock::new(None),
             procedure_index: Mutex::new(ProcedureIndex::new()),
         }
     }
@@ -95,6 +187,167 @@ impl CedarPlusEvaluator {
     /// Returns the same `Arc` to all concurrent readers.
     pub async fn current(&self) -> Option<Arc<ActivatedConstitution>> {
         self.current.read().await.as_ref().map(Arc::clone)
+    }
+
+    /// Read access to the currently-activated shadow constitution, if
+    /// any (Phase 3b, RFC 0018). Returns the same `Arc` to all
+    /// concurrent readers. Symmetric with [`current`].
+    ///
+    /// [`current`]: CedarPlusEvaluator::current
+    pub async fn current_shadow(&self) -> Option<Arc<ActivatedConstitution>> {
+        self.current_shadow.read().await.as_ref().map(Arc::clone)
+    }
+
+    /// Read both slots in a single call. Used by the gRPC
+    /// EnvelopeHandler::send path to decide whether a shadow eval is
+    /// needed before paying for the second authorizer call.
+    ///
+    /// Each slot's read is independent — the two reads may not see a
+    /// strictly atomic snapshot if a concurrent
+    /// [`activate`] / [`activate_shadow`] / [`promote_shadow`] races
+    /// with this call. That is acceptable: a concurrent promote at the
+    /// exact moment of read is indistinguishable from a promote that
+    /// happened one nanosecond earlier or later, and downstream
+    /// receipt emission is deterministic over the `Arc` snapshots
+    /// returned.
+    ///
+    /// [`activate`]: ConstitutionEvaluator::activate
+    /// [`activate_shadow`]: CedarPlusEvaluator::activate_shadow
+    /// [`promote_shadow`]: CedarPlusEvaluator::promote_shadow
+    pub async fn current_pair(
+        &self,
+    ) -> (
+        Option<Arc<ActivatedConstitution>>,
+        Option<Arc<ActivatedConstitution>>,
+    ) {
+        let active = self.current.read().await.as_ref().map(Arc::clone);
+        let shadow = self.current_shadow.read().await.as_ref().map(Arc::clone);
+        (active, shadow)
+    }
+
+    /// Activate a constitution into the shadow slot (Phase 3b, RFC
+    /// 0018 §3.2). Runs the same loader validation pass as
+    /// [`activate`] — load-time bound failures, named-predicate
+    /// resolution errors, Cedar validator failures all surface here.
+    /// Replaces any previously-loaded shadow without a separate
+    /// shadow_clear receipt; the gRPC handler emits one
+    /// `constitution.shadow_activate` receipt covering the activation.
+    ///
+    /// Does NOT bind the constitution onto the enforcement engine —
+    /// the shadow slot is observation-only.
+    ///
+    /// [`activate`]: ConstitutionEvaluator::activate
+    pub async fn activate_shadow(&self, constitution: Constitution) -> Result<Hash> {
+        let activated = self.loader.load(constitution)?;
+        let constitution_hash = activated.constitution.constitution_hash.clone();
+        let mut guard = self.current_shadow.write().await;
+        *guard = Some(Arc::new(activated));
+        Ok(constitution_hash)
+    }
+
+    /// Clear the shadow slot (Phase 3b, RFC 0018 §3.2). Idempotent:
+    /// returns the previously-shadowed constitution's hash if a shadow
+    /// was loaded, or `None` if the slot was already empty. The caller
+    /// (gRPC handler) uses the return value to populate the
+    /// `previously_shadowed_constitution_hash` evidence on the
+    /// `constitution.shadow_clear` receipt; an empty-slot call still
+    /// emits the receipt with the evidence absent.
+    pub async fn clear_shadow(&self) -> Option<Hash> {
+        let mut guard = self.current_shadow.write().await;
+        guard
+            .take()
+            .map(|arc| arc.constitution.constitution_hash.clone())
+    }
+
+    /// Atomically promote the shadow slot into the active slot (Phase
+    /// 3b, RFC 0018 §3.2). The shadow slot is left empty.
+    ///
+    /// Returns `None` when the shadow slot was empty at the moment of
+    /// the call — the gRPC handler maps `None` to `FAILED_PRECONDITION`.
+    /// Returns `Some(PromoteShadowOutcome)` describing the slot
+    /// transition for receipt emission and engine rebinding.
+    ///
+    /// Lock order: shadow write first, then active write. Same order is
+    /// observed across every multi-lock path to prevent deadlocks.
+    pub async fn promote_shadow(&self) -> Option<PromoteShadowOutcome> {
+        let mut shadow_guard = self.current_shadow.write().await;
+        let shadow_arc = shadow_guard.take()?;
+        let mut current_guard = self.current.write().await;
+        let previous_active = current_guard.replace(Arc::clone(&shadow_arc));
+
+        Some(PromoteShadowOutcome {
+            from_active_constitution_hash: previous_active
+                .map(|a| a.constitution.constitution_hash.clone()),
+            to_active_constitution_hash: shadow_arc.constitution.constitution_hash.clone(),
+            to_constitution_version: shadow_arc.constitution.constitution_version.clone(),
+            schema_version: shadow_arc.constitution.schema_version.clone(),
+            promoted: shadow_arc,
+        })
+    }
+
+    /// Evaluate one request against both the active and (when
+    /// configured) the shadow constitution (Phase 3b, RFC 0018 §3.3).
+    ///
+    /// The active eval flows through the same path as
+    /// [`evaluate`] — full Layer A + Layer B, with procedure-state
+    /// mutation. The shadow eval, when triggered, clones the request,
+    /// rewrites `constitution_hash` to the shadow's, and runs Layer A
+    /// plus scoring. Procedure transitions are skipped on the shadow
+    /// path per RFC 0018 §3.1.
+    ///
+    /// Shadow-side schema incompatibilities — the shared entity
+    /// snapshot violating the shadow's strict-mode validation when
+    /// active/shadow schemas differ — surface as a synthesized
+    /// `Decision::Deny` with `deny_reason = "shadow_schema_incompatible"`
+    /// per RFC 0018 §3.3 rather than propagating an error. The active
+    /// outcome is unaffected.
+    ///
+    /// The entity snapshot is built once by the caller and shared
+    /// across both evals — the substrate doesn't pay the resolver cost
+    /// twice.
+    ///
+    /// [`evaluate`]: ConstitutionEvaluator::evaluate
+    pub async fn evaluate_pair(
+        &self,
+        request: EvaluationRequest,
+    ) -> Result<(EvaluationOutcome, Option<EvaluationOutcome>)> {
+        let (active_opt, shadow_opt) = self.current_pair().await;
+
+        let active = active_opt.ok_or_else(|| {
+            CedarPlusError::ConstitutionUnresolved(
+                "no active constitution; call activate() first".into(),
+            )
+        })?;
+
+        if request.constitution_hash != active.constitution.constitution_hash {
+            return Err(CedarPlusError::ConstitutionUnresolved(format!(
+                "request pinned to constitution {}, active is {}",
+                hex::encode(&request.constitution_hash.digest),
+                hex::encode(&active.constitution.constitution_hash.digest),
+            )));
+        }
+
+        let active_outcome = self
+            .evaluate_against(&request, &active, EvaluationMode::Active)
+            .await?;
+
+        let shadow_outcome = match shadow_opt {
+            None => None,
+            Some(shadow) => {
+                // Clone the request and rewrite its constitution_hash
+                // pin so the shadow eval doesn't trip the
+                // constitution-hash-mismatch check. The caller never
+                // has to know two hashes are in play.
+                let mut shadow_request = request.clone();
+                shadow_request.constitution_hash = shadow.constitution.constitution_hash.clone();
+                Some(
+                    self.evaluate_against(&shadow_request, &shadow, EvaluationMode::Shadow)
+                        .await?,
+                )
+            }
+        };
+
+        Ok((active_outcome, shadow_outcome))
     }
 }
 
@@ -123,6 +376,46 @@ impl ConstitutionEvaluator for CedarPlusEvaluator {
             )));
         }
 
+        self.evaluate_against(&request, &active, EvaluationMode::Active)
+            .await
+    }
+
+    async fn activate(&self, constitution: Constitution) -> Result<Hash> {
+        let activated = self.loader.load(constitution)?;
+        let constitution_hash = activated.constitution.constitution_hash.clone();
+        let mut guard = self.current.write().await;
+        *guard = Some(Arc::new(activated));
+        Ok(constitution_hash)
+    }
+}
+
+impl CedarPlusEvaluator {
+    /// The slot-agnostic evaluation pipeline. Runs sandbox bounds,
+    /// Cedar request construction, Layer A authorization, and
+    /// mode-conditional Layer B (scoring always, procedure mutation
+    /// only in [`EvaluationMode::Active`]).
+    ///
+    /// Phase 3b factoring (RFC 0018): the trait's [`ConstitutionEvaluator::evaluate`]
+    /// resolves the active slot then calls this with [`EvaluationMode::Active`];
+    /// [`evaluate_pair`] resolves both slots then calls this twice — once
+    /// with `Active` against the active slot, once with `Shadow` against the
+    /// shadow slot.
+    ///
+    /// Shadow-mode error mapping per RFC 0018 §3.3: when
+    /// `mode == Shadow` and cedar Request/Entities construction fails
+    /// with a schema-incompatibility error, return a synthesized
+    /// `Deny` with `deny_reason = "shadow_schema_incompatible"` rather
+    /// than propagating the error. Sandbox bounds and constitution-
+    /// unresolved errors still propagate in shadow mode — only the
+    /// Cedar shape failures map to a synthesized deny.
+    ///
+    /// [`evaluate_pair`]: CedarPlusEvaluator::evaluate_pair
+    async fn evaluate_against(
+        &self,
+        request: &EvaluationRequest,
+        activated: &Arc<ActivatedConstitution>,
+        mode: EvaluationMode,
+    ) -> Result<EvaluationOutcome> {
         // -- Stage 2: sandbox bound checks. ------------------------------
         if request.entity_snapshot.entity_count() > self.sandbox.max_entity_count {
             return Err(CedarPlusError::EvaluationBoundExceeded(
@@ -150,47 +443,112 @@ impl ConstitutionEvaluator for CedarPlusEvaluator {
         let action_uid = build_cedar_uid(&EntityUid::new(action_type, action_id.to_string()))?;
         let resource_uid = build_cedar_uid(&request.resource_uid)?;
 
-        let entities = build_cedar_entities(&request.entity_snapshot, schema_ref(&active))?;
-        let context = build_context(&request.context_attrs, &action_uid)?;
+        // Per RFC 0018 §3.3, the shadow path treats schema-
+        // incompatibility (the shared entity snapshot violating the
+        // shadow's strict-mode validation) as a synthesized Deny
+        // with the `shadow_schema_incompatible` reason. The active
+        // path continues to propagate the original error.
+        let entities = match build_cedar_entities(&request.entity_snapshot, schema_ref(activated)) {
+            Ok(e) => e,
+            Err(e) if matches!(mode, EvaluationMode::Shadow) => {
+                tracing::debug!(
+                    target: "yutha::cedar_plus::shadow",
+                    error = %e,
+                    "shadow eval: entity build failed; synthesizing shadow_schema_incompatible deny",
+                );
+                return Ok(schema_incompatible_deny(request));
+            }
+            Err(e) => return Err(e),
+        };
+        let context = match build_context(&request.context_attrs, &action_uid) {
+            Ok(c) => c,
+            Err(e) if matches!(mode, EvaluationMode::Shadow) => {
+                tracing::debug!(
+                    target: "yutha::cedar_plus::shadow",
+                    error = %e,
+                    "shadow eval: context build failed; synthesizing shadow_schema_incompatible deny",
+                );
+                return Ok(schema_incompatible_deny(request));
+            }
+            Err(e) => return Err(e),
+        };
 
-        let cedar_request = cedar_policy::Request::new(
+        let cedar_request = match cedar_policy::Request::new(
             Some(principal_uid),
             Some(action_uid),
             Some(resource_uid),
             context,
-            Some(schema_ref(&active)),
-        )
-        .map_err(|e| CedarPlusError::RequestShapeInvalid(format!("Cedar Request rejected: {e}")))?;
+            Some(schema_ref(activated)),
+        ) {
+            Ok(r) => r,
+            Err(e) if matches!(mode, EvaluationMode::Shadow) => {
+                tracing::debug!(
+                    target: "yutha::cedar_plus::shadow",
+                    error = %e,
+                    "shadow eval: Cedar Request shape rejected; synthesizing shadow_schema_incompatible deny",
+                );
+                return Ok(schema_incompatible_deny(request));
+            }
+            Err(e) => {
+                return Err(CedarPlusError::RequestShapeInvalid(format!(
+                    "Cedar Request rejected: {e}"
+                )))
+            }
+        };
 
         // -- Stage 4: Layer A — Authorizer. -------------------------------
         let authorizer = cedar_policy::Authorizer::new();
-        let response = authorizer.is_authorized(&cedar_request, &active.policy_set, &entities);
+        let response = authorizer.is_authorized(&cedar_request, &activated.policy_set, &entities);
 
         // -- Stage 5: Layer B — scoring + procedures (only on Permit). ----
+        // Scoring runs in both Active and Shadow modes — it's stateless
+        // and the shadow's `total_score` is a useful preview signal.
+        // Procedure evaluation runs ONLY in Active mode: it mutates the
+        // single `procedure_index` Mutex which is reserved for the
+        // active constitution per RFC 0018 §3.1.
         let (score_contributions, total_score, procedure_effects) =
             if matches!(response.decision(), cedar_policy::Decision::Allow) {
-                let scoring = evaluate_scoring(&cedar_request, &entities, &active);
+                let scoring = evaluate_scoring(&cedar_request, &entities, activated);
                 let total = scoring.total_score();
 
-                // The procedure subsystem mutates the index, so we
-                // take the lock for the duration of the eval. F9
-                // refines this with finer-grained locking if hot-
-                // path contention becomes measurable.
-                let mut index = self.procedure_index.lock().await;
-                let triggering_descriptor_digest =
-                    hash_input_attributes(&request, &request.entity_snapshot);
-                let swarm_id_str = active.constitution.swarm_id.to_string();
-                let proc_ctx = ProcedureEvalContext {
-                    triggering_descriptor_digest: &triggering_descriptor_digest,
-                    swarm_id_str: &swarm_id_str,
-                    request_action_kind: &request.action_kind,
-                    current_wall_clock: &request.current_wall_clock,
+                let procedure_effects_out = match mode {
+                    EvaluationMode::Active => {
+                        // The procedure subsystem mutates the index,
+                        // so we take the lock for the duration of
+                        // the eval. F9 refines this with finer-
+                        // grained locking if hot-path contention
+                        // becomes measurable.
+                        let mut index = self.procedure_index.lock().await;
+                        let triggering_descriptor_digest =
+                            hash_input_attributes(request, &request.entity_snapshot);
+                        let swarm_id_str = activated.constitution.swarm_id.to_string();
+                        let proc_ctx = ProcedureEvalContext {
+                            triggering_descriptor_digest: &triggering_descriptor_digest,
+                            swarm_id_str: &swarm_id_str,
+                            request_action_kind: &request.action_kind,
+                            current_wall_clock: &request.current_wall_clock,
+                        };
+                        let procedures = evaluate_procedures(
+                            &cedar_request,
+                            &entities,
+                            activated,
+                            &mut index,
+                            proc_ctx,
+                        );
+                        drop(index);
+                        procedures.effects
+                    }
+                    EvaluationMode::Shadow => {
+                        // RFC 0018 §3.1: shadow eval skips procedure
+                        // transitions. Operators previewing scoring
+                        // changes still see `total_score`; previewing
+                        // procedure changes is parked as a follow-on
+                        // for a future RFC.
+                        Vec::new()
+                    }
                 };
-                let procedures =
-                    evaluate_procedures(&cedar_request, &entities, &active, &mut index, proc_ctx);
-                drop(index);
 
-                (scoring.contributions, total, procedures.effects)
+                (scoring.contributions, total, procedure_effects_out)
             } else {
                 (Vec::new(), None, Vec::new())
             };
@@ -198,7 +556,7 @@ impl ConstitutionEvaluator for CedarPlusEvaluator {
         // -- Stage 6: assemble the outcome. -------------------------------
         let outcome = map_cedar_response(
             &response,
-            &request,
+            request,
             &request.entity_snapshot,
             score_contributions,
             total_score,
@@ -206,13 +564,32 @@ impl ConstitutionEvaluator for CedarPlusEvaluator {
         );
         Ok(outcome)
     }
+}
 
-    async fn activate(&self, constitution: Constitution) -> Result<Hash> {
-        let activated = self.loader.load(constitution)?;
-        let constitution_hash = activated.constitution.constitution_hash.clone();
-        let mut guard = self.current.write().await;
-        *guard = Some(Arc::new(activated));
-        Ok(constitution_hash)
+/// Synthesize a [`EvaluationOutcome`] marking the shadow eval as a
+/// `Decision::Deny` with `deny_reason = "shadow_schema_incompatible"`
+/// per RFC 0018 §3.3. Used by the shadow path of [`CedarPlusEvaluator::evaluate_against`]
+/// when the shared entity snapshot fails strict-mode validation against
+/// the shadow's schema.
+///
+/// Evidence shape: empty `matched_rule_ids`, empty `score_contributions`,
+/// empty `procedure_effects`. `evidence_digest` is computed over the
+/// same canonical inputs the regular path uses so downstream receipt
+/// content-addressing remains stable.
+fn schema_incompatible_deny(request: &EvaluationRequest) -> EvaluationOutcome {
+    let matched_rule_ids: Vec<String> = Vec::new();
+    let input_attribute_digest = hash_input_attributes(request, &request.entity_snapshot);
+    let evidence_digest =
+        compute_evidence_digest(&matched_rule_ids, &[], &[], &input_attribute_digest);
+    EvaluationOutcome {
+        decision: Decision::Deny,
+        deny_reason: Some("shadow_schema_incompatible".to_string()),
+        matched_rule_ids,
+        score_contributions: Vec::new(),
+        total_score: None,
+        procedure_effects: Vec::new(),
+        evidence_digest,
+        decided_at: Timestamp::now(),
     }
 }
 
@@ -728,5 +1105,351 @@ mod tests {
             hash_input_attributes(&req, &snap_y).digest,
             "input_attribute_digest must be HashMap-insertion-order-independent"
         );
+    }
+
+    // ========================================================================
+    // Phase 3b shadow-mode tests (RFC 0018 §3.1-§3.3)
+    // ========================================================================
+    //
+    // These cover the substrate slot mechanics (activate_shadow /
+    // clear_shadow / promote_shadow / current_pair) and the
+    // evaluate_pair structural-failure paths. The shadow-schema-
+    // incompatible synthesized-deny path (RFC 0018 §3.3) and the full
+    // active+shadow happy-path eval are covered at integration level by
+    // Phase 3b-G conformance scenario S10 — the unit-test setup to
+    // build a valid Cedar request (the v1.1 schema requires Agent
+    // entities `in [Swarm]`, plus per-entity full attribute surface for
+    // strict-mode validation) is heavier than the value it adds at this
+    // layer; the existing F7/F8 tests in this module use the same
+    // structural-failure posture for the same reason.
+
+    /// Helper: build a Constitution with a fresh content-address.
+    /// Used by the slot-mechanics tests to distinguish slots that hold
+    /// different constitutions (default `make_constitution` reuses
+    /// `placeholder_hash()` which collides across calls).
+    fn make_constitution_with_hash(cedar_source: &str, hash_byte: u8) -> Constitution {
+        let mut c = make_constitution(cedar_source);
+        c.constitution_hash =
+            Hash::new(HashAlgorithm::Sha256, vec![hash_byte; 32]).expect("placeholder hash");
+        c
+    }
+
+    #[tokio::test]
+    async fn shadow_slot_starts_empty() {
+        let evaluator = make_evaluator();
+        assert!(evaluator.current_shadow().await.is_none());
+    }
+
+    #[tokio::test]
+    async fn activate_shadow_loads_into_shadow_slot_only() {
+        let evaluator = make_evaluator();
+        let constitution =
+            make_constitution_with_hash("permit (principal, action, resource);", 0x10);
+        let constitution_hash = constitution.constitution_hash.clone();
+
+        evaluator
+            .activate_shadow(constitution)
+            .await
+            .expect("shadow activates");
+
+        let shadow = evaluator
+            .current_shadow()
+            .await
+            .expect("shadow slot loaded");
+        assert_eq!(
+            shadow.constitution.constitution_hash, constitution_hash,
+            "shadow slot holds the activated constitution"
+        );
+        assert!(
+            evaluator.current().await.is_none(),
+            "activate_shadow MUST NOT write to the active slot"
+        );
+    }
+
+    #[tokio::test]
+    async fn activate_shadow_twice_replaces_prior_shadow() {
+        let evaluator = make_evaluator();
+        let first = make_constitution_with_hash("permit (principal, action, resource);", 0x11);
+        let first_hash = first.constitution_hash.clone();
+        evaluator
+            .activate_shadow(first)
+            .await
+            .expect("first shadow activates");
+
+        let second = make_constitution_with_hash("permit (principal, action, resource);", 0x22);
+        let second_hash = second.constitution_hash.clone();
+        evaluator
+            .activate_shadow(second)
+            .await
+            .expect("second shadow activates");
+
+        let shadow = evaluator
+            .current_shadow()
+            .await
+            .expect("shadow slot loaded");
+        assert_eq!(shadow.constitution.constitution_hash, second_hash);
+        assert_ne!(shadow.constitution.constitution_hash, first_hash);
+    }
+
+    #[tokio::test]
+    async fn current_pair_returns_both_slots() {
+        let evaluator = make_evaluator();
+
+        // Both empty.
+        let (active, shadow) = evaluator.current_pair().await;
+        assert!(active.is_none() && shadow.is_none(), "both slots empty");
+
+        // Active only.
+        let active_const =
+            make_constitution_with_hash("permit (principal, action, resource);", 0x33);
+        evaluator
+            .activate(active_const)
+            .await
+            .expect("active activates");
+        let (active, shadow) = evaluator.current_pair().await;
+        assert!(
+            active.is_some() && shadow.is_none(),
+            "active loaded, shadow empty"
+        );
+
+        // Both populated.
+        let shadow_const =
+            make_constitution_with_hash("permit (principal, action, resource);", 0x44);
+        evaluator
+            .activate_shadow(shadow_const)
+            .await
+            .expect("shadow activates");
+        let (active, shadow) = evaluator.current_pair().await;
+        assert!(active.is_some() && shadow.is_some(), "both slots populated");
+    }
+
+    #[tokio::test]
+    async fn clear_shadow_returns_previously_shadowed_hash() {
+        let evaluator = make_evaluator();
+        let constitution =
+            make_constitution_with_hash("permit (principal, action, resource);", 0x55);
+        let constitution_hash = constitution.constitution_hash.clone();
+        evaluator
+            .activate_shadow(constitution)
+            .await
+            .expect("shadow activates");
+
+        let previous = evaluator
+            .clear_shadow()
+            .await
+            .expect("clear returns prior hash");
+        assert_eq!(previous, constitution_hash);
+        assert!(
+            evaluator.current_shadow().await.is_none(),
+            "clear_shadow leaves the slot empty"
+        );
+    }
+
+    #[tokio::test]
+    async fn clear_shadow_on_empty_slot_returns_none() {
+        let evaluator = make_evaluator();
+        assert!(
+            evaluator.clear_shadow().await.is_none(),
+            "clearing an empty shadow is idempotent (returns None)"
+        );
+    }
+
+    #[tokio::test]
+    async fn promote_shadow_with_empty_shadow_returns_none() {
+        let evaluator = make_evaluator();
+        let active_const =
+            make_constitution_with_hash("permit (principal, action, resource);", 0x66);
+        let active_hash = active_const.constitution_hash.clone();
+        evaluator
+            .activate(active_const)
+            .await
+            .expect("active activates");
+
+        assert!(
+            evaluator.promote_shadow().await.is_none(),
+            "promote with empty shadow returns None"
+        );
+        let still_active = evaluator.current().await.expect("active still loaded");
+        assert_eq!(
+            still_active.constitution.constitution_hash, active_hash,
+            "active slot unchanged by failed promote"
+        );
+    }
+
+    #[tokio::test]
+    async fn promote_shadow_atomic_swap_with_active_loaded() {
+        let evaluator = make_evaluator();
+        let active_const =
+            make_constitution_with_hash("permit (principal, action, resource);", 0x77);
+        let active_hash = active_const.constitution_hash.clone();
+        evaluator
+            .activate(active_const)
+            .await
+            .expect("active activates");
+
+        let mut shadow_const =
+            make_constitution_with_hash("permit (principal, action, resource);", 0x88);
+        shadow_const.constitution_version = "2.0.0".into();
+        let shadow_hash = shadow_const.constitution_hash.clone();
+        evaluator
+            .activate_shadow(shadow_const)
+            .await
+            .expect("shadow activates");
+
+        let outcome = evaluator.promote_shadow().await.expect("promote succeeds");
+        assert_eq!(outcome.from_active_constitution_hash, Some(active_hash));
+        assert_eq!(outcome.to_active_constitution_hash, shadow_hash);
+        assert_eq!(outcome.to_constitution_version, "2.0.0");
+        assert_eq!(outcome.schema_version, "1.1.0");
+
+        let new_active = evaluator.current().await.expect("new active loaded");
+        assert_eq!(
+            new_active.constitution.constitution_hash, shadow_hash,
+            "active slot now holds the formerly-shadowed constitution"
+        );
+        assert!(
+            evaluator.current_shadow().await.is_none(),
+            "promote leaves the shadow slot empty"
+        );
+    }
+
+    #[tokio::test]
+    async fn promote_shadow_with_empty_active_succeeds() {
+        // Fresh-swarm case: bring a constitution up via shadow first,
+        // then promote. No active loaded at the moment of promote.
+        let evaluator = make_evaluator();
+        let shadow_const =
+            make_constitution_with_hash("permit (principal, action, resource);", 0x99);
+        let shadow_hash = shadow_const.constitution_hash.clone();
+        evaluator
+            .activate_shadow(shadow_const)
+            .await
+            .expect("shadow activates");
+
+        let outcome = evaluator.promote_shadow().await.expect("promote succeeds");
+        assert_eq!(
+            outcome.from_active_constitution_hash, None,
+            "no previous active when promote-from-empty"
+        );
+        assert_eq!(outcome.to_active_constitution_hash, shadow_hash);
+
+        let new_active = evaluator.current().await.expect("new active loaded");
+        assert_eq!(
+            new_active.constitution.constitution_hash, shadow_hash,
+            "active slot now holds the formerly-shadowed constitution"
+        );
+        assert!(
+            evaluator.current_shadow().await.is_none(),
+            "shadow slot is empty after promote"
+        );
+    }
+
+    #[tokio::test]
+    async fn evaluate_pair_without_active_errors() {
+        // Symmetric with `evaluate_without_activation_errors` for the
+        // pair-evaluation surface — no active loaded means
+        // constitution_unresolved regardless of shadow state.
+        let evaluator = make_evaluator();
+        let request = make_request(
+            "SendEnvelope",
+            AgentId::new(),
+            EntityUid::new("Yutha::Agent", "00000000000000000000000000000000"),
+        );
+        let err = evaluator.evaluate_pair(request).await.unwrap_err();
+        assert!(
+            matches!(err, CedarPlusError::ConstitutionUnresolved(_)),
+            "evaluate_pair without active errors as constitution_unresolved"
+        );
+    }
+
+    #[tokio::test]
+    async fn evaluate_pair_with_shadow_only_still_errors_on_no_active() {
+        // Shadow can exist without active (a fresh-swarm operator might
+        // load a shadow before any constitution has been activated).
+        // evaluate_pair still errors because the active slot is
+        // authoritative — shadow is observation-only per RFC 0018 §3.5.
+        let evaluator = make_evaluator();
+        let shadow_const =
+            make_constitution_with_hash("permit (principal, action, resource);", 0xAA);
+        evaluator
+            .activate_shadow(shadow_const)
+            .await
+            .expect("shadow activates");
+
+        let request = make_request(
+            "SendEnvelope",
+            AgentId::new(),
+            EntityUid::new("Yutha::Agent", "00000000000000000000000000000000"),
+        );
+        let err = evaluator.evaluate_pair(request).await.unwrap_err();
+        assert!(
+            matches!(err, CedarPlusError::ConstitutionUnresolved(_)),
+            "evaluate_pair errors when only shadow is loaded"
+        );
+    }
+
+    #[tokio::test]
+    async fn evaluate_pair_constitution_hash_mismatch_errors() {
+        // Same posture as the existing `constitution_hash_mismatch_unresolved`
+        // for evaluate(): when the request pins a constitution_hash
+        // that doesn't match the active slot, evaluate_pair errors
+        // before touching either eval path.
+        let evaluator = make_evaluator();
+        let constitution =
+            make_constitution_with_hash("permit (principal, action, resource);", 0xBB);
+        evaluator.activate(constitution).await.expect("activates");
+
+        let other_hash = Hash::new(HashAlgorithm::Sha256, vec![0xFFu8; 32]).unwrap();
+        let request = EvaluationRequest {
+            constitution_hash: other_hash,
+            ..make_request(
+                "SendEnvelope",
+                AgentId::new(),
+                EntityUid::new("Yutha::Agent", "00000000000000000000000000000000"),
+            )
+        };
+        let err = evaluator.evaluate_pair(request).await.unwrap_err();
+        assert!(matches!(err, CedarPlusError::ConstitutionUnresolved(_)));
+    }
+
+    #[test]
+    fn schema_incompatible_deny_synthesizes_expected_outcome() {
+        // The synthesized deny used on the shadow path when Cedar's
+        // shape validation rejects the shared snapshot. Asserts the
+        // documented evidence shape: empty matched_rule_ids /
+        // score_contributions / procedure_effects, deny_reason set to
+        // "shadow_schema_incompatible", evidence_digest computed over
+        // the same inputs as a regular outcome.
+        let req = make_request(
+            "SendEnvelope",
+            AgentId::new(),
+            EntityUid::new("Yutha::Agent", "alice"),
+        );
+        let outcome = schema_incompatible_deny(&req);
+        assert_eq!(outcome.decision, Decision::Deny);
+        assert_eq!(
+            outcome.deny_reason.as_deref(),
+            Some("shadow_schema_incompatible"),
+            "deny_reason matches RFC 0018 §3.3"
+        );
+        assert!(outcome.matched_rule_ids.is_empty());
+        assert!(outcome.score_contributions.is_empty());
+        assert!(outcome.total_score.is_none());
+        assert!(outcome.procedure_effects.is_empty());
+        // evidence_digest should match the canonical computation over
+        // the same (empty) collections, anchored on the request's
+        // input_attribute_digest.
+        let expected_input_digest = hash_input_attributes(&req, &req.entity_snapshot);
+        let expected_evidence = compute_evidence_digest(&[], &[], &[], &expected_input_digest);
+        assert_eq!(outcome.evidence_digest.digest, expected_evidence.digest);
+    }
+
+    #[test]
+    fn promote_shadow_outcome_is_clone_and_debug() {
+        // PromoteShadowOutcome is part of the public API; ensure the
+        // documented derives are present so the gRPC handler can
+        // structurally bind / log without ceremony.
+        fn assert_clone_debug<T: Clone + std::fmt::Debug>() {}
+        assert_clone_debug::<PromoteShadowOutcome>();
     }
 }

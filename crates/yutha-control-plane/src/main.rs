@@ -1658,6 +1658,27 @@ fn spawn_enforcement_forwarder(
     tokio::spawn(async move {
         info!("F12: enforcement-receipt forwarder task started");
         while let Some(view) = rx.recv().await {
+            // Phase 3b (RFC 0018 §3.5): the enforcement engine MUST
+            // NOT react to shadow-mode eval receipts. Shadow is
+            // observation-only — its denies don't bump reputation,
+            // don't schedule quarantine, don't move sliding-window
+            // counters. The receipt store still holds them (the
+            // PublishingReceiptStore fans every receipt onto this
+            // channel; the substrate's responsibility to the audit
+            // trail is unchanged), but the engine never sees them.
+            //
+            // This is the only filter point — the build_view
+            // extractor stays substrate-agnostic, the engine stays
+            // ignorant of shadow semantics, and any future
+            // additional consumer of shadow receipts (e.g., a Phase
+            // 3f OTel exporter surfacing shadow divergence as a
+            // metric) subscribes to its own channel.
+            if view
+                .action_kind
+                .starts_with("constitution.evaluate.shadow.")
+            {
+                continue;
+            }
             let borrowed = ReceiptView {
                 action_kind: view.action_kind.as_str(),
                 principal_id: view.principal_id.as_deref(),

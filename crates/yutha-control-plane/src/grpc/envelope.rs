@@ -43,8 +43,8 @@ use tonic::{Request, Response, Status};
 use tracing::debug;
 use yutha_capability::ActionDescriptor;
 use yutha_cedar_plus::{
-    ConstitutionEvaluator, Decision, EnforcementEngine, EntityRecord, EntitySnapshot, EntityUid,
-    EvaluationOutcome, EvaluationRequest,
+    Decision, EnforcementEngine, EntityRecord, EntitySnapshot, EntityUid, EvaluationOutcome,
+    EvaluationRequest,
 };
 use yutha_core::{AgentId, Hash, SpecVersion, Timestamp};
 use yutha_crypto::canonical::Canonical;
@@ -542,6 +542,12 @@ fn swarm_entity(swarm_uid: &str, topology_mode: &str, constitution_version: &str
 ///   `EvaluationOutcome.evidence_digest`).
 /// - `deny_reason` — only on deny.
 /// - `total_score` — only on pass when scoring rules contributed.
+/// - `shadow_constitution_hash` — Phase 3b (RFC 0018 §3.4): content-
+///   address of the shadow constitution when one was configured at
+///   the moment of evaluation. Auditors join active + shadow
+///   receipts for the same envelope by matching this field plus
+///   `subject_agent_id` + `input_attribute_digest`. Absent when no
+///   shadow is loaded.
 ///
 /// The control plane signs the receipt with its own identity
 /// (`Actor` role); on a successful append the receipt's content-
@@ -553,6 +559,7 @@ async fn emit_constitution_eval_receipt(
     constitution_version: &str,
     swarm_id: yutha_core::SwarmId,
     subject_agent_id: &AgentId,
+    shadow_constitution_hash: Option<&Hash>,
 ) -> Result<Hash, Status> {
     let action_kind = match outcome.decision {
         yutha_cedar_plus::Decision::Permit => "constitution.evaluate.pass",
@@ -606,6 +613,15 @@ async fn emit_constitution_eval_receipt(
             total.0.as_bytes().to_vec(),
         ));
     }
+    // Phase 3b (RFC 0018 §3.4): record shadow correlation context on
+    // the active receipt when a shadow was configured at eval time.
+    if let Some(shadow_hash) = shadow_constitution_hash {
+        evidence.push(Evidence::new(
+            "shadow_constitution_hash",
+            "type.yutha.dev/v1/Hash",
+            shadow_hash.digest.clone(),
+        ));
+    }
 
     let spec_version = SpecVersion::parse("1.0.0").map_err(|e| {
         Status::internal(format!("constitution.evaluate receipt spec_version: {e}"))
@@ -641,6 +657,133 @@ async fn emit_constitution_eval_receipt(
         .append(receipt, AppendOptions::default(), state.resolver.as_ref())
         .await
         .map_err(|e| Status::internal(format!("constitution.evaluate append: {e}")))?;
+    Ok(outcome.receipt_id)
+}
+
+/// Build + sign + append a `constitution.evaluate.shadow.{pass,deny}`
+/// receipt for a shadow-mode evaluation outcome (Phase 3b, RFC 0018
+/// §3.4). Only called when the evaluator returned a shadow outcome
+/// (i.e., a shadow constitution was loaded at the moment of
+/// `evaluate_pair`).
+///
+/// Evidence shape per `/spec/receipt/canonical-actions.md`:
+///
+/// - `shadow_constitution_hash` — content-address of the shadow
+///   constitution. NOT `constitution_hash`, to make audit queries
+///   unambiguous.
+/// - `action_kind` — the action being evaluated (`"SendEnvelope"`
+///   today).
+/// - `matched_rule_ids` — Cedar policy ids from the shadow's policy
+///   set that contributed to the decision.
+/// - `input_attribute_digest` — same canonical bytes hash as the
+///   active eval receipt for this envelope; auditors use it to
+///   correlate active + shadow decisions.
+/// - `subject_agent_id` — same agent the active receipt names. (The
+///   enforcement-engine forwarder filters shadow receipts out of the
+///   fan-out per RFC 0018 §3.5, so this field is purely audit
+///   context.)
+/// - `deny_reason` — only on deny. Mirrors the active eval's
+///   `deny_reason` shape and additionally accepts the special value
+///   `"shadow_schema_incompatible"` for the cross-schema failure
+///   path (RFC 0018 §3.3).
+/// - `total_score` — only on pass when shadow `prefer` rules
+///   contributed.
+///
+/// Receipt ordering on the wire is deterministic — the active eval
+/// receipt appends first (caller's responsibility), this one
+/// second. Replay-time reconstruction (Phase 3c) depends on this
+/// ordering.
+async fn emit_constitution_shadow_eval_receipt(
+    state: &ControlPlaneState,
+    outcome: &EvaluationOutcome,
+    shadow_constitution_hash: &Hash,
+    shadow_constitution_version: &str,
+    swarm_id: yutha_core::SwarmId,
+    subject_agent_id: &AgentId,
+) -> Result<Hash, Status> {
+    let action_kind = match outcome.decision {
+        yutha_cedar_plus::Decision::Permit => "constitution.evaluate.shadow.pass",
+        yutha_cedar_plus::Decision::Deny => "constitution.evaluate.shadow.deny",
+    };
+
+    let mut evidence: Vec<Evidence> = vec![
+        Evidence::new(
+            "shadow_constitution_hash",
+            "type.yutha.dev/v1/Hash",
+            shadow_constitution_hash.digest.clone(),
+        ),
+        Evidence::new(
+            "action_kind",
+            "type.yutha.dev/v1/String",
+            "SendEnvelope".as_bytes().to_vec(),
+        ),
+        Evidence::new(
+            "matched_rule_ids",
+            "type.yutha.dev/v1/String",
+            outcome.matched_rule_ids.join(",").into_bytes(),
+        ),
+        Evidence::new(
+            "input_attribute_digest",
+            "type.yutha.dev/v1/Hash",
+            outcome.evidence_digest.digest.clone(),
+        ),
+        Evidence::new(
+            "subject_agent_id",
+            "type.yutha.dev/v1/AgentId",
+            subject_agent_id.to_string().into_bytes(),
+        ),
+    ];
+    if let Some(reason) = &outcome.deny_reason {
+        evidence.push(Evidence::new(
+            "deny_reason",
+            "type.yutha.dev/v1/String",
+            reason.as_bytes().to_vec(),
+        ));
+    }
+    if let Some(total) = &outcome.total_score {
+        evidence.push(Evidence::new(
+            "total_score",
+            "type.yutha.dev/v1/String",
+            total.0.as_bytes().to_vec(),
+        ));
+    }
+
+    let spec_version = SpecVersion::parse("1.0.0").map_err(|e| {
+        Status::internal(format!(
+            "constitution.evaluate.shadow receipt spec_version: {e}"
+        ))
+    })?;
+    let mut builder = Receipt::builder()
+        .spec_version(spec_version)
+        .swarm_id(swarm_id)
+        .actor(state.control_plane_identity.agent_id)
+        .action_kind(action_kind)
+        .constitution_version(shadow_constitution_version)
+        .occurred_at(Timestamp::now());
+    for e in evidence {
+        builder = builder.evidence(e);
+    }
+    let mut receipt = builder.build().map_err(|e| {
+        Status::internal(format!("constitution.evaluate.shadow receipt build: {e}"))
+    })?;
+
+    let bytes = receipt
+        .canonical_bytes()
+        .map_err(|e| Status::internal(format!("constitution.evaluate.shadow canonical: {e}")))?;
+    let sig = state
+        .control_plane_identity
+        .sign(&bytes)
+        .await
+        .map_err(|e| Status::internal(format!("constitution.evaluate.shadow signer: {e}")))?;
+    receipt
+        .signatures
+        .push(SignedBy::new(SignatureRole::Actor, sig, Timestamp::now()));
+
+    let outcome = state
+        .receipt_store
+        .append(receipt, AppendOptions::default(), state.resolver.as_ref())
+        .await
+        .map_err(|e| Status::internal(format!("constitution.evaluate.shadow append: {e}")))?;
     Ok(outcome.receipt_id)
 }
 
@@ -744,7 +887,13 @@ impl EnvelopeService for EnvelopeHandler {
         // `ConstitutionService.Activate` as part of bringing the swarm
         // online; a Send arriving before that activation is a
         // misconfiguration and surfaces as `FAILED_PRECONDITION`.
-        let active = self.state.cedar_plus.current().await.ok_or_else(|| {
+        // Phase 3b (RFC 0018 §3.3): read both slots — active +
+        // shadow — in a single call so the envelope is evaluated
+        // against both with a consistent snapshot. The shadow slot
+        // is observation-only; only the active slot gates the cap
+        // layer + the enforcement engine.
+        let (active_opt, shadow_opt) = self.state.cedar_plus.current_pair().await;
+        let active = active_opt.ok_or_else(|| {
             Status::failed_precondition(
                 "no active constitution; operator must call ConstitutionService.Activate before \
                  envelope sends are permitted",
@@ -752,7 +901,19 @@ impl EnvelopeService for EnvelopeHandler {
         })?;
         let constitution_hash = active.constitution.constitution_hash.clone();
         let constitution_version = active.constitution.constitution_version.clone();
+        // Capture the shadow's hash + version before dropping the
+        // Arc, since we need them on the active receipt's evidence
+        // (per RFC 0018 §3.4) and to label the shadow receipt that
+        // follows.
+        let shadow_meta: Option<(Hash, String)> = shadow_opt.as_ref().map(|s| {
+            (
+                s.constitution.constitution_hash.clone(),
+                s.constitution.constitution_version.clone(),
+            )
+        });
         drop(active);
+        drop(shadow_opt);
+
         let topology_mode_str = match topology.mode {
             yutha_registry::TopologyMode::Closed => "closed",
             yutha_registry::TopologyMode::Open => "open",
@@ -770,31 +931,60 @@ impl EnvelopeService for EnvelopeHandler {
             self.state.enforcement.as_ref(),
         )
         .await;
-        let outcome = self
+        // evaluate_pair runs the active eval (full Layer A + B,
+        // procedure-state mutation) then — if a shadow is loaded —
+        // clones the request, rewrites its constitution_hash to the
+        // shadow's, and runs Layer A + scoring against the shadow
+        // policy set. Shadow-side schema incompatibilities surface
+        // as a synthesized Deny with deny_reason =
+        // "shadow_schema_incompatible" per RFC 0018 §3.3.
+        let (active_outcome, shadow_outcome_opt) = self
             .state
             .cedar_plus
-            .evaluate(eval_request)
+            .evaluate_pair(eval_request)
             .await
             .map_err(|e| Status::internal(format!("constitution eval: {e}")))?;
 
-        // F10e: emit constitution.evaluate.{pass,deny} receipt with
-        // the eval outcome's evidence digest + matched-rule ids +
-        // (when present) score contributions. Emission happens
-        // BEFORE the deny short-circuit below so the audit trail
-        // records both permits and denies symmetrically — per
+        // F10e + Phase 3b (RFC 0018 §3.4): emit the active eval
+        // receipt with shadow_constitution_hash evidence when a
+        // shadow was configured. Emission happens BEFORE the deny
+        // short-circuit so the audit trail records permits and
+        // denies symmetrically — per
         // /spec/receipt/canonical-actions.md.
         emit_constitution_eval_receipt(
             &self.state,
-            &outcome,
+            &active_outcome,
             &constitution_hash,
             &constitution_version,
             topology.swarm_id,
             &auth.agent_id,
+            shadow_meta.as_ref().map(|(h, _)| h),
         )
         .await?;
 
-        if outcome.decision == Decision::Deny {
-            let reason = outcome.deny_reason.as_deref().unwrap_or("unknown");
+        // Phase 3b (RFC 0018 §3.4): emit the shadow eval receipt
+        // when the shadow path ran. Ordering is deterministic —
+        // active first, shadow second — which Phase 3c replay
+        // reconstruction depends on. Engine fan-out filters these
+        // shadow action-kinds out at the forwarder per RFC 0018
+        // §3.5; nothing here gates on the shadow outcome.
+        if let Some(shadow_outcome) = shadow_outcome_opt {
+            let (shadow_hash, shadow_version) = shadow_meta
+                .as_ref()
+                .expect("shadow_outcome_opt is Some implies shadow_meta is Some");
+            emit_constitution_shadow_eval_receipt(
+                &self.state,
+                &shadow_outcome,
+                shadow_hash,
+                shadow_version,
+                topology.swarm_id,
+                &auth.agent_id,
+            )
+            .await?;
+        }
+
+        if active_outcome.decision == Decision::Deny {
+            let reason = active_outcome.deny_reason.as_deref().unwrap_or("unknown");
             return Err(Status::permission_denied(format!(
                 "constitution check denied: {reason}"
             )));

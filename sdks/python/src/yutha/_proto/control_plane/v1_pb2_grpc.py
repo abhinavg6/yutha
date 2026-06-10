@@ -5,7 +5,7 @@ import warnings
 
 from yutha._proto.control_plane import v1_pb2 as control__plane_dot_v1__pb2
 
-GRPC_GENERATED_VERSION = '1.80.0'
+GRPC_GENERATED_VERSION = '1.81.0'
 GRPC_VERSION = grpc.__version__
 _version_not_supported = False
 
@@ -25,7 +25,7 @@ if _version_not_supported:
     )
 
 
-class AdmissionServiceStub(object):
+class AdmissionServiceStub:
     """---------------------------------------------------------------------------
     AdmissionService — registry-facing operations
     ---------------------------------------------------------------------------
@@ -68,7 +68,7 @@ class AdmissionServiceStub(object):
                 _registered_method=True)
 
 
-class AdmissionServiceServicer(object):
+class AdmissionServiceServicer:
     """---------------------------------------------------------------------------
     AdmissionService — registry-facing operations
     ---------------------------------------------------------------------------
@@ -171,7 +171,7 @@ def add_AdmissionServiceServicer_to_server(servicer, server):
 
 
  # This class is part of an EXPERIMENTAL API.
-class AdmissionService(object):
+class AdmissionService:
     """---------------------------------------------------------------------------
     AdmissionService — registry-facing operations
     ---------------------------------------------------------------------------
@@ -317,7 +317,7 @@ class AdmissionService(object):
             _registered_method=True)
 
 
-class CapabilityServiceStub(object):
+class CapabilityServiceStub:
     """---------------------------------------------------------------------------
     CapabilityService — issue, attenuate, revoke, check
     ---------------------------------------------------------------------------
@@ -352,7 +352,7 @@ class CapabilityServiceStub(object):
                 _registered_method=True)
 
 
-class CapabilityServiceServicer(object):
+class CapabilityServiceServicer:
     """---------------------------------------------------------------------------
     CapabilityService — issue, attenuate, revoke, check
     ---------------------------------------------------------------------------
@@ -425,7 +425,7 @@ def add_CapabilityServiceServicer_to_server(servicer, server):
 
 
  # This class is part of an EXPERIMENTAL API.
-class CapabilityService(object):
+class CapabilityService:
     """---------------------------------------------------------------------------
     CapabilityService — issue, attenuate, revoke, check
     ---------------------------------------------------------------------------
@@ -541,7 +541,7 @@ class CapabilityService(object):
             _registered_method=True)
 
 
-class EnvelopeServiceStub(object):
+class EnvelopeServiceStub:
     """---------------------------------------------------------------------------
     EnvelopeService — typed messaging
     ---------------------------------------------------------------------------
@@ -566,7 +566,7 @@ class EnvelopeServiceStub(object):
                 _registered_method=True)
 
 
-class EnvelopeServiceServicer(object):
+class EnvelopeServiceServicer:
     """---------------------------------------------------------------------------
     EnvelopeService — typed messaging
     ---------------------------------------------------------------------------
@@ -623,7 +623,7 @@ def add_EnvelopeServiceServicer_to_server(servicer, server):
 
 
  # This class is part of an EXPERIMENTAL API.
-class EnvelopeService(object):
+class EnvelopeService:
     """---------------------------------------------------------------------------
     EnvelopeService — typed messaging
     ---------------------------------------------------------------------------
@@ -685,7 +685,7 @@ class EnvelopeService(object):
             _registered_method=True)
 
 
-class ReceiptServiceStub(object):
+class ReceiptServiceStub:
     """---------------------------------------------------------------------------
     ReceiptService — read access to the audit log
     ---------------------------------------------------------------------------
@@ -710,7 +710,7 @@ class ReceiptServiceStub(object):
                 _registered_method=True)
 
 
-class ReceiptServiceServicer(object):
+class ReceiptServiceServicer:
     """---------------------------------------------------------------------------
     ReceiptService — read access to the audit log
     ---------------------------------------------------------------------------
@@ -755,7 +755,7 @@ def add_ReceiptServiceServicer_to_server(servicer, server):
 
 
  # This class is part of an EXPERIMENTAL API.
-class ReceiptService(object):
+class ReceiptService:
     """---------------------------------------------------------------------------
     ReceiptService — read access to the audit log
     ---------------------------------------------------------------------------
@@ -817,7 +817,7 @@ class ReceiptService(object):
             _registered_method=True)
 
 
-class ConstitutionServiceStub(object):
+class ConstitutionServiceStub:
     """---------------------------------------------------------------------------
     ConstitutionService — operator publishes constitutions; agents query them
     ---------------------------------------------------------------------------
@@ -851,9 +851,29 @@ class ConstitutionServiceStub(object):
                 request_serializer=control__plane_dot_v1__pb2.GetActiveConstitutionRequest.SerializeToString,
                 response_deserializer=control__plane_dot_v1__pb2.GetActiveConstitutionResponse.FromString,
                 _registered_method=True)
+        self.ActivateShadow = channel.unary_unary(
+                '/yutha.control_plane.v1.ConstitutionService/ActivateShadow',
+                request_serializer=control__plane_dot_v1__pb2.ActivateShadowConstitutionRequest.SerializeToString,
+                response_deserializer=control__plane_dot_v1__pb2.ActivateShadowConstitutionResponse.FromString,
+                _registered_method=True)
+        self.ClearShadow = channel.unary_unary(
+                '/yutha.control_plane.v1.ConstitutionService/ClearShadow',
+                request_serializer=control__plane_dot_v1__pb2.ClearShadowConstitutionRequest.SerializeToString,
+                response_deserializer=control__plane_dot_v1__pb2.ClearShadowConstitutionResponse.FromString,
+                _registered_method=True)
+        self.PromoteShadow = channel.unary_unary(
+                '/yutha.control_plane.v1.ConstitutionService/PromoteShadow',
+                request_serializer=control__plane_dot_v1__pb2.PromoteShadowConstitutionRequest.SerializeToString,
+                response_deserializer=control__plane_dot_v1__pb2.PromoteShadowConstitutionResponse.FromString,
+                _registered_method=True)
+        self.GetActiveShadow = channel.unary_unary(
+                '/yutha.control_plane.v1.ConstitutionService/GetActiveShadow',
+                request_serializer=control__plane_dot_v1__pb2.GetActiveShadowConstitutionRequest.SerializeToString,
+                response_deserializer=control__plane_dot_v1__pb2.GetActiveShadowConstitutionResponse.FromString,
+                _registered_method=True)
 
 
-class ConstitutionServiceServicer(object):
+class ConstitutionServiceServicer:
     """---------------------------------------------------------------------------
     ConstitutionService — operator publishes constitutions; agents query them
     ---------------------------------------------------------------------------
@@ -892,6 +912,69 @@ class ConstitutionServiceServicer(object):
         context.set_details('Method not implemented!')
         raise NotImplementedError('Method not implemented!')
 
+    def ActivateShadow(self, request, context):
+        """-- Shadow-mode constitution slot (Phase 3b, RFC 0018 §3.2) ----------
+
+        The shadow slot is an operator-driven preview surface. A
+        constitution loaded into the shadow slot evaluates alongside the
+        active constitution on every envelope (see RFC 0018 §3.3), but
+        shadow decisions only emit `constitution.evaluate.shadow.{pass,deny}`
+        receipts — the active gates the cap layer + the enforcement
+        engine, the shadow only observes.
+
+        Authorization: all four shadow RPCs require an OperatorBearerToken,
+        same posture as Activate. GetActiveShadow also accepts
+        AgentBearerToken for read symmetry with GetActive — any registered
+        agent may inspect what shadow (if any) is loaded.
+
+        Activate a constitution into the shadow slot. Runs the same
+        load-time validation pass as Activate; load-time failures surface
+        immediately and never reach the hot path. Replaces any
+        previously-loaded shadow without a separate clear receipt — the
+        emitted `constitution.shadow_activate` receipt covers the
+        activation regardless of prior slot state.
+
+        Does NOT bind the constitution onto the enforcement engine: the
+        shadow slot is observation-only per RFC 0018 §3.5.
+        """
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def ClearShadow(self, request, context):
+        """Clear the shadow slot. Idempotent — calling against an empty
+        shadow slot still emits a `constitution.shadow_clear` receipt
+        (the receipt records the operator's intent regardless), but
+        omits the `previously_shadowed_constitution_hash` evidence in
+        the empty case.
+        """
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def PromoteShadow(self, request, context):
+        """Promote the shadow slot to active atomically. The shadow slot
+        is left empty. Emits a `constitution.shadow_promote` receipt
+        (distinct from `constitution.activate` for audit clarity per
+        RFC 0018 §3.2) and rebinds the enforcement engine onto the new
+        active. Per-agent reputation + quarantine state is preserved
+        across promote; sliding-window counters reset to match the
+        existing `EnforcementEngine::activate` posture.
+
+        Returns FAILED_PRECONDITION when the shadow slot is empty.
+        """
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def GetActiveShadow(self, request, context):
+        """Fetch the currently-loaded shadow constitution, or unset if no
+        shadow is loaded. Symmetric with GetActive.
+        """
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
 
 def add_ConstitutionServiceServicer_to_server(servicer, server):
     rpc_method_handlers = {
@@ -905,6 +988,26 @@ def add_ConstitutionServiceServicer_to_server(servicer, server):
                     request_deserializer=control__plane_dot_v1__pb2.GetActiveConstitutionRequest.FromString,
                     response_serializer=control__plane_dot_v1__pb2.GetActiveConstitutionResponse.SerializeToString,
             ),
+            'ActivateShadow': grpc.unary_unary_rpc_method_handler(
+                    servicer.ActivateShadow,
+                    request_deserializer=control__plane_dot_v1__pb2.ActivateShadowConstitutionRequest.FromString,
+                    response_serializer=control__plane_dot_v1__pb2.ActivateShadowConstitutionResponse.SerializeToString,
+            ),
+            'ClearShadow': grpc.unary_unary_rpc_method_handler(
+                    servicer.ClearShadow,
+                    request_deserializer=control__plane_dot_v1__pb2.ClearShadowConstitutionRequest.FromString,
+                    response_serializer=control__plane_dot_v1__pb2.ClearShadowConstitutionResponse.SerializeToString,
+            ),
+            'PromoteShadow': grpc.unary_unary_rpc_method_handler(
+                    servicer.PromoteShadow,
+                    request_deserializer=control__plane_dot_v1__pb2.PromoteShadowConstitutionRequest.FromString,
+                    response_serializer=control__plane_dot_v1__pb2.PromoteShadowConstitutionResponse.SerializeToString,
+            ),
+            'GetActiveShadow': grpc.unary_unary_rpc_method_handler(
+                    servicer.GetActiveShadow,
+                    request_deserializer=control__plane_dot_v1__pb2.GetActiveShadowConstitutionRequest.FromString,
+                    response_serializer=control__plane_dot_v1__pb2.GetActiveShadowConstitutionResponse.SerializeToString,
+            ),
     }
     generic_handler = grpc.method_handlers_generic_handler(
             'yutha.control_plane.v1.ConstitutionService', rpc_method_handlers)
@@ -913,7 +1016,7 @@ def add_ConstitutionServiceServicer_to_server(servicer, server):
 
 
  # This class is part of an EXPERIMENTAL API.
-class ConstitutionService(object):
+class ConstitutionService:
     """---------------------------------------------------------------------------
     ConstitutionService — operator publishes constitutions; agents query them
     ---------------------------------------------------------------------------
@@ -975,6 +1078,114 @@ class ConstitutionService(object):
             '/yutha.control_plane.v1.ConstitutionService/GetActive',
             control__plane_dot_v1__pb2.GetActiveConstitutionRequest.SerializeToString,
             control__plane_dot_v1__pb2.GetActiveConstitutionResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def ActivateShadow(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/yutha.control_plane.v1.ConstitutionService/ActivateShadow',
+            control__plane_dot_v1__pb2.ActivateShadowConstitutionRequest.SerializeToString,
+            control__plane_dot_v1__pb2.ActivateShadowConstitutionResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def ClearShadow(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/yutha.control_plane.v1.ConstitutionService/ClearShadow',
+            control__plane_dot_v1__pb2.ClearShadowConstitutionRequest.SerializeToString,
+            control__plane_dot_v1__pb2.ClearShadowConstitutionResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def PromoteShadow(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/yutha.control_plane.v1.ConstitutionService/PromoteShadow',
+            control__plane_dot_v1__pb2.PromoteShadowConstitutionRequest.SerializeToString,
+            control__plane_dot_v1__pb2.PromoteShadowConstitutionResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def GetActiveShadow(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/yutha.control_plane.v1.ConstitutionService/GetActiveShadow',
+            control__plane_dot_v1__pb2.GetActiveShadowConstitutionRequest.SerializeToString,
+            control__plane_dot_v1__pb2.GetActiveShadowConstitutionResponse.FromString,
             options,
             channel_credentials,
             insecure,

@@ -226,7 +226,7 @@ class CheckResponse(_message.Message):
     matched_caveats: _containers.RepeatedScalarFieldContainer[str]
     unmet_caveats: _containers.RepeatedScalarFieldContainer[str]
     check_receipt: _common_pb2.Hash
-    def __init__(self, permitted: bool = ..., deny_reason: _Optional[str] = ..., matched_caveats: _Optional[_Iterable[str]] = ..., unmet_caveats: _Optional[_Iterable[str]] = ..., check_receipt: _Optional[_Union[_common_pb2.Hash, _Mapping]] = ...) -> None: ...
+    def __init__(self, permitted: _Optional[bool] = ..., deny_reason: _Optional[str] = ..., matched_caveats: _Optional[_Iterable[str]] = ..., unmet_caveats: _Optional[_Iterable[str]] = ..., check_receipt: _Optional[_Union[_common_pb2.Hash, _Mapping]] = ...) -> None: ...
 
 class ActionDescriptor(_message.Message):
     __slots__ = ("action_kind", "resource_tags", "numeric_values", "recipient", "memory_scope")

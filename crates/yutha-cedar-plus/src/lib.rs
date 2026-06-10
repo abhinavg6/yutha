@@ -83,7 +83,7 @@ pub use eval::{
     ConstitutionEvaluator, Decision, EntityRecord, EntitySnapshot, EntityUid, EvaluationOutcome,
     EvaluationRequest, ProcedureEffect, Score, ScoreContribution,
 };
-pub use evaluator::CedarPlusEvaluator;
+pub use evaluator::{CedarPlusEvaluator, PromoteShadowOutcome};
 pub use loader::{
     canonical_schema_v1_1, canonical_schema_v1_1_with_extensions, parse_engine_config_yaml,
     workload_extension_by_name, ActivatedConstitution, ConstitutionLoader,

@@ -461,6 +461,53 @@ service ConstitutionService {
   // Fetch the currently-active constitution. Returns NOT_FOUND when
   // no constitution has been activated.
   rpc GetActive(GetActiveConstitutionRequest) returns (GetActiveConstitutionResponse);
+
+  // -- Shadow-mode constitution slot (Phase 3b, RFC 0018 §3.2) ----------
+  //
+  // The shadow slot is an operator-driven preview surface. A
+  // constitution loaded into the shadow slot evaluates alongside the
+  // active constitution on every envelope (see RFC 0018 §3.3), but
+  // shadow decisions only emit `constitution.evaluate.shadow.{pass,deny}`
+  // receipts — the active gates the cap layer + the enforcement
+  // engine, the shadow only observes.
+  //
+  // Authorization: all four shadow RPCs require an OperatorBearerToken,
+  // same posture as Activate. GetActiveShadow also accepts
+  // AgentBearerToken for read symmetry with GetActive — any registered
+  // agent may inspect what shadow (if any) is loaded.
+
+  // Activate a constitution into the shadow slot. Runs the same
+  // load-time validation pass as Activate; load-time failures surface
+  // immediately and never reach the hot path. Replaces any
+  // previously-loaded shadow without a separate clear receipt — the
+  // emitted `constitution.shadow_activate` receipt covers the
+  // activation regardless of prior slot state.
+  //
+  // Does NOT bind the constitution onto the enforcement engine: the
+  // shadow slot is observation-only per RFC 0018 §3.5.
+  rpc ActivateShadow(ActivateShadowConstitutionRequest) returns (ActivateShadowConstitutionResponse);
+
+  // Clear the shadow slot. Idempotent — calling against an empty
+  // shadow slot still emits a `constitution.shadow_clear` receipt
+  // (the receipt records the operator's intent regardless), but
+  // omits the `previously_shadowed_constitution_hash` evidence in
+  // the empty case.
+  rpc ClearShadow(ClearShadowConstitutionRequest) returns (ClearShadowConstitutionResponse);
+
+  // Promote the shadow slot to active atomically. The shadow slot
+  // is left empty. Emits a `constitution.shadow_promote` receipt
+  // (distinct from `constitution.activate` for audit clarity per
+  // RFC 0018 §3.2) and rebinds the enforcement engine onto the new
+  // active. Per-agent reputation + quarantine state is preserved
+  // across promote; sliding-window counters reset to match the
+  // existing `EnforcementEngine::activate` posture.
+  //
+  // Returns FAILED_PRECONDITION when the shadow slot is empty.
+  rpc PromoteShadow(PromoteShadowConstitutionRequest) returns (PromoteShadowConstitutionResponse);
+
+  // Fetch the currently-loaded shadow constitution, or unset if no
+  // shadow is loaded. Symmetric with GetActive.
+  rpc GetActiveShadow(GetActiveShadowConstitutionRequest) returns (GetActiveShadowConstitutionResponse);
 }
 
 // A constitution artifact carried over the wire. The wire shape
@@ -520,4 +567,67 @@ message GetActiveConstitutionResponse {
   // re-derivation from the constitution field but pre-computed by
   // the control plane.
   yutha.common.v1.Hash constitution_hash = 2;
+}
+
+// -- Phase 3b shadow-mode messages (RFC 0018) -----------------------------
+
+message ActivateShadowConstitutionRequest {
+  // The candidate constitution to load into the shadow slot. Same
+  // shape as ActivateConstitutionRequest.constitution; loader
+  // validation runs identically. Replaces any previously-loaded
+  // shadow.
+  Constitution constitution = 1;
+}
+
+message ActivateShadowConstitutionResponse {
+  // Content-address of the activated shadow constitution.
+  yutha.common.v1.Hash shadow_constitution_hash = 1;
+  // Content-address of the constitution.shadow_activate receipt the
+  // activation produced.
+  yutha.common.v1.Hash shadow_activate_receipt = 2;
+}
+
+message ClearShadowConstitutionRequest {}
+
+message ClearShadowConstitutionResponse {
+  // Content-address of the constitution.shadow_clear receipt the
+  // clear emitted. Always present — the receipt records the
+  // operator's intent even when the slot was already empty
+  // (idempotent semantics per RFC 0018 §3.2).
+  yutha.common.v1.Hash shadow_clear_receipt = 1;
+  // Content-address of the constitution that was in the shadow
+  // slot immediately before the clear. Unset when the slot was
+  // already empty.
+  yutha.common.v1.Hash previously_shadowed_constitution_hash = 2;
+}
+
+message PromoteShadowConstitutionRequest {}
+
+message PromoteShadowConstitutionResponse {
+  // Content-address of the new active constitution (formerly the
+  // shadow). Equal to the content-address the shadow held
+  // immediately before the promote — content-addressing is over
+  // the constitution's canonical bytes, not over slot history.
+  yutha.common.v1.Hash to_active_constitution_hash = 1;
+  // Content-address of the constitution.shadow_promote receipt the
+  // promote emitted.
+  yutha.common.v1.Hash shadow_promote_receipt = 2;
+  // Content-address of the constitution that was active
+  // immediately before the promote. Unset when no active was
+  // loaded at the time of promote (fresh-swarm case — bring a
+  // constitution up via shadow then promote without ever calling
+  // Activate directly).
+  yutha.common.v1.Hash from_active_constitution_hash = 3;
+}
+
+message GetActiveShadowConstitutionRequest {}
+
+message GetActiveShadowConstitutionResponse {
+  // The currently-loaded shadow constitution, or unset if no
+  // shadow is loaded.
+  Constitution constitution = 1;
+  // Convenience: content-address of the shadow constitution; same
+  // as a re-derivation from the constitution field but pre-computed
+  // by the control plane. Unset when no shadow is loaded.
+  yutha.common.v1.Hash shadow_constitution_hash = 2;
 }

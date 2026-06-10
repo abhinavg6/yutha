@@ -84,7 +84,7 @@ class OperatorRevokeRequest(_message.Message):
     target: _common_pb2.AgentId
     reason: str
     cascade_capabilities: bool
-    def __init__(self, target: _Optional[_Union[_common_pb2.AgentId, _Mapping]] = ..., reason: _Optional[str] = ..., cascade_capabilities: bool = ...) -> None: ...
+    def __init__(self, target: _Optional[_Union[_common_pb2.AgentId, _Mapping]] = ..., reason: _Optional[str] = ..., cascade_capabilities: _Optional[bool] = ...) -> None: ...
 
 class OperatorRevokeResponse(_message.Message):
     __slots__ = ("revocation_receipt", "cascade_receipts")
@@ -269,3 +269,55 @@ class GetActiveConstitutionResponse(_message.Message):
     constitution: Constitution
     constitution_hash: _common_pb2.Hash
     def __init__(self, constitution: _Optional[_Union[Constitution, _Mapping]] = ..., constitution_hash: _Optional[_Union[_common_pb2.Hash, _Mapping]] = ...) -> None: ...
+
+class ActivateShadowConstitutionRequest(_message.Message):
+    __slots__ = ("constitution",)
+    CONSTITUTION_FIELD_NUMBER: _ClassVar[int]
+    constitution: Constitution
+    def __init__(self, constitution: _Optional[_Union[Constitution, _Mapping]] = ...) -> None: ...
+
+class ActivateShadowConstitutionResponse(_message.Message):
+    __slots__ = ("shadow_constitution_hash", "shadow_activate_receipt")
+    SHADOW_CONSTITUTION_HASH_FIELD_NUMBER: _ClassVar[int]
+    SHADOW_ACTIVATE_RECEIPT_FIELD_NUMBER: _ClassVar[int]
+    shadow_constitution_hash: _common_pb2.Hash
+    shadow_activate_receipt: _common_pb2.Hash
+    def __init__(self, shadow_constitution_hash: _Optional[_Union[_common_pb2.Hash, _Mapping]] = ..., shadow_activate_receipt: _Optional[_Union[_common_pb2.Hash, _Mapping]] = ...) -> None: ...
+
+class ClearShadowConstitutionRequest(_message.Message):
+    __slots__ = ()
+    def __init__(self) -> None: ...
+
+class ClearShadowConstitutionResponse(_message.Message):
+    __slots__ = ("shadow_clear_receipt", "previously_shadowed_constitution_hash")
+    SHADOW_CLEAR_RECEIPT_FIELD_NUMBER: _ClassVar[int]
+    PREVIOUSLY_SHADOWED_CONSTITUTION_HASH_FIELD_NUMBER: _ClassVar[int]
+    shadow_clear_receipt: _common_pb2.Hash
+    previously_shadowed_constitution_hash: _common_pb2.Hash
+    def __init__(self, shadow_clear_receipt: _Optional[_Union[_common_pb2.Hash, _Mapping]] = ..., previously_shadowed_constitution_hash: _Optional[_Union[_common_pb2.Hash, _Mapping]] = ...) -> None: ...
+
+class PromoteShadowConstitutionRequest(_message.Message):
+    __slots__ = ()
+    def __init__(self) -> None: ...
+
+class PromoteShadowConstitutionResponse(_message.Message):
+    __slots__ = ("to_active_constitution_hash", "shadow_promote_receipt", "from_active_constitution_hash")
+    TO_ACTIVE_CONSTITUTION_HASH_FIELD_NUMBER: _ClassVar[int]
+    SHADOW_PROMOTE_RECEIPT_FIELD_NUMBER: _ClassVar[int]
+    FROM_ACTIVE_CONSTITUTION_HASH_FIELD_NUMBER: _ClassVar[int]
+    to_active_constitution_hash: _common_pb2.Hash
+    shadow_promote_receipt: _common_pb2.Hash
+    from_active_constitution_hash: _common_pb2.Hash
+    def __init__(self, to_active_constitution_hash: _Optional[_Union[_common_pb2.Hash, _Mapping]] = ..., shadow_promote_receipt: _Optional[_Union[_common_pb2.Hash, _Mapping]] = ..., from_active_constitution_hash: _Optional[_Union[_common_pb2.Hash, _Mapping]] = ...) -> None: ...
+
+class GetActiveShadowConstitutionRequest(_message.Message):
+    __slots__ = ()
+    def __init__(self) -> None: ...
+
+class GetActiveShadowConstitutionResponse(_message.Message):
+    __slots__ = ("constitution", "shadow_constitution_hash")
+    CONSTITUTION_FIELD_NUMBER: _ClassVar[int]
+    SHADOW_CONSTITUTION_HASH_FIELD_NUMBER: _ClassVar[int]
+    constitution: Constitution
+    shadow_constitution_hash: _common_pb2.Hash
+    def __init__(self, constitution: _Optional[_Union[Constitution, _Mapping]] = ..., shadow_constitution_hash: _Optional[_Union[_common_pb2.Hash, _Mapping]] = ...) -> None: ...
