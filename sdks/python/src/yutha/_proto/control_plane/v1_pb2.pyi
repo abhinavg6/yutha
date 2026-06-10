@@ -5,12 +5,20 @@ from receipt import receipt_v1_pb2 as _receipt_v1_pb2
 from capability import capability_v1_pb2 as _capability_v1_pb2
 from topology import topology_v1_pb2 as _topology_v1_pb2
 from google.protobuf.internal import containers as _containers
+from google.protobuf.internal import enum_type_wrapper as _enum_type_wrapper
 from google.protobuf import descriptor as _descriptor
 from google.protobuf import message as _message
 from collections.abc import Iterable as _Iterable, Mapping as _Mapping
 from typing import ClassVar as _ClassVar, Optional as _Optional, Union as _Union
 
 DESCRIPTOR: _descriptor.FileDescriptor
+
+class ReplayMode(int, metaclass=_enum_type_wrapper.EnumTypeWrapper):
+    __slots__ = ()
+    REPLAY_MODE_COLD: _ClassVar[ReplayMode]
+    REPLAY_MODE_WARM: _ClassVar[ReplayMode]
+REPLAY_MODE_COLD: ReplayMode
+REPLAY_MODE_WARM: ReplayMode
 
 class AgentBearerToken(_message.Message):
     __slots__ = ("agent_id", "swarm_id", "issued_at", "expires_at", "nonce", "extensions", "signature")
@@ -321,3 +329,113 @@ class GetActiveShadowConstitutionResponse(_message.Message):
     constitution: Constitution
     shadow_constitution_hash: _common_pb2.Hash
     def __init__(self, constitution: _Optional[_Union[Constitution, _Mapping]] = ..., shadow_constitution_hash: _Optional[_Union[_common_pb2.Hash, _Mapping]] = ...) -> None: ...
+
+class ReplaySessionWindow(_message.Message):
+    __slots__ = ("from_unix_ns", "to_unix_ns", "action_kind_filter")
+    FROM_UNIX_NS_FIELD_NUMBER: _ClassVar[int]
+    TO_UNIX_NS_FIELD_NUMBER: _ClassVar[int]
+    ACTION_KIND_FILTER_FIELD_NUMBER: _ClassVar[int]
+    from_unix_ns: int
+    to_unix_ns: int
+    action_kind_filter: _containers.RepeatedScalarFieldContainer[str]
+    def __init__(self, from_unix_ns: _Optional[int] = ..., to_unix_ns: _Optional[int] = ..., action_kind_filter: _Optional[_Iterable[str]] = ...) -> None: ...
+
+class CreateReplaySessionRequest(_message.Message):
+    __slots__ = ("candidate", "window", "mode", "warm_lookback_hours")
+    CANDIDATE_FIELD_NUMBER: _ClassVar[int]
+    WINDOW_FIELD_NUMBER: _ClassVar[int]
+    MODE_FIELD_NUMBER: _ClassVar[int]
+    WARM_LOOKBACK_HOURS_FIELD_NUMBER: _ClassVar[int]
+    candidate: Constitution
+    window: ReplaySessionWindow
+    mode: ReplayMode
+    warm_lookback_hours: int
+    def __init__(self, candidate: _Optional[_Union[Constitution, _Mapping]] = ..., window: _Optional[_Union[ReplaySessionWindow, _Mapping]] = ..., mode: _Optional[_Union[ReplayMode, str]] = ..., warm_lookback_hours: _Optional[int] = ...) -> None: ...
+
+class CreateReplaySessionResponse(_message.Message):
+    __slots__ = ("replay_session_id", "session_create_receipt")
+    REPLAY_SESSION_ID_FIELD_NUMBER: _ClassVar[int]
+    SESSION_CREATE_RECEIPT_FIELD_NUMBER: _ClassVar[int]
+    replay_session_id: str
+    session_create_receipt: _common_pb2.Hash
+    def __init__(self, replay_session_id: _Optional[str] = ..., session_create_receipt: _Optional[_Union[_common_pb2.Hash, _Mapping]] = ...) -> None: ...
+
+class RunReplaySessionRequest(_message.Message):
+    __slots__ = ("replay_session_id",)
+    REPLAY_SESSION_ID_FIELD_NUMBER: _ClassVar[int]
+    replay_session_id: str
+    def __init__(self, replay_session_id: _Optional[str] = ...) -> None: ...
+
+class ReplayProgress(_message.Message):
+    __slots__ = ("replay_session_id", "progress_unix_ns", "receipts_replayed", "latest_replay_receipt_id", "window_complete")
+    REPLAY_SESSION_ID_FIELD_NUMBER: _ClassVar[int]
+    PROGRESS_UNIX_NS_FIELD_NUMBER: _ClassVar[int]
+    RECEIPTS_REPLAYED_FIELD_NUMBER: _ClassVar[int]
+    LATEST_REPLAY_RECEIPT_ID_FIELD_NUMBER: _ClassVar[int]
+    WINDOW_COMPLETE_FIELD_NUMBER: _ClassVar[int]
+    replay_session_id: str
+    progress_unix_ns: int
+    receipts_replayed: int
+    latest_replay_receipt_id: _common_pb2.Hash
+    window_complete: bool
+    def __init__(self, replay_session_id: _Optional[str] = ..., progress_unix_ns: _Optional[int] = ..., receipts_replayed: _Optional[int] = ..., latest_replay_receipt_id: _Optional[_Union[_common_pb2.Hash, _Mapping]] = ..., window_complete: _Optional[bool] = ...) -> None: ...
+
+class QueryReplayReceiptsRequest(_message.Message):
+    __slots__ = ("replay_session_id", "query")
+    REPLAY_SESSION_ID_FIELD_NUMBER: _ClassVar[int]
+    QUERY_FIELD_NUMBER: _ClassVar[int]
+    replay_session_id: str
+    query: _receipt_v1_pb2.QueryRequest
+    def __init__(self, replay_session_id: _Optional[str] = ..., query: _Optional[_Union[_receipt_v1_pb2.QueryRequest, _Mapping]] = ...) -> None: ...
+
+class QueryReplayReceiptsResponse(_message.Message):
+    __slots__ = ("receipts", "next_page_token")
+    RECEIPTS_FIELD_NUMBER: _ClassVar[int]
+    NEXT_PAGE_TOKEN_FIELD_NUMBER: _ClassVar[int]
+    receipts: _containers.RepeatedCompositeFieldContainer[_receipt_v1_pb2.Receipt]
+    next_page_token: bytes
+    def __init__(self, receipts: _Optional[_Iterable[_Union[_receipt_v1_pb2.Receipt, _Mapping]]] = ..., next_page_token: _Optional[bytes] = ...) -> None: ...
+
+class CloseReplaySessionRequest(_message.Message):
+    __slots__ = ("replay_session_id",)
+    REPLAY_SESSION_ID_FIELD_NUMBER: _ClassVar[int]
+    replay_session_id: str
+    def __init__(self, replay_session_id: _Optional[str] = ...) -> None: ...
+
+class CloseReplaySessionResponse(_message.Message):
+    __slots__ = ("session_close_receipt", "receipts_replayed_total")
+    SESSION_CLOSE_RECEIPT_FIELD_NUMBER: _ClassVar[int]
+    RECEIPTS_REPLAYED_TOTAL_FIELD_NUMBER: _ClassVar[int]
+    session_close_receipt: _common_pb2.Hash
+    receipts_replayed_total: int
+    def __init__(self, session_close_receipt: _Optional[_Union[_common_pb2.Hash, _Mapping]] = ..., receipts_replayed_total: _Optional[int] = ...) -> None: ...
+
+class ListReplaySessionsRequest(_message.Message):
+    __slots__ = ()
+    def __init__(self) -> None: ...
+
+class ReplaySessionDescriptor(_message.Message):
+    __slots__ = ("replay_session_id", "candidate_constitution_hash", "candidate_constitution_version", "window", "mode", "created_at", "last_active_at", "receipts_replayed")
+    REPLAY_SESSION_ID_FIELD_NUMBER: _ClassVar[int]
+    CANDIDATE_CONSTITUTION_HASH_FIELD_NUMBER: _ClassVar[int]
+    CANDIDATE_CONSTITUTION_VERSION_FIELD_NUMBER: _ClassVar[int]
+    WINDOW_FIELD_NUMBER: _ClassVar[int]
+    MODE_FIELD_NUMBER: _ClassVar[int]
+    CREATED_AT_FIELD_NUMBER: _ClassVar[int]
+    LAST_ACTIVE_AT_FIELD_NUMBER: _ClassVar[int]
+    RECEIPTS_REPLAYED_FIELD_NUMBER: _ClassVar[int]
+    replay_session_id: str
+    candidate_constitution_hash: _common_pb2.Hash
+    candidate_constitution_version: str
+    window: ReplaySessionWindow
+    mode: ReplayMode
+    created_at: _common_pb2.Timestamp
+    last_active_at: _common_pb2.Timestamp
+    receipts_replayed: int
+    def __init__(self, replay_session_id: _Optional[str] = ..., candidate_constitution_hash: _Optional[_Union[_common_pb2.Hash, _Mapping]] = ..., candidate_constitution_version: _Optional[str] = ..., window: _Optional[_Union[ReplaySessionWindow, _Mapping]] = ..., mode: _Optional[_Union[ReplayMode, str]] = ..., created_at: _Optional[_Union[_common_pb2.Timestamp, _Mapping]] = ..., last_active_at: _Optional[_Union[_common_pb2.Timestamp, _Mapping]] = ..., receipts_replayed: _Optional[int] = ...) -> None: ...
+
+class ListReplaySessionsResponse(_message.Message):
+    __slots__ = ("sessions",)
+    SESSIONS_FIELD_NUMBER: _ClassVar[int]
+    sessions: _containers.RepeatedCompositeFieldContainer[ReplaySessionDescriptor]
+    def __init__(self, sessions: _Optional[_Iterable[_Union[ReplaySessionDescriptor, _Mapping]]] = ...) -> None: ...

@@ -22,6 +22,8 @@ yutha-transport.workspace = true
 yutha-registry.workspace = true
 # S4 (F13) exercises the constitution + enforcement layers end-to-end.
 yutha-cedar-plus.workspace = true
+# S11 drives the Phase 3c replay orchestration layer end-to-end.
+yutha-replay.workspace = true
 
 async-trait.workspace = true
 futures.workspace = true

@@ -249,4 +249,130 @@ mod tests {
         let candidates = src.fetch_candidates(u64::MAX - 1, 10).await.unwrap();
         assert!(candidates.is_empty());
     }
+
+    /// Replay receipts NEVER appear as anchor candidates (RFC 0018
+    /// §4.4 by-construction invariant). The `AnchorDriver`'s
+    /// `ReceiptStoreCandidateSource` is constructed at startup with
+    /// the production `Arc<dyn ReceiptStore>` specifically. Session-
+    /// scoped handles obtained from `ReplayStore::session_store(...)`
+    /// are distinct `Arc`s — the anchor driver provably can't see
+    /// receipts in stores it doesn't hold a handle to.
+    ///
+    /// This test pins the invariant by setting up both a production
+    /// store and a populated session-scoped replay store, building a
+    /// candidate source over ONLY the production store, and asserting
+    /// the candidate set excludes every replay receipt regardless of
+    /// monotonic_ns position relative to production receipts.
+    #[tokio::test]
+    async fn replay_receipts_never_appear_in_candidates() {
+        use yutha_receipt::{
+            MemoryReplayStore, ReplayMode, ReplaySessionId, ReplaySessionMetadata,
+            ReplaySessionWindow, ReplayStore,
+        };
+
+        let production = Arc::new(MemoryStore::new());
+        let replay = MemoryReplayStore::new();
+
+        // Production receipts at monotonic_ns 100 and 200.
+        let prod_r1 = signed_at_monotonic(100, 1);
+        let prod_r2 = signed_at_monotonic(200, 2);
+
+        // Replay receipts at monotonic_ns 150 and 250 — deliberately
+        // INTERLEAVED with production so monotonic ordering alone
+        // can't accidentally separate them; only the by-construction
+        // store-isolation invariant excludes them.
+        let replay_r1 = signed_at_monotonic(150, 11);
+        let replay_r2 = signed_at_monotonic(250, 12);
+
+        // Build a passport resolver that knows every actor key —
+        // both stores' appends pass through the same resolver.
+        let resolver = {
+            let mut r = StaticPassportResolver::new();
+            for (_, actor, pk) in [&prod_r1, &prod_r2, &replay_r1, &replay_r2] {
+                r = r.with_actor(*actor, pk.clone());
+            }
+            r
+        };
+
+        // Seed the production store.
+        for r in [&prod_r1, &prod_r2] {
+            production
+                .append(r.0.clone(), AppendOptions::default(), &resolver)
+                .await
+                .expect("production append succeeds");
+        }
+
+        // Create a replay session and seed its session-scoped store.
+        // Use the same shape as the gRPC handler would: create_session
+        // first, then session_store(id) for appends.
+        let session_id = ReplaySessionId::new();
+        let metadata = ReplaySessionMetadata {
+            session_id,
+            candidate_constitution_hash: yutha_core::Hash::new(
+                yutha_core::HashAlgorithm::Sha256,
+                vec![0xC0u8; 32],
+            )
+            .unwrap(),
+            candidate_constitution_version: "1.1.0-rc".into(),
+            window: ReplaySessionWindow {
+                from_unix_ns: 0,
+                to_unix_ns: u64::MAX,
+                action_kind_filter: Vec::new(),
+            },
+            mode: ReplayMode::Cold,
+            warm_lookback_hours: 0,
+            created_at: Timestamp::now(),
+            last_active_at: Timestamp::now(),
+            receipts_replayed: 0,
+        };
+        replay
+            .create_session(metadata)
+            .await
+            .expect("create_session succeeds");
+        let session_store = replay.session_store(&session_id);
+
+        for r in [&replay_r1, &replay_r2] {
+            session_store
+                .append(r.0.clone(), AppendOptions::default(), &resolver)
+                .await
+                .expect("replay session append succeeds");
+        }
+
+        // Anchor candidate source is bound to PRODUCTION only — the
+        // canonical wiring `main.rs::bootstrap_backends` does.
+        let src = ReceiptStoreCandidateSource::new(production.clone() as Arc<dyn ReceiptStore>);
+        let candidates = src.fetch_candidates(0, 100).await.unwrap();
+
+        // Expect exactly the two production receipts. Replay
+        // monotonic_ns values 150 and 250 MUST NOT appear.
+        assert_eq!(
+            candidates.len(),
+            2,
+            "expected 2 production candidates, got {} (replay receipts may have leaked)",
+            candidates.len()
+        );
+        let candidate_ns: Vec<u64> = candidates
+            .iter()
+            .map(|r| r.occurred_at.monotonic_ns)
+            .collect();
+        assert_eq!(candidate_ns, vec![100, 200]);
+
+        // Belt-and-suspenders: scan every candidate for the actors we
+        // used on the replay side. None should appear.
+        let replay_actors: std::collections::HashSet<AgentId> =
+            [replay_r1.1, replay_r2.1].into_iter().collect();
+        for c in &candidates {
+            assert!(
+                !replay_actors.contains(&c.actor),
+                "replay actor {} leaked into anchor candidate set — RFC 0018 §4.4 invariant violated",
+                c.actor
+            );
+        }
+
+        // Independent sanity: the session-scoped store DID accept
+        // the receipts (so the absence above is real isolation, not
+        // a silent append failure).
+        assert_eq!(session_store.count().await.unwrap(), 2);
+        assert_eq!(production.count().await.unwrap(), 2);
+    }
 }

@@ -19,6 +19,10 @@ yutha-proto.workspace = true
 async-trait.workspace = true
 tokio = { workspace = true, features = ["sync"] }
 
+# UUIDv7 generation for ReplaySessionId. Mirrors the workspace
+# convention used by AgentId / SwarmId in yutha-core.
+uuid.workspace = true
+
 # Errors.
 thiserror.workspace = true
 

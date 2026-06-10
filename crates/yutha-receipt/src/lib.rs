@@ -16,6 +16,7 @@ pub mod preimage;
 pub mod proto_conv;
 pub mod query;
 pub mod receipt;
+pub mod replay_store;
 pub mod seal;
 pub mod sealer;
 pub mod signing;
@@ -32,6 +33,10 @@ pub use query::{
     ActionKindQuery, AgentQuery, AppendOptions, Page, PredecessorQuery, Query, TimeRangeQuery,
 };
 pub use receipt::{Receipt, ReceiptBuilder};
+pub use replay_store::{
+    MemoryReplayStore, ReplayMode, ReplaySessionId, ReplaySessionMetadata, ReplaySessionWindow,
+    ReplayStore,
+};
 pub use seal::{SealState, SealStatus};
 pub use sealer::{
     compute_histogram, compute_ns_range, LocalSealer, SealError, SealedBatch, Sealer,

@@ -1195,3 +1195,329 @@ class ConstitutionService:
             timeout,
             metadata,
             _registered_method=True)
+
+
+class ReplayServiceStub:
+    """---------------------------------------------------------------------------
+    ReplayService — Phase 3c (RFC 0018 §4)
+    ---------------------------------------------------------------------------
+
+    Replay engine: previews a candidate constitution against a past
+    receipt window. Sessions are isolated containers — each carries its
+    own EnforcementEngine instance + a session-scoped ReceiptStore
+    handle obtained via ReplayStore::session_store(...). Within-session
+    receipts use the SAME canonical action-kinds as production but
+    land in the session's isolated store and carry a replay_session_id
+    evidence marker (RFC 0018 §4.3).
+
+    Replay receipts are NEVER anchored to Sui. The AnchorDriver's
+    candidate source is bound to the production receipt store only
+    (RFC 0018 §4.4 — by construction).
+
+    Authorization: all five RPCs require an OperatorBearerToken. Per
+    RFC 0009 the operator id surfaces on the lifecycle audit receipts
+    in the production store.
+
+    """
+
+    def __init__(self, channel):
+        """Constructor.
+
+        Args:
+            channel: A grpc.Channel.
+        """
+        self.CreateSession = channel.unary_unary(
+                '/yutha.control_plane.v1.ReplayService/CreateSession',
+                request_serializer=control__plane_dot_v1__pb2.CreateReplaySessionRequest.SerializeToString,
+                response_deserializer=control__plane_dot_v1__pb2.CreateReplaySessionResponse.FromString,
+                _registered_method=True)
+        self.RunSession = channel.unary_stream(
+                '/yutha.control_plane.v1.ReplayService/RunSession',
+                request_serializer=control__plane_dot_v1__pb2.RunReplaySessionRequest.SerializeToString,
+                response_deserializer=control__plane_dot_v1__pb2.ReplayProgress.FromString,
+                _registered_method=True)
+        self.QueryReplayReceipts = channel.unary_unary(
+                '/yutha.control_plane.v1.ReplayService/QueryReplayReceipts',
+                request_serializer=control__plane_dot_v1__pb2.QueryReplayReceiptsRequest.SerializeToString,
+                response_deserializer=control__plane_dot_v1__pb2.QueryReplayReceiptsResponse.FromString,
+                _registered_method=True)
+        self.CloseSession = channel.unary_unary(
+                '/yutha.control_plane.v1.ReplayService/CloseSession',
+                request_serializer=control__plane_dot_v1__pb2.CloseReplaySessionRequest.SerializeToString,
+                response_deserializer=control__plane_dot_v1__pb2.CloseReplaySessionResponse.FromString,
+                _registered_method=True)
+        self.ListSessions = channel.unary_unary(
+                '/yutha.control_plane.v1.ReplayService/ListSessions',
+                request_serializer=control__plane_dot_v1__pb2.ListReplaySessionsRequest.SerializeToString,
+                response_deserializer=control__plane_dot_v1__pb2.ListReplaySessionsResponse.FromString,
+                _registered_method=True)
+
+
+class ReplayServiceServicer:
+    """---------------------------------------------------------------------------
+    ReplayService — Phase 3c (RFC 0018 §4)
+    ---------------------------------------------------------------------------
+
+    Replay engine: previews a candidate constitution against a past
+    receipt window. Sessions are isolated containers — each carries its
+    own EnforcementEngine instance + a session-scoped ReceiptStore
+    handle obtained via ReplayStore::session_store(...). Within-session
+    receipts use the SAME canonical action-kinds as production but
+    land in the session's isolated store and carry a replay_session_id
+    evidence marker (RFC 0018 §4.3).
+
+    Replay receipts are NEVER anchored to Sui. The AnchorDriver's
+    candidate source is bound to the production receipt store only
+    (RFC 0018 §4.4 — by construction).
+
+    Authorization: all five RPCs require an OperatorBearerToken. Per
+    RFC 0009 the operator id surfaces on the lifecycle audit receipts
+    in the production store.
+
+    """
+
+    def CreateSession(self, request, context):
+        """Create a replay session. Instantiates the per-session
+        EnforcementEngine + CedarPlusEvaluator, performs the warm-mode
+        lookback rebuild if requested, and emits a
+        replay.session.create audit receipt into the PRODUCTION
+        receipt store.
+        """
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def RunSession(self, request, context):
+        """Replay the receipt window against the session's candidate.
+        Server-streaming: emits ReplayProgress items as the engine
+        advances through the window. Operator cancellation leaves the
+        session in a quiescent state — receipts replayed so far remain
+        queryable until CloseSession.
+        """
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def QueryReplayReceipts(self, request, context):
+        """Query the session's isolated receipt store. Takes the same
+        Query variants as ReceiptService.Query but evaluates them
+        against the session's store. The session id must be passed
+        explicitly — it is not derivable from the query.
+        """
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def CloseSession(self, request, context):
+        """Close the session: deletes the session from the ReplayStore
+        (which drops every within-session receipt), shuts down the
+        per-session engine instance, and emits a
+        replay.session.close audit receipt into the production store.
+        Sessions also auto-close after a configurable inactivity TTL
+        (default 24 hours after last RunSession activity).
+        """
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def ListSessions(self, request, context):
+        """List active replay sessions for this swarm. Scoped by the
+        operator's bearer.
+        """
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+
+def add_ReplayServiceServicer_to_server(servicer, server):
+    rpc_method_handlers = {
+            'CreateSession': grpc.unary_unary_rpc_method_handler(
+                    servicer.CreateSession,
+                    request_deserializer=control__plane_dot_v1__pb2.CreateReplaySessionRequest.FromString,
+                    response_serializer=control__plane_dot_v1__pb2.CreateReplaySessionResponse.SerializeToString,
+            ),
+            'RunSession': grpc.unary_stream_rpc_method_handler(
+                    servicer.RunSession,
+                    request_deserializer=control__plane_dot_v1__pb2.RunReplaySessionRequest.FromString,
+                    response_serializer=control__plane_dot_v1__pb2.ReplayProgress.SerializeToString,
+            ),
+            'QueryReplayReceipts': grpc.unary_unary_rpc_method_handler(
+                    servicer.QueryReplayReceipts,
+                    request_deserializer=control__plane_dot_v1__pb2.QueryReplayReceiptsRequest.FromString,
+                    response_serializer=control__plane_dot_v1__pb2.QueryReplayReceiptsResponse.SerializeToString,
+            ),
+            'CloseSession': grpc.unary_unary_rpc_method_handler(
+                    servicer.CloseSession,
+                    request_deserializer=control__plane_dot_v1__pb2.CloseReplaySessionRequest.FromString,
+                    response_serializer=control__plane_dot_v1__pb2.CloseReplaySessionResponse.SerializeToString,
+            ),
+            'ListSessions': grpc.unary_unary_rpc_method_handler(
+                    servicer.ListSessions,
+                    request_deserializer=control__plane_dot_v1__pb2.ListReplaySessionsRequest.FromString,
+                    response_serializer=control__plane_dot_v1__pb2.ListReplaySessionsResponse.SerializeToString,
+            ),
+    }
+    generic_handler = grpc.method_handlers_generic_handler(
+            'yutha.control_plane.v1.ReplayService', rpc_method_handlers)
+    server.add_generic_rpc_handlers((generic_handler,))
+    server.add_registered_method_handlers('yutha.control_plane.v1.ReplayService', rpc_method_handlers)
+
+
+ # This class is part of an EXPERIMENTAL API.
+class ReplayService:
+    """---------------------------------------------------------------------------
+    ReplayService — Phase 3c (RFC 0018 §4)
+    ---------------------------------------------------------------------------
+
+    Replay engine: previews a candidate constitution against a past
+    receipt window. Sessions are isolated containers — each carries its
+    own EnforcementEngine instance + a session-scoped ReceiptStore
+    handle obtained via ReplayStore::session_store(...). Within-session
+    receipts use the SAME canonical action-kinds as production but
+    land in the session's isolated store and carry a replay_session_id
+    evidence marker (RFC 0018 §4.3).
+
+    Replay receipts are NEVER anchored to Sui. The AnchorDriver's
+    candidate source is bound to the production receipt store only
+    (RFC 0018 §4.4 — by construction).
+
+    Authorization: all five RPCs require an OperatorBearerToken. Per
+    RFC 0009 the operator id surfaces on the lifecycle audit receipts
+    in the production store.
+
+    """
+
+    @staticmethod
+    def CreateSession(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/yutha.control_plane.v1.ReplayService/CreateSession',
+            control__plane_dot_v1__pb2.CreateReplaySessionRequest.SerializeToString,
+            control__plane_dot_v1__pb2.CreateReplaySessionResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def RunSession(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_stream(
+            request,
+            target,
+            '/yutha.control_plane.v1.ReplayService/RunSession',
+            control__plane_dot_v1__pb2.RunReplaySessionRequest.SerializeToString,
+            control__plane_dot_v1__pb2.ReplayProgress.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def QueryReplayReceipts(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/yutha.control_plane.v1.ReplayService/QueryReplayReceipts',
+            control__plane_dot_v1__pb2.QueryReplayReceiptsRequest.SerializeToString,
+            control__plane_dot_v1__pb2.QueryReplayReceiptsResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def CloseSession(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/yutha.control_plane.v1.ReplayService/CloseSession',
+            control__plane_dot_v1__pb2.CloseReplaySessionRequest.SerializeToString,
+            control__plane_dot_v1__pb2.CloseReplaySessionResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def ListSessions(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/yutha.control_plane.v1.ReplayService/ListSessions',
+            control__plane_dot_v1__pb2.ListReplaySessionsRequest.SerializeToString,
+            control__plane_dot_v1__pb2.ListReplaySessionsResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)

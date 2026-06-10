@@ -57,6 +57,7 @@ use yutha_proto::control_plane::v1::{
     capability_service_server::CapabilityServiceServer,
     constitution_service_server::ConstitutionServiceServer,
     envelope_service_server::EnvelopeServiceServer, receipt_service_server::ReceiptServiceServer,
+    replay_service_server::ReplayServiceServer,
 };
 use yutha_proto::FILE_DESCRIPTOR_SET;
 use yutha_receipt::{
@@ -2133,6 +2134,12 @@ async fn bootstrap_backends(
     // `enforcement` was constructed earlier (F10g hookup) so the cap
     // store can share it; we just re-use that Arc below.
 
+    // Phase 3c (RFC 0018 §4): replay engine backing. Memory backend
+    // ships in 3c-C; Postgres impl is a 3c follow-on.
+    let replay_store: Arc<dyn yutha_receipt::ReplayStore> =
+        Arc::new(yutha_receipt::MemoryReplayStore::new());
+    let replay_sessions = Arc::new(tokio::sync::RwLock::new(std::collections::HashMap::new()));
+
     Ok((
         Arc::new(ControlPlaneState {
             registry,
@@ -2150,6 +2157,8 @@ async fn bootstrap_backends(
             cedar_plus,
             enforcement,
             attestor,
+            replay_store,
+            replay_sessions,
         }),
         enforcement_rx,
     ))
@@ -2270,6 +2279,10 @@ async fn serve_grpc(cli: &Cli, state: Arc<ControlPlaneState>) -> anyhow::Result<
     );
     let constitution = ConstitutionServiceServer::with_interceptor(
         ConstitutionHandler::new(Arc::clone(&state)),
+        interceptor.clone(),
+    );
+    let replay = ReplayServiceServer::with_interceptor(
+        grpc::replay::ReplayHandler::new(Arc::clone(&state)),
         interceptor,
     );
 
@@ -2328,6 +2341,7 @@ async fn serve_grpc(cli: &Cli, state: Arc<ControlPlaneState>) -> anyhow::Result<
         .add_service(envelope)
         .add_service(receipt)
         .add_service(constitution)
+        .add_service(replay)
         .add_service(reflection);
 
     info!(

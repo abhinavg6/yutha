@@ -49,8 +49,21 @@
 //!   `shadow_constitution_hash` when shadow is configured; shadow
 //!   receipts carry `shadow_constitution_hash` and NOT
 //!   `constitution_hash`).
+//! - **S11: Replay session end-to-end (Phase 3c regression guard).**
+//!   Production source store with 4 `constitution.evaluate.deny`
+//!   receipts for the same subject; cold-init replay session against
+//!   a candidate whose `enforcement_rules` fire `detect` at
+//!   threshold 2. Locks the four load-bearing properties from RFC
+//!   0018 §4: production store untouched after the run, session
+//!   store receives the emissions, within-session enforcement
+//!   receipts use the same canonical `enforcement.detect`
+//!   action-kind as production with a `replay_session_id` evidence
+//!   marker, and step N+1's predecessors point at step N's emissions
+//!   (session-internal causal chain — never the original receipt's
+//!   predecessors).
 
 pub mod s10_shadow_mode;
+pub mod s11_replay_session;
 pub mod s1_queue_mode;
 pub mod s2_send_path_cap_check;
 pub mod s4_enforcement_loop;
@@ -61,6 +74,7 @@ pub mod s8_attestation_deny;
 pub mod s9_principal_attrs;
 
 pub use s10_shadow_mode::{run_s10, S10Outcome};
+pub use s11_replay_session::{run_s11, S11Outcome};
 pub use s1_queue_mode::{run_s1, S1Outcome};
 pub use s2_send_path_cap_check::{run_s2, S2Outcome};
 pub use s4_enforcement_loop::{run_s4, S4Outcome};

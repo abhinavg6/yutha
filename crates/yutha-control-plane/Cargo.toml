@@ -47,6 +47,9 @@ yutha-capability.workspace = true
 yutha-transport.workspace = true
 yutha-registry.workspace = true
 yutha-cedar-plus.workspace = true
+# Phase 3c (RFC 0018) replay engine. Provides ReplaySession +
+# ReplayService handler dependencies.
+yutha-replay.workspace = true
 # Postgres receipt backend. Operators select it at startup with
 # `--receipt-backend postgres --postgres-url <url>`; defaults to the
 # in-memory store for zero-config local development.

@@ -164,6 +164,28 @@ async def _wrap_subscribe_stream(
         )
 
 
+async def _wrap_run_session_stream(
+    response_stream: AsyncIterator[cp_pb2.ReplayProgress],
+) -> AsyncIterator[ReplayProgressEvent]:
+    """Adapt the proto-typed :class:`cp_pb2.ReplayProgress` stream
+    from :meth:`ReplayAPI.run_session` into domain
+    :class:`ReplayProgressEvent` values. Same lazy-wrap pattern as
+    :func:`_wrap_subscribe_stream`."""
+    async for item in response_stream:
+        latest = (
+            Hash.from_proto(item.latest_replay_receipt_id)
+            if item.HasField("latest_replay_receipt_id")
+            else None
+        )
+        yield ReplayProgressEvent(
+            replay_session_id=item.replay_session_id,
+            progress_unix_ns=item.progress_unix_ns,
+            receipts_replayed=item.receipts_replayed,
+            latest_replay_receipt_id=latest,
+            window_complete=item.window_complete,
+        )
+
+
 @dataclass(frozen=True)
 class OperatorRevokeOutcome:
     """Both halves of an
@@ -735,9 +757,7 @@ class ConstitutionAPI:
 
     # ---- Phase 3b shadow-mode methods (RFC 0018 §3.2) ----
 
-    async def activate_shadow(
-        self, constitution: Constitution
-    ) -> ActivatedShadowConstitution:
+    async def activate_shadow(self, constitution: Constitution) -> ActivatedShadowConstitution:
         """Activate ``constitution`` into the shadow slot (RFC 0018
         §3.2).
 
@@ -756,9 +776,7 @@ class ConstitutionAPI:
         resp = cast(
             cp_pb2.ActivateShadowConstitutionResponse,
             await self._stub.ActivateShadow(
-                cp_pb2.ActivateShadowConstitutionRequest(
-                    constitution=constitution.to_proto()
-                )
+                cp_pb2.ActivateShadowConstitutionRequest(constitution=constitution.to_proto())
             ),
         )
         return ActivatedShadowConstitution(
@@ -807,17 +825,13 @@ class ConstitutionAPI:
         an in-process error."""
         resp = cast(
             cp_pb2.PromoteShadowConstitutionResponse,
-            await self._stub.PromoteShadow(
-                cp_pb2.PromoteShadowConstitutionRequest()
-            ),
+            await self._stub.PromoteShadow(cp_pb2.PromoteShadowConstitutionRequest()),
         )
         from_hash: Hash | None = None
         if resp.HasField("from_active_constitution_hash"):
             from_hash = Hash.from_proto(resp.from_active_constitution_hash)
         return ShadowPromoted(
-            to_active_constitution_hash=Hash.from_proto(
-                resp.to_active_constitution_hash
-            ),
+            to_active_constitution_hash=Hash.from_proto(resp.to_active_constitution_hash),
             shadow_promote_receipt=Hash.from_proto(resp.shadow_promote_receipt),
             from_active_constitution_hash=from_hash,
         )
@@ -832,9 +846,7 @@ class ConstitutionAPI:
         ``None`` for caller ergonomics)."""
         resp = cast(
             cp_pb2.GetActiveShadowConstitutionResponse,
-            await self._stub.GetActiveShadow(
-                cp_pb2.GetActiveShadowConstitutionRequest()
-            ),
+            await self._stub.GetActiveShadow(cp_pb2.GetActiveShadowConstitutionRequest()),
         )
         if not resp.HasField("constitution"):
             return None
@@ -842,6 +854,258 @@ class ConstitutionAPI:
             constitution=Constitution.from_proto(resp.constitution),
             shadow_constitution_hash=Hash.from_proto(resp.shadow_constitution_hash),
         )
+
+
+# =============================================================================
+# ReplayAPI (Phase 3c, RFC 0018 §4)
+# =============================================================================
+
+
+from enum import Enum  # noqa: E402  (kept near the replay block for locality)
+
+
+class ReplayMode(Enum):
+    """Engine state-init mode for a replay session (RFC 0018 §4.2).
+
+    - ``COLD``: the candidate's engine starts at defaults — every
+      agent looks like a never-seen agent.
+    - ``WARM``: the engine is rebuilt from receipts preceding the
+      window's start for a configurable lookback (default 24 hours).
+      Answers "what would the candidate have done on this window in
+      the engine state that production engine actually had at the
+      start of it?".
+    """
+
+    COLD = "cold"
+    WARM = "warm"
+
+
+@dataclass(frozen=True)
+class ReplaySessionWindow:
+    """Receipt window selection for a replay session (RFC 0018 §4.1).
+
+    Strict triple: inclusive time range over monotonic-ns plus an
+    optional action-kind whitelist filter."""
+
+    from_unix_ns: int
+    to_unix_ns: int
+    action_kind_filter: tuple[str, ...] = ()
+
+
+@dataclass(frozen=True)
+class ReplaySessionCreated:
+    """Result of :meth:`ReplayAPI.create_session`.
+
+    ``replay_session_id`` is a server-generated UUIDv7 string; carry
+    it on every subsequent session-scoped call. ``session_create_receipt``
+    is the content-address of the audit-trail ``replay.session.create``
+    receipt that landed in the production receipt store."""
+
+    replay_session_id: str
+    session_create_receipt: Hash
+
+
+@dataclass(frozen=True)
+class ReplayProgressEvent:
+    """One item from the :meth:`ReplayAPI.run_session` server-streaming
+    response (RFC 0018 §4.5).
+
+    ``window_complete`` is ``True`` only on the final message of the
+    stream — operators can stop iterating after seeing it. Until
+    then, each event reports cumulative ``receipts_replayed`` and the
+    content-address of the most recent within-session receipt the
+    candidate's engine produced (``None`` when no effects fired on
+    the latest step)."""
+
+    replay_session_id: str
+    progress_unix_ns: int
+    receipts_replayed: int
+    latest_replay_receipt_id: Hash | None
+    window_complete: bool
+
+
+@dataclass(frozen=True)
+class ReplaySessionClosed:
+    """Result of :meth:`ReplayAPI.close_session`.
+
+    Lifecycle close emits a ``replay.session.close`` audit receipt
+    into the production receipt store; the receipt's content-address
+    surfaces here. ``receipts_replayed_total`` is the cumulative
+    within-session emission count at close time."""
+
+    session_close_receipt: Hash
+    receipts_replayed_total: int
+
+
+@dataclass(frozen=True)
+class ReplaySessionInfo:
+    """One entry in :meth:`ReplayAPI.list_sessions`. Mirrors the
+    server's :class:`ReplaySessionDescriptor` proto field-for-field."""
+
+    replay_session_id: str
+    candidate_constitution_hash: Hash
+    candidate_constitution_version: str
+    window: ReplaySessionWindow
+    mode: ReplayMode
+    created_at_unix_ns: int
+    last_active_at_unix_ns: int
+    receipts_replayed: int
+
+
+class ReplayAPI:
+    """Wraps :class:`ReplayServiceStub` (RFC 0018 §4).
+
+    Five RPCs:
+
+      * :meth:`create_session` — operator-bearer-authenticated.
+        Instantiates a per-session engine + ReceiptStore handle on
+        the server; returns the session id and the audit-trail
+        ``replay.session.create`` receipt's content-address.
+      * :meth:`run_session` — operator-bearer-authenticated,
+        server-streaming. Yields :class:`ReplayProgressEvent` items
+        as the candidate's engine works through the window. Iterate
+        until you see ``event.window_complete == True``.
+      * :meth:`query_replay_receipts` — operator-bearer-authenticated.
+        Query the session's isolated receipt store. Takes the same
+        :class:`yutha._proto.receipt.v1.QueryRequest` shape as
+        :meth:`ReceiptAPI.query` but evaluates against the session.
+      * :meth:`close_session` — operator-bearer-authenticated.
+        Releases the per-session engine + ReceiptStore; emits the
+        ``replay.session.close`` audit receipt.
+      * :meth:`list_sessions` — operator-bearer-authenticated.
+        Returns metadata for every active session on the swarm.
+
+    See [`/docs/operator/replay.md`] for the end-to-end operator
+    workflow.
+    """
+
+    def __init__(self, stub: cp_grpc.ReplayServiceStub) -> None:
+        self._stub = stub
+
+    async def create_session(
+        self,
+        candidate: Constitution,
+        window: ReplaySessionWindow,
+        mode: ReplayMode = ReplayMode.COLD,
+        warm_lookback_hours: int = 24,
+    ) -> ReplaySessionCreated:
+        """Create a replay session.
+
+        ``mode == ReplayMode.WARM`` triggers a lookback rebuild over
+        receipts in ``[window.from_unix_ns - warm_lookback_hours,
+        window.from_unix_ns)`` BEFORE returning, so the call may
+        take noticeable time on long lookbacks (see the operator-
+        side memory ``phase-3c-replay-operational-concerns`` for
+        the Postgres I/O implications)."""
+        proto_mode = (
+            cp_pb2.ReplayMode.REPLAY_MODE_COLD
+            if mode == ReplayMode.COLD
+            else cp_pb2.ReplayMode.REPLAY_MODE_WARM
+        )
+        request = cp_pb2.CreateReplaySessionRequest(
+            candidate=candidate.to_proto(),
+            window=cp_pb2.ReplaySessionWindow(
+                from_unix_ns=window.from_unix_ns,
+                to_unix_ns=window.to_unix_ns,
+                action_kind_filter=list(window.action_kind_filter),
+            ),
+            mode=proto_mode,
+            warm_lookback_hours=warm_lookback_hours,
+        )
+        resp = cast(
+            cp_pb2.CreateReplaySessionResponse,
+            await self._stub.CreateSession(request),
+        )
+        return ReplaySessionCreated(
+            replay_session_id=resp.replay_session_id,
+            session_create_receipt=Hash.from_proto(resp.session_create_receipt),
+        )
+
+    async def run_session(self, replay_session_id: str) -> AsyncIterator[ReplayProgressEvent]:
+        """Replay the session's window. Server-streaming — yields a
+        :class:`ReplayProgressEvent` per-receipt as the candidate's
+        engine advances through the window, plus a terminal event
+        with ``window_complete=True``.
+
+        Cancelling the async iterator (breaking out of the ``async
+        for``) closes the gRPC stream, which the server detects and
+        bails out of the replay loop. The session remains in a
+        quiescent state — operators can :meth:`query_replay_receipts`
+        for whatever has been emitted so far, or :meth:`close_session`
+        to release resources.
+        """
+        response_stream = self._stub.RunSession(
+            cp_pb2.RunReplaySessionRequest(replay_session_id=replay_session_id)
+        )
+        return _wrap_run_session_stream(response_stream)
+
+    async def query_replay_receipts(
+        self,
+        replay_session_id: str,
+        query: cp_pb2.QueryReplayReceiptsRequest,
+    ) -> list[Receipt]:
+        """Query the session's isolated receipt store. Takes the same
+        :class:`yutha._proto.receipt.v1.QueryRequest` variants
+        :meth:`ReceiptAPI.query` does.
+
+        For Phase 3c MVP this returns only the first page; pagination
+        is a Phase 3c follow-on (set ``query.limit`` to bound the
+        result size operator-side)."""
+        # The caller-provided `query` carries `replay_session_id`
+        # explicitly per the proto (it's not derivable from the
+        # query). Trust the caller's value — Python doesn't
+        # enforce a stricter pre-condition here.
+        if query.replay_session_id != replay_session_id:
+            query.replay_session_id = replay_session_id
+        resp = cast(
+            cp_pb2.QueryReplayReceiptsResponse,
+            await self._stub.QueryReplayReceipts(query),
+        )
+        return [Receipt.from_proto(r) for r in resp.receipts]
+
+    async def close_session(self, replay_session_id: str) -> ReplaySessionClosed:
+        """Close the session. Releases the per-session engine +
+        ReceiptStore on the server; emits the
+        ``replay.session.close`` audit receipt."""
+        resp = cast(
+            cp_pb2.CloseReplaySessionResponse,
+            await self._stub.CloseSession(
+                cp_pb2.CloseReplaySessionRequest(replay_session_id=replay_session_id)
+            ),
+        )
+        return ReplaySessionClosed(
+            session_close_receipt=Hash.from_proto(resp.session_close_receipt),
+            receipts_replayed_total=resp.receipts_replayed_total,
+        )
+
+    async def list_sessions(self) -> list[ReplaySessionInfo]:
+        """List every active replay session on the swarm."""
+        resp = cast(
+            cp_pb2.ListReplaySessionsResponse,
+            await self._stub.ListSessions(cp_pb2.ListReplaySessionsRequest()),
+        )
+
+        def _decode_descriptor(d: cp_pb2.ReplaySessionDescriptor) -> ReplaySessionInfo:
+            return ReplaySessionInfo(
+                replay_session_id=d.replay_session_id,
+                candidate_constitution_hash=Hash.from_proto(d.candidate_constitution_hash),
+                candidate_constitution_version=d.candidate_constitution_version,
+                window=ReplaySessionWindow(
+                    from_unix_ns=d.window.from_unix_ns,
+                    to_unix_ns=d.window.to_unix_ns,
+                    action_kind_filter=tuple(d.window.action_kind_filter),
+                ),
+                mode=(
+                    ReplayMode.COLD
+                    if d.mode == cp_pb2.ReplayMode.REPLAY_MODE_COLD
+                    else ReplayMode.WARM
+                ),
+                created_at_unix_ns=d.created_at.monotonic_ns,
+                last_active_at_unix_ns=d.last_active_at.monotonic_ns,
+                receipts_replayed=d.receipts_replayed,
+            )
+
+        return [_decode_descriptor(d) for d in resp.sessions]
 
 
 # =============================================================================
@@ -877,6 +1141,7 @@ class YuthaClient:
         self.envelope = EnvelopeAPI(cp_grpc.EnvelopeServiceStub(channel))  # type: ignore[no-untyped-call]
         self.receipt = ReceiptAPI(cp_grpc.ReceiptServiceStub(channel))  # type: ignore[no-untyped-call]
         self.constitution = ConstitutionAPI(cp_grpc.ConstitutionServiceStub(channel))  # type: ignore[no-untyped-call]
+        self.replay = ReplayAPI(cp_grpc.ReplayServiceStub(channel))  # type: ignore[no-untyped-call]
 
     @classmethod
     def connect(
@@ -1031,11 +1296,18 @@ __all__ = [
     "ConstitutionAPI",
     "EnvelopeAPI",
     "ReceiptAPI",
+    "ReplayAPI",
     "ActivatedConstitution",
     "ActiveConstitution",
     "ActivatedShadowConstitution",
     "ShadowCleared",
     "ShadowPromoted",
     "ActiveShadowConstitution",
+    "ReplayMode",
+    "ReplaySessionWindow",
+    "ReplaySessionCreated",
+    "ReplayProgressEvent",
+    "ReplaySessionClosed",
+    "ReplaySessionInfo",
     "OperatorRevokeOutcome",
 ]

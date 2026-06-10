@@ -54,10 +54,13 @@ use yutha_proto::common::v1 as common;
 use yutha_proto::control_plane::v1::{
     admission_service_client::AdmissionServiceClient,
     constitution_service_client::ConstitutionServiceClient,
-    receipt_service_client::ReceiptServiceClient, ActivateConstitutionRequest,
-    ActivateShadowConstitutionRequest, AgentBearerToken, ClearShadowConstitutionRequest,
-    Constitution, OperatorBearerToken, OperatorRevokeRequest, PromoteShadowConstitutionRequest,
-    QueryReceiptsRequest,
+    receipt_service_client::ReceiptServiceClient, replay_service_client::ReplayServiceClient,
+    ActivateConstitutionRequest, ActivateShadowConstitutionRequest, AgentBearerToken,
+    ClearShadowConstitutionRequest, CloseReplaySessionRequest, Constitution,
+    CreateReplaySessionRequest, ListReplaySessionsRequest, OperatorBearerToken,
+    OperatorRevokeRequest, PromoteShadowConstitutionRequest, QueryReceiptsRequest,
+    QueryReplayReceiptsRequest, ReplayMode as ProtoReplayMode, ReplaySessionWindow,
+    RunReplaySessionRequest,
 };
 use yutha_proto::receipt::v1::{ActionKindQuery, QueryRequest};
 
@@ -152,6 +155,82 @@ enum Cmd {
     ///
     /// Fails with FAILED_PRECONDITION if the shadow slot is empty.
     PromoteShadow,
+
+    /// Create a replay session against a candidate constitution
+    /// (Phase 3c, RFC 0018 §4). The candidate is previewed against
+    /// receipts in [--from, --to]; the session's emissions land in
+    /// an isolated session-scoped receipt store (production stays
+    /// untouched). Print the new session id; subsequent commands
+    /// take it via `--session-id`.
+    ReplayCreate {
+        /// Path to the candidate Cedar policy source file.
+        cedar_file: PathBuf,
+        /// Path to the candidate engine-config YAML (optional —
+        /// defaults to an empty config; without enforcement_rules
+        /// the candidate replay produces no emissions).
+        #[arg(long)]
+        engine_config: Option<PathBuf>,
+        /// Candidate version (semver).
+        #[arg(long, default_value = "1.0.0")]
+        version: String,
+        /// Cedar+ schema version the candidate is authored against.
+        #[arg(long, default_value = "1.1.0")]
+        schema_version: String,
+        /// Lower bound of the receipt window (monotonic_ns, inclusive).
+        #[arg(long)]
+        from: u64,
+        /// Upper bound of the receipt window (monotonic_ns, inclusive).
+        #[arg(long)]
+        to: u64,
+        /// Whitelist of action-kinds to replay. Repeatable. Empty
+        /// = wildcard. Typical: `--filter envelope.send`.
+        #[arg(long = "filter")]
+        action_kind_filter: Vec<String>,
+        /// Engine state-init mode. `cold` starts from defaults;
+        /// `warm` rebuilds the engine state from receipts preceding
+        /// `--from` for `--warm-lookback-hours` (default 24).
+        #[arg(long, default_value = "cold")]
+        mode: String,
+        /// Warm-mode lookback hours. Ignored when mode != warm.
+        #[arg(long, default_value = "24")]
+        warm_lookback_hours: u32,
+    },
+
+    /// Stream the replay session's progress via
+    /// ReplayService.RunSession. Prints one line per progress event
+    /// + a terminal "window complete" line.
+    ReplayRun {
+        /// The session id returned by `replay-create`.
+        #[arg(long)]
+        session_id: String,
+    },
+
+    /// Query the session's isolated receipt store by action_kind via
+    /// ReplayService.QueryReplayReceipts. Same shape as `grep` but
+    /// scoped to one session.
+    ReplayQuery {
+        /// The session id.
+        #[arg(long)]
+        session_id: String,
+        /// Action kind to match within the session's store.
+        action_kind: String,
+        /// Maximum receipts to print.
+        #[arg(long, default_value = "20")]
+        limit: u32,
+    },
+
+    /// Close a replay session via ReplayService.CloseSession.
+    /// Releases the per-session engine + receipt store on the server
+    /// and emits the `replay.session.close` audit receipt into the
+    /// production store.
+    ReplayClose {
+        /// The session id.
+        #[arg(long)]
+        session_id: String,
+    },
+
+    /// List active replay sessions via ReplayService.ListSessions.
+    ReplayList,
 
     /// Query receipts by action_kind via ReceiptService.Query.
     Grep {
@@ -280,6 +359,40 @@ async fn main() -> anyhow::Result<()> {
         }
         Cmd::ClearShadow => cmd_clear_shadow(channel, &identity).await,
         Cmd::PromoteShadow => cmd_promote_shadow(channel, &identity).await,
+        Cmd::ReplayCreate {
+            cedar_file,
+            engine_config,
+            version,
+            schema_version,
+            from,
+            to,
+            action_kind_filter,
+            mode,
+            warm_lookback_hours,
+        } => {
+            cmd_replay_create(
+                channel,
+                &identity,
+                cedar_file,
+                engine_config,
+                version,
+                schema_version,
+                from,
+                to,
+                action_kind_filter,
+                mode,
+                warm_lookback_hours,
+            )
+            .await
+        }
+        Cmd::ReplayRun { session_id } => cmd_replay_run(channel, &identity, session_id).await,
+        Cmd::ReplayQuery {
+            session_id,
+            action_kind,
+            limit,
+        } => cmd_replay_query(channel, &identity, session_id, action_kind, limit).await,
+        Cmd::ReplayClose { session_id } => cmd_replay_close(channel, &identity, session_id).await,
+        Cmd::ReplayList => cmd_replay_list(channel, &identity).await,
         Cmd::Grep { action_kind, limit } => cmd_grep(channel, &identity, action_kind, limit).await,
         Cmd::Revoke {
             agent_id,
@@ -516,6 +629,248 @@ async fn cmd_promote_shadow(channel: Channel, identity: &SeedIdentity) -> anyhow
         Some(hash) => println!("  from_active_constitution_hash: {hash}"),
         None => println!("  from_active_constitution_hash: (no active was loaded)"),
     }
+    Ok(())
+}
+
+// ---- Phase 3c replay subcommand bodies (RFC 0018 §4) ----
+
+#[allow(clippy::too_many_arguments)]
+async fn cmd_replay_create(
+    channel: Channel,
+    identity: &SeedIdentity,
+    cedar_file: PathBuf,
+    engine_config: Option<PathBuf>,
+    version: String,
+    schema_version: String,
+    from: u64,
+    to: u64,
+    action_kind_filter: Vec<String>,
+    mode: String,
+    warm_lookback_hours: u32,
+) -> anyhow::Result<()> {
+    let cedar_source = std::fs::read_to_string(&cedar_file)
+        .with_context(|| format!("read cedar source {cedar_file:?}"))?;
+    let engine_config_yaml = match engine_config {
+        Some(path) => std::fs::read_to_string(&path)
+            .with_context(|| format!("read engine config {path:?}"))?,
+        None => DEFAULT_EMPTY_ENGINE_CONFIG_YAML.to_string(),
+    };
+
+    let now = Timestamp::now();
+    let candidate = Constitution {
+        spec_version: Some((&SpecVersion::parse("1.0.0")?).into()),
+        schema_version,
+        constitution_version: version,
+        parent_version: None,
+        swarm_id: Some((&identity.swarm_id).into()),
+        cedar_source,
+        engine_config_yaml,
+        issued_at: Some((&now).into()),
+    };
+
+    let mode_enum = match mode.as_str() {
+        "cold" => ProtoReplayMode::Cold,
+        "warm" => ProtoReplayMode::Warm,
+        other => anyhow::bail!("--mode must be `cold` or `warm` (got `{other}`)"),
+    };
+
+    let token_hex = mint_operator_token(identity)?;
+    let mut client = ReplayServiceClient::new(channel);
+    let mut request = Request::new(CreateReplaySessionRequest {
+        candidate: Some(candidate),
+        window: Some(ReplaySessionWindow {
+            from_unix_ns: from,
+            to_unix_ns: to,
+            action_kind_filter,
+        }),
+        mode: mode_enum.into(),
+        warm_lookback_hours,
+    });
+    request.metadata_mut().insert(
+        "authorization",
+        MetadataValue::try_from(format!("bearer operator {token_hex}"))?,
+    );
+    let response = client.create_session(request).await?.into_inner();
+
+    let session_create_receipt = response
+        .session_create_receipt
+        .as_ref()
+        .map(|h| hex::encode(&h.digest))
+        .unwrap_or_default();
+    println!("replay session created:");
+    println!("  replay_session_id:      {}", response.replay_session_id);
+    println!("  session_create_receipt: {session_create_receipt}");
+    println!();
+    println!("Next:");
+    println!(
+        "  yutha-ops replay-run --session-id {}",
+        response.replay_session_id
+    );
+    Ok(())
+}
+
+async fn cmd_replay_run(
+    channel: Channel,
+    identity: &SeedIdentity,
+    session_id: String,
+) -> anyhow::Result<()> {
+    let token_hex = mint_operator_token(identity)?;
+    let mut client = ReplayServiceClient::new(channel);
+    let mut request = Request::new(RunReplaySessionRequest {
+        replay_session_id: session_id.clone(),
+    });
+    request.metadata_mut().insert(
+        "authorization",
+        MetadataValue::try_from(format!("bearer operator {token_hex}"))?,
+    );
+    let mut stream = client.run_session(request).await?.into_inner();
+
+    println!("streaming replay progress (session {session_id}):");
+    while let Some(progress) = stream.message().await? {
+        let latest = progress
+            .latest_replay_receipt_id
+            .as_ref()
+            .map(|h| hex::encode(&h.digest))
+            .unwrap_or_else(|| "-".to_string());
+        if progress.window_complete {
+            println!(
+                "  [DONE] replayed={} progress_unix_ns={} (window complete)",
+                progress.receipts_replayed, progress.progress_unix_ns
+            );
+        } else {
+            println!(
+                "  replayed={} progress_unix_ns={} latest_receipt={}",
+                progress.receipts_replayed, progress.progress_unix_ns, latest
+            );
+        }
+    }
+    Ok(())
+}
+
+async fn cmd_replay_query(
+    channel: Channel,
+    identity: &SeedIdentity,
+    session_id: String,
+    action_kind: String,
+    limit: u32,
+) -> anyhow::Result<()> {
+    let token_hex = mint_operator_token(identity)?;
+    let mut client = ReplayServiceClient::new(channel);
+    let inner = QueryRequest {
+        by: Some(yutha_proto::receipt::v1::query_request::By::ByActionKind(
+            ActionKindQuery {
+                action_kind: action_kind.clone(),
+            },
+        )),
+        limit,
+        page_token: Vec::new(),
+    };
+    let mut request = Request::new(QueryReplayReceiptsRequest {
+        replay_session_id: session_id.clone(),
+        query: Some(inner),
+    });
+    request.metadata_mut().insert(
+        "authorization",
+        MetadataValue::try_from(format!("bearer operator {token_hex}"))?,
+    );
+    let response = client.query_replay_receipts(request).await?.into_inner();
+
+    if response.receipts.is_empty() {
+        println!("no replay receipts in session {session_id} matching action_kind {action_kind:?}");
+        return Ok(());
+    }
+    for r in &response.receipts {
+        let occurred_at = r
+            .occurred_at
+            .as_ref()
+            .map(|t| t.wall_clock.as_str())
+            .unwrap_or("?");
+        let actor = r
+            .actor
+            .as_ref()
+            .map(|a| format_agent_id(&a.value))
+            .unwrap_or_else(|| "?".into());
+        println!(
+            "[{occurred_at}] {action_kind} actor={actor} evidence={evidence_count}",
+            evidence_count = r.evidence.len()
+        );
+    }
+    println!(
+        "---\n{} session-scoped receipt(s) shown.",
+        response.receipts.len()
+    );
+    Ok(())
+}
+
+async fn cmd_replay_close(
+    channel: Channel,
+    identity: &SeedIdentity,
+    session_id: String,
+) -> anyhow::Result<()> {
+    let token_hex = mint_operator_token(identity)?;
+    let mut client = ReplayServiceClient::new(channel);
+    let mut request = Request::new(CloseReplaySessionRequest {
+        replay_session_id: session_id.clone(),
+    });
+    request.metadata_mut().insert(
+        "authorization",
+        MetadataValue::try_from(format!("bearer operator {token_hex}"))?,
+    );
+    let response = client.close_session(request).await?.into_inner();
+
+    let session_close_receipt = response
+        .session_close_receipt
+        .as_ref()
+        .map(|h| hex::encode(&h.digest))
+        .unwrap_or_default();
+    println!("replay session closed:");
+    println!("  session_close_receipt:   {session_close_receipt}");
+    println!(
+        "  receipts_replayed_total: {}",
+        response.receipts_replayed_total
+    );
+    Ok(())
+}
+
+async fn cmd_replay_list(channel: Channel, identity: &SeedIdentity) -> anyhow::Result<()> {
+    let token_hex = mint_operator_token(identity)?;
+    let mut client = ReplayServiceClient::new(channel);
+    let mut request = Request::new(ListReplaySessionsRequest {});
+    request.metadata_mut().insert(
+        "authorization",
+        MetadataValue::try_from(format!("bearer operator {token_hex}"))?,
+    );
+    let response = client.list_sessions(request).await?.into_inner();
+
+    if response.sessions.is_empty() {
+        println!("no active replay sessions.");
+        return Ok(());
+    }
+    for s in &response.sessions {
+        let mode_str = match ProtoReplayMode::try_from(s.mode).unwrap_or(ProtoReplayMode::Cold) {
+            ProtoReplayMode::Cold => "cold",
+            ProtoReplayMode::Warm => "warm",
+        };
+        let candidate_hash = s
+            .candidate_constitution_hash
+            .as_ref()
+            .map(|h| hex::encode(&h.digest))
+            .unwrap_or_default();
+        let window = s.window.as_ref();
+        let from = window.map(|w| w.from_unix_ns).unwrap_or(0);
+        let to = window.map(|w| w.to_unix_ns).unwrap_or(0);
+        let filter = window
+            .map(|w| w.action_kind_filter.join(","))
+            .unwrap_or_default();
+        println!("session {}", s.replay_session_id);
+        println!(
+            "  candidate: {} (v{})",
+            candidate_hash, s.candidate_constitution_version
+        );
+        println!("  window:    [{from}, {to}] mode={mode_str} filter=[{filter}]");
+        println!("  replayed:  {}", s.receipts_replayed);
+    }
+    println!("---\n{} active replay session(s).", response.sessions.len());
     Ok(())
 }
 

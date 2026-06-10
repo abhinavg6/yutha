@@ -14,6 +14,7 @@ members = [
     "crates/yutha-registry",
     "crates/yutha-control-plane",
     "crates/yutha-cedar-plus",
+    "crates/yutha-replay",
     "crates/yutha-ops",
     "crates/yutha-signer-vault",
     "crates/yutha-signer-gcp-kms",
@@ -54,6 +55,7 @@ yutha-capability = { path = "crates/yutha-capability", version = "0.1.0-alpha.1"
 yutha-transport = { path = "crates/yutha-transport", version = "0.1.0-alpha.1" }
 yutha-registry = { path = "crates/yutha-registry", version = "0.1.0-alpha.1" }
 yutha-cedar-plus = { path = "crates/yutha-cedar-plus", version = "0.1.0-alpha.1" }
+yutha-replay = { path = "crates/yutha-replay", version = "0.1.0-alpha.1" }
 yutha-signer-vault = { path = "crates/yutha-signer-vault", version = "0.1.0-alpha.1" }
 yutha-signer-gcp-kms = { path = "crates/yutha-signer-gcp-kms", version = "0.1.0-alpha.1" }
 yutha-signer-azure-kv = { path = "crates/yutha-signer-azure-kv", version = "0.1.0-alpha.1" }

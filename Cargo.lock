@@ -6749,6 +6749,7 @@ dependencies = [
  "yutha-passport",
  "yutha-receipt",
  "yutha-registry",
+ "yutha-replay",
  "yutha-signer",
  "yutha-transport",
 ]
@@ -6786,6 +6787,7 @@ dependencies = [
  "yutha-proto",
  "yutha-receipt",
  "yutha-registry",
+ "yutha-replay",
  "yutha-signer",
  "yutha-signer-azure-kv",
  "yutha-signer-gcp-kms",
@@ -6879,6 +6881,7 @@ dependencies = [
  "tokio",
  "tokio-test",
  "tracing",
+ "uuid",
  "yutha-core",
  "yutha-crypto",
  "yutha-proto",
@@ -6899,6 +6902,24 @@ dependencies = [
  "yutha-crypto",
  "yutha-passport",
  "yutha-proto",
+ "yutha-receipt",
+ "yutha-signer",
+]
+
+[[package]]
+name = "yutha-replay"
+version = "0.1.0-alpha.1"
+dependencies = [
+ "async-trait",
+ "serde",
+ "serde_json",
+ "thiserror 1.0.69",
+ "tokio",
+ "tracing",
+ "yutha-cedar-plus",
+ "yutha-core",
+ "yutha-crypto",
+ "yutha-passport",
  "yutha-receipt",
  "yutha-signer",
 ]

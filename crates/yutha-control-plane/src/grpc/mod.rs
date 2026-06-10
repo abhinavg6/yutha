@@ -29,8 +29,9 @@ use yutha_capability::CapabilityStore;
 use yutha_cedar_plus::{CedarPlusEvaluator, EnforcementEngine};
 use yutha_core::{AgentId, PublicKey};
 use yutha_passport::{ControlPlaneIdentity, PassportStore};
-use yutha_receipt::{PassportResolver, ReceiptStore};
+use yutha_receipt::{PassportResolver, ReceiptStore, ReplaySessionId, ReplayStore};
 use yutha_registry::Registry;
+use yutha_replay::ReplaySession;
 use yutha_transport::Transport;
 
 pub mod admission;
@@ -39,6 +40,7 @@ pub mod constitution;
 pub mod envelope;
 pub mod error;
 pub mod receipt;
+pub mod replay;
 
 /// Shared in-process state plumbed into every gRPC handler.
 ///
@@ -116,6 +118,16 @@ pub struct ControlPlaneState {
     /// [`yutha_cedar_plus::EnforcementEngine::is_agent_quarantined`]
     /// before each check / issue / attenuate once F10g lands.
     pub enforcement: Arc<EnforcementEngine>,
+
+    /// Phase 3c (RFC 0018 §4) replay-store backend. Holds per-session
+    /// isolated receipt stores. See [`yutha_receipt::ReplayStore`].
+    pub replay_store: Arc<dyn ReplayStore>,
+
+    /// Active replay sessions. Keyed by session id; cleared on
+    /// `ReplayService.CloseSession` or the auto-close TTL path
+    /// (TTL is a 3c follow-on — see project memory
+    /// `phase-3c-replay-operational-concerns`).
+    pub replay_sessions: Arc<RwLock<HashMap<ReplaySessionId, Arc<ReplaySession>>>>,
 }
 
 impl ControlPlaneState {

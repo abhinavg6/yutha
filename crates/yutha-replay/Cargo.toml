@@ -1,0 +1,36 @@
+[package]
+name = "yutha-replay"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+authors.workspace = true
+description = "Replay engine for the Yutha control plane (RFC 0018 §4). Drives a candidate constitution against a past receipt window in an isolated per-session EnforcementEngine + ReceiptStore handle. Session-scoped receipts never anchor and never feed the production engine."
+readme = "README.md"
+
+[dependencies]
+yutha-core.workspace = true
+yutha-crypto.workspace = true
+yutha-receipt.workspace = true
+yutha-cedar-plus.workspace = true
+yutha-passport.workspace = true
+yutha-signer.workspace = true
+
+# Async / sync primitives.
+async-trait.workspace = true
+tokio = { workspace = true, features = ["sync"] }
+
+# Errors.
+thiserror.workspace = true
+
+# Logging.
+tracing.workspace = true
+
+# Canonical JSON over BTreeMap for evidence payloads.
+serde.workspace = true
+serde_json.workspace = true
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }

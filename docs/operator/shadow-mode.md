@@ -262,11 +262,12 @@ Python SDK and via `ReceiptService.Query` directly.
   release supports one+one. To compare two candidates against each
   other, you serialize: activate-shadow the first, observe,
   clear-shadow, activate-shadow the second.
-- **Replay engine is not yet shipped.** Shadow tells you what the
-  candidate would have decided on **future** traffic; replay (a
-  later phase) will tell you what the candidate would have decided
-  on a **past** receipt window. Until replay ships, shadow is the
-  forward-looking half of the diligence pair.
+- **Replay is the backward-looking diligence pair.** Shadow tells
+  you what the candidate would decide on **future** traffic; the
+  [replay engine](replay.md) tells you what the candidate would
+  have decided on a **past** receipt window. The two are designed
+  to be used together — shadow for live preview, replay for
+  historical regression analysis.
 - **Procedure changes can't be previewed.** Shadow mode skips
   procedure-state mutation on the shadow path. A candidate that
   changes procedure behaviour won't be previewable through shadow

@@ -336,6 +336,14 @@ impl ConstitutionService for ConstitutionHandler {
 /// force callers to `Box<Status>` propagation that loses ergonomic
 /// `?` use against the trait-bound `Result<Response<T>, Status>`
 /// of every RPC entry point.
+/// Public re-export of [`constitution_from_proto`] so sibling handlers
+/// (e.g. the Phase 3c `ReplayService` handler) can reuse the same
+/// loader-validation surface as `ConstitutionService.Activate`.
+#[allow(clippy::result_large_err)]
+pub fn constitution_from_proto_pub(p: &ConstitutionProto) -> Result<Constitution, Status> {
+    constitution_from_proto(p)
+}
+
 #[allow(clippy::result_large_err)]
 fn constitution_from_proto(p: &ConstitutionProto) -> Result<Constitution, Status> {
     let spec_version_proto = p

@@ -631,3 +631,183 @@ message GetActiveShadowConstitutionResponse {
   // by the control plane. Unset when no shadow is loaded.
   yutha.common.v1.Hash shadow_constitution_hash = 2;
 }
+
+// ---------------------------------------------------------------------------
+// ReplayService — Phase 3c (RFC 0018 §4)
+// ---------------------------------------------------------------------------
+//
+// Replay engine: previews a candidate constitution against a past
+// receipt window. Sessions are isolated containers — each carries its
+// own EnforcementEngine instance + a session-scoped ReceiptStore
+// handle obtained via ReplayStore::session_store(...). Within-session
+// receipts use the SAME canonical action-kinds as production but
+// land in the session's isolated store and carry a replay_session_id
+// evidence marker (RFC 0018 §4.3).
+//
+// Replay receipts are NEVER anchored to Sui. The AnchorDriver's
+// candidate source is bound to the production receipt store only
+// (RFC 0018 §4.4 — by construction).
+//
+// Authorization: all five RPCs require an OperatorBearerToken. Per
+// RFC 0009 the operator id surfaces on the lifecycle audit receipts
+// in the production store.
+
+service ReplayService {
+  // Create a replay session. Instantiates the per-session
+  // EnforcementEngine + CedarPlusEvaluator, performs the warm-mode
+  // lookback rebuild if requested, and emits a
+  // replay.session.create audit receipt into the PRODUCTION
+  // receipt store.
+  rpc CreateSession(CreateReplaySessionRequest) returns (CreateReplaySessionResponse);
+
+  // Replay the receipt window against the session's candidate.
+  // Server-streaming: emits ReplayProgress items as the engine
+  // advances through the window. Operator cancellation leaves the
+  // session in a quiescent state — receipts replayed so far remain
+  // queryable until CloseSession.
+  rpc RunSession(RunReplaySessionRequest) returns (stream ReplayProgress);
+
+  // Query the session's isolated receipt store. Takes the same
+  // Query variants as ReceiptService.Query but evaluates them
+  // against the session's store. The session id must be passed
+  // explicitly — it is not derivable from the query.
+  rpc QueryReplayReceipts(QueryReplayReceiptsRequest) returns (QueryReplayReceiptsResponse);
+
+  // Close the session: deletes the session from the ReplayStore
+  // (which drops every within-session receipt), shuts down the
+  // per-session engine instance, and emits a
+  // replay.session.close audit receipt into the production store.
+  // Sessions also auto-close after a configurable inactivity TTL
+  // (default 24 hours after last RunSession activity).
+  rpc CloseSession(CloseReplaySessionRequest) returns (CloseReplaySessionResponse);
+
+  // List active replay sessions for this swarm. Scoped by the
+  // operator's bearer.
+  rpc ListSessions(ListReplaySessionsRequest) returns (ListReplaySessionsResponse);
+}
+
+// Replay-mode discriminator for session creation.
+enum ReplayMode {
+  // Engine starts at defaults. Every agent has reputation 1.0,
+  // no quarantine, no procedure instances, sliding-window counters
+  // at zero. Per RFC 0018 §4.2.
+  REPLAY_MODE_COLD = 0;
+  // Engine state is rebuilt from receipts preceding from_unix_ns
+  // for `warm_lookback_hours` (default 24). Per RFC 0018 §4.2.
+  REPLAY_MODE_WARM = 1;
+}
+
+message ReplaySessionWindow {
+  // Inclusive lower bound, monotonic_ns. The window includes
+  // receipts with occurred_at.monotonic_ns >= from_unix_ns.
+  uint64 from_unix_ns = 1;
+  // Inclusive upper bound, monotonic_ns.
+  uint64 to_unix_ns = 2;
+  // Whitelist of action-kinds to replay. Empty = replay every
+  // receipt in the window. Non-empty = replay only listed kinds
+  // (typical: ["envelope.send"]).
+  repeated string action_kind_filter = 3;
+}
+
+message CreateReplaySessionRequest {
+  // The constitution to preview. Passed by value (NOT by reference
+  // to an activated slot) so replay can preview a constitution
+  // that has never been activated or shadowed.
+  Constitution candidate = 1;
+
+  // Receipt window to replay against. Per RFC 0018 §4.1.
+  ReplaySessionWindow window = 2;
+
+  // Engine state initialization mode.
+  ReplayMode mode = 3;
+
+  // Lookback hours for warm-mode engine rebuild. Default 24 when
+  // unset and mode == WARM. Ignored when mode == COLD.
+  uint32 warm_lookback_hours = 4;
+}
+
+message CreateReplaySessionResponse {
+  // Server-generated UUIDv4. Carry this on every subsequent
+  // session-scoped RPC and grep replay_session_id evidence on
+  // emitted receipts by this string.
+  string replay_session_id = 1;
+
+  // Content-address of the replay.session.create audit receipt
+  // that landed in the production receipt store.
+  yutha.common.v1.Hash session_create_receipt = 2;
+}
+
+message RunReplaySessionRequest {
+  // Session to run. Per RFC 0018 §4.5.
+  string replay_session_id = 1;
+}
+
+message ReplayProgress {
+  // The session this progress event belongs to.
+  string replay_session_id = 1;
+  // Monotonic_ns of the most-recently-replayed receipt.
+  uint64 progress_unix_ns = 2;
+  // Total receipts replayed since session start (cumulative).
+  uint64 receipts_replayed = 3;
+  // Content-address of the latest replay receipt emitted into the
+  // session's isolated store. Operators streaming this can do
+  // live spot-checks via QueryReplayReceipts.
+  yutha.common.v1.Hash latest_replay_receipt_id = 4;
+  // True only on the final message in the stream — indicates the
+  // window has been fully consumed and the operator can safely
+  // CloseSession.
+  bool window_complete = 5;
+}
+
+message QueryReplayReceiptsRequest {
+  // Which session's store to query.
+  string replay_session_id = 1;
+  // Same query types as ReceiptService.Query. Evaluated against
+  // the session's isolated store.
+  yutha.receipt.v1.QueryRequest query = 2;
+}
+
+message QueryReplayReceiptsResponse {
+  repeated yutha.receipt.v1.Receipt receipts = 1;
+  bytes next_page_token = 2;
+}
+
+message CloseReplaySessionRequest {
+  string replay_session_id = 1;
+}
+
+message CloseReplaySessionResponse {
+  // Content-address of the replay.session.close audit receipt in
+  // the production store.
+  yutha.common.v1.Hash session_close_receipt = 1;
+  // Cumulative replay receipts emitted by this session before it
+  // closed. Same value as the last ReplayProgress.receipts_replayed.
+  uint64 receipts_replayed_total = 2;
+}
+
+message ListReplaySessionsRequest {}
+
+message ReplaySessionDescriptor {
+  string replay_session_id = 1;
+  // Candidate constitution metadata (full Constitution available
+  // via the session_create_receipt evidence; this is the
+  // human-readable shortcut).
+  yutha.common.v1.Hash candidate_constitution_hash = 2;
+  string candidate_constitution_version = 3;
+
+  ReplaySessionWindow window = 4;
+  ReplayMode mode = 5;
+
+  // When the session was created.
+  yutha.common.v1.Timestamp created_at = 10;
+  // Last RunSession activity. Idle sessions auto-close after the
+  // server's configured TTL.
+  yutha.common.v1.Timestamp last_active_at = 11;
+
+  // Cumulative replay receipts emitted so far.
+  uint64 receipts_replayed = 20;
+}
+
+message ListReplaySessionsResponse {
+  repeated ReplaySessionDescriptor sessions = 1;
+}

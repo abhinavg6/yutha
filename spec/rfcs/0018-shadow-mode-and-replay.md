@@ -164,51 +164,96 @@ The end-to-end flow operators run when previewing a new constitution:
 
 A constitution that has been promoted has the same content-address as it did while it was a shadow — content-addressing is over the constitution's canonical bytes, not over its slot history. Replay sessions that reference the constitution by hash continue to work after promotion.
 
-## 4. Detailed design — replay engine (Phase 3c, design-open)
-
-This section pins the **contracts** the replay engine satisfies. Implementation details (the exact gRPC surface, the exact replay-store schema in Postgres) firm up in Phase 3c and the as-shipped notes amend this section at 3c close.
+## 4. Detailed design — replay engine (Phase 3c)
 
 ### 4.1 Replay sessions and isolation
 
-A **replay session** is an isolated container for one preview run. Each session has:
+A **replay session** is an isolated container for one preview run. Each session carries:
 
-- A `replay_session_id` (UUID, generated server-side at session creation).
-- A `candidate_constitution` (the constitution being previewed — passed by value, NOT by reference to an activated slot, so the replay can preview a constitution that was never activated).
-- A `receipt_window` (a `[from_ns, to_ns]` time range PLUS a `receipt_action_kind_filter` listing the action-kinds that should be replayed — typically `["SendEnvelope"]` or all-envelopes).
-- An isolated `EnforcementEngine` instance (constructed fresh, with state seeded from the receipt-window's prefix if the operator wants the engine state to reflect production at the start of the window).
-- A sibling `ReceiptStore` keyed under the session id. Replay-emitted receipts land in this store; they MUST NOT appear in production queries.
+- A `replay_session_id` — UUIDv7, generated server-side at `CreateSession`. Surfaces as evidence on every receipt the session produces.
+- A `candidate_constitution` — passed by value at session creation, NOT by reference to a loaded slot. This lets operators preview a constitution that has never been activated (or shadowed) on the production substrate, and lets them preview many candidates in parallel without thrashing the shadow slot.
+- A `receipt_window` — strict tuple `(from_unix_ns: u64, to_unix_ns: u64, action_kind_filter: repeated string)`. The filter is whitelist semantics: when empty, every action-kind is replayed; when non-empty, only listed kinds are. Typical usage: `["envelope.send"]` to replay only Send events.
+- A `replay_mode` — `cold` or `warm` (see §4.2).
+- An `engine: EnforcementEngine` instance, instantiated fresh per session. Activated with the candidate. Sliding-window counters start at zero in cold mode; rebuilt in warm mode from a lookback window.
+- A `receipt_store: Arc<dyn ReceiptStore>` handle, scoped to the session. Within-session appends and queries are isolated; production queries cannot reach session receipts.
+- A `control_plane_identity: Arc<ControlPlaneIdentity>` — the same identity production uses, so receipts within the session are signed identically.
 
-### 4.2 Receipt-derived replay vs engine state preservation
+The session-scoped receipt-store handle is obtained from a new `ReplayStore` trait:
 
-Two state-init modes for the per-session engine:
+```rust
+#[async_trait]
+pub trait ReplayStore: Send + Sync {
+    /// Returns a ReceiptStore handle isolated to this session.
+    /// All append + query through the returned handle is partitioned
+    /// from production receipts and from other replay sessions.
+    fn session_store(&self, session_id: &ReplaySessionId) -> Arc<dyn ReceiptStore>;
 
-- **`replay_mode = "cold"`** — engine starts empty. Every agent has default reputation, no quarantine, no procedure instances. Used when the operator wants to know "what would this constitution decide on this window, starting from scratch?"
-- **`replay_mode = "warm"`** — engine is rebuilt from the receipt-window's predecessor receipts (per [`/spec/constitution/evaluation.md`](../constitution/evaluation.md) §6 receipt-derived reconstruction). The window's evals start with engine state that matches production at `from_ns`. Used when the operator wants to know "what would this constitution have done on this window, in the engine state that actually existed at the start?"
-
-Both modes produce replay receipts identical in shape to production receipts (same action-kinds, same evidence, same canonical bytes contract) except the receipts are addressed under the session's isolated store.
-
-### 4.3 Never-anchors invariant
-
-Replay receipts are **never** anchored to Sui per RFC 0014. The `AnchorDriver`'s candidate source (`ReceiptStoreCandidateSource`) is bound to the production receipt store, not to any replay session's store. Replay sessions whose receipts are never read by the anchor driver are invisible to the on-chain audit trail by construction.
-
-This is the substrate's enforcement of the locked architectural decision that replay is for **operator decision-making**, not for the swarm's truth-preserving audit log. A future RFC may relax this if a forensic-replay-with-anchored-attestation use-case emerges; that's explicitly out of scope here.
-
-### 4.4 RPC surface (sketch)
-
-A new `ReplayService` is sketched but not finalized in this RFC — 3c will firm it up. Provisional shape:
-
-```protobuf
-service ReplayService {
-  rpc CreateSession(CreateReplaySessionRequest) returns (CreateReplaySessionResponse);
-  rpc RunSession(RunReplaySessionRequest) returns (stream ReplayProgress);
-  rpc QueryReceipts(QueryReplayReceiptsRequest) returns (QueryReplayReceiptsResponse);
-  rpc CloseSession(CloseReplaySessionRequest) returns (CloseReplaySessionResponse);
+    async fn create_session(&self, session_id: &ReplaySessionId, metadata: ReplaySessionMetadata) -> Result<()>;
+    async fn delete_session(&self, session_id: &ReplaySessionId) -> Result<()>;
+    async fn list_sessions(&self) -> Result<Vec<ReplaySessionMetadata>>;
 }
 ```
 
-`CreateSession` returns a `replay_session_id`. `RunSession` is server-streaming — it emits `ReplayProgress` items as the engine works through the window so long-running replays can be monitored. `QueryReceipts` is the replay-store analogue of `ReceiptService.Query`. `CloseSession` releases the session's store + engine resources; sessions also auto-close after a configurable TTL.
+The returned `session_store` is a `ReceiptStore`-shaped surface — the existing in-process code that takes `Arc<dyn ReceiptStore>` (`build_eval_request_for_send`, emit functions, etc.) operates unchanged on it. The Postgres backend uses a dedicated schema (`replay_<session_id>` table prefix in the proof-of-concept impl; future impls may consolidate to a single table partitioned by session_id). The memory backend uses a sibling `MemoryReplayStore` keyed under the session id with the same `HashMap` shape as `MemoryStore`.
 
-**This shape is non-binding for 3c.** The as-shipped notes at 3c close amend §4.4 with the final surface.
+### 4.2 Cold vs warm engine init
+
+- **`cold`** — engine starts at defaults. Every agent has reputation `1.0`, no quarantine, no procedure instances, sliding-window counters at zero. Answers: "what would this candidate do on this window, starting from a clean slate?"
+- **`warm`** — engine state is rebuilt from receipts preceding `from_unix_ns` for a configurable lookback (default **24 hours**, configurable per session at creation time). The rebuild calls `engine.on_receipt(view)` for each predecessor receipt in monotonic order, then activates the candidate. The window's evaluations start with engine state that approximates what production engine state was at `from_unix_ns`. Answers: "what would this candidate have done on this window, in the engine state that actually existed at the start of it?"
+
+Warm mode's lookback is bounded by design — exhaustive rebuild from swarm genesis is the forensic-audit use-case explicitly deferred to a follow-on RFC (§6).
+
+### 4.3 Within-session receipt semantics
+
+Replay receipts share canonical contracts with production receipts; what distinguishes them is **store membership** plus **evidence markers**.
+
+- **Action-kinds**: replay receipts use the SAME canonical `action_kind` strings as production (`constitution.evaluate.pass`, `envelope.send`, `enforcement.detect`, etc.). No `replay.*` namespace explosion on the evaluation path. Operators get a uniform mental model: a `constitution.evaluate.deny` receipt is a constitution-evaluate-deny regardless of which store it lives in.
+- **`replay_session_id` evidence marker**: every receipt produced within a session carries an evidence entry `{"key": "replay_session_id", "value_type": "type.yutha.dev/v1/String", "value": <session_uuid>}`. This is the belt-and-suspenders distinguishability layer — even if a receipt is exported from the session store and surfaced elsewhere, the marker prevents it being mistaken for production.
+- **Causal predecessors**: replay-emitted receipts form a session-internal causal chain. Each replay step's emitted receipts reference the previous step's emitted receipts as predecessors (not the originals from production). This keeps within-session graph walks self-contained — an operator graph-walking from a `enforcement.quarantine` replay receipt traverses through `enforcement.detect` replay receipts back to the session's first step, all within the session store. Cross-references to production receipts would break under store isolation since the session store doesn't know about production content-addresses.
+- **Signatures**: replay receipts within a session ARE signed by `ControlPlaneIdentity` with `SignatureRole::Actor`. Same provenance contract as production substrate receipts. Within-session audit holds; unsigned replay would introduce a "trust the session orchestrator" assumption that contradicts the rest of the substrate.
+- **Sealing**: replay receipts are NEVER sealed — `AppendOptions::wait_for_seal` is forced false on the session-store path. The `AnchorDriver` operates over the production store only (§4.4).
+
+### 4.4 Never-anchors invariant — by construction
+
+Replay receipts are **never** anchored to Sui per RFC 0014. The substrate enforces this by construction at two layers:
+
+1. **`AnchorDriver`'s `ReceiptStoreCandidateSource`** is constructed at startup with the production `Arc<dyn ReceiptStore>` (`crates/yutha-control-plane/src/main.rs` wiring). Session-scoped replay stores are distinct `Arc<dyn ReceiptStore>` instances obtained from `ReplayStore::session_store(...)`. The anchor driver provably can't see receipts in a store it doesn't hold a handle to.
+2. **`PublishingReceiptStore`** (the production-side decorator that fans every appended receipt onto the enforcement engine's mpsc channel) wraps ONLY the production store. The replay session orchestrator obtains the raw `Arc<dyn ReceiptStore>` from `ReplayStore::session_store(...)` — no `PublishingReceiptStore` wrapper. Replay receipts therefore never enter the production engine's forwarder channel; the session's isolated `EnforcementEngine` instance handles `on_receipt` inline (single-threaded per session, no async channel needed).
+
+This is the substrate's enforcement of the locked architectural decision that replay is for **operator decision-making**, not for the swarm's truth-preserving audit log. The Phase 3c-F conformance test makes the by-construction invariants explicit. A future RFC may relax this if a forensic-replay-with-anchored-attestation use-case emerges; that's out of scope here.
+
+### 4.5 ReplayService gRPC
+
+The control plane exposes session lifecycle and query operations via a new operator-bearer-authenticated service:
+
+```protobuf
+service ReplayService {
+  // Operator-bearer-authenticated. Lifecycle:
+  rpc CreateSession(CreateReplaySessionRequest) returns (CreateReplaySessionResponse);
+  rpc RunSession(RunReplaySessionRequest) returns (stream ReplayProgress);
+  rpc CloseSession(CloseReplaySessionRequest) returns (CloseReplaySessionResponse);
+  rpc ListSessions(ListReplaySessionsRequest) returns (ListReplaySessionsResponse);
+
+  // Query the session's isolated receipt store. Operator-bearer-
+  // authenticated; takes the same Query variants as
+  // ReceiptService.Query but scoped to the session.
+  rpc QueryReplayReceipts(QueryReplayReceiptsRequest) returns (QueryReplayReceiptsResponse);
+}
+```
+
+**`CreateSession`** creates the session in the `ReplayStore`, instantiates the per-session `EnforcementEngine` + `CedarPlusEvaluator`, and (when `replay_mode == warm`) performs the lookback rebuild. Returns the `replay_session_id` and the content-address of the `replay.session.create` audit receipt that landed in the production store.
+
+**`RunSession`** is server-streaming — it iterates the production receipt window matching the session's filter and `play_receipt`s each one, emitting `ReplayProgress` items as it advances. The progress shape carries `(progress_unix_ns, receipts_replayed, latest_replay_receipt_id)` so operators monitoring long-running replays see throughput in real time. Cancellation by the operator (closing the stream) leaves the session in a quiescent state — the operator can `QueryReplayReceipts` against whatever has been replayed so far, or `CloseSession` to release resources.
+
+**`CloseSession`** deletes the session from the `ReplayStore` (which drops the session-scoped store + every receipt within it), shuts down the per-session engine instance, and lands a `replay.session.close` audit receipt in the production store. Sessions also auto-close after a configurable TTL (default **24 hours after last RunSession activity**) — the operator's quiescent-but-not-closed window is bounded.
+
+**`ListSessions`** returns active sessions for the swarm, scoped by the operator's bearer. Useful for cleanup of forgotten sessions and for the `yutha-ops` CLI's listing command.
+
+**`QueryReplayReceipts`** takes the same `Query` variants as `ReceiptService.Query` (ByReceiptId / ByPredecessor / ByAgent / ByActionKind / ByTimeRange) but evaluates them against the session's store. The session id is part of the request, not derivable from the query; operators must pass it explicitly.
+
+### 4.6 Audit-trail anchor in the production store
+
+Session lifecycle events DO land in the production receipt store as audit records — they are operator actions that consumed substrate resources, and the production audit trail captures who created/closed what session, even though the within-session evaluation receipts live in the isolated store. Two new canonical action-kinds (`replay.session.create`, `replay.session.close`) cover this; their evidence shape is documented in §5.
 
 ## 5. Canonical action-kinds
 
@@ -221,6 +266,10 @@ Five new entries land in [`/spec/receipt/canonical-actions.md`](../receipt/canon
 | `constitution.shadow_activate` | Constitution engine | Operator | A new shadow constitution has been activated. Evidence: `shadow_constitution_hash`, `shadow_constitution_version`, `parent_active_constitution_hash` (the active at the moment of shadow activation — operators correlating shadow runs back to the production active they were measured against), `schema_version`. Operator-bearer-authenticated, same auth model as `constitution.activate`. |
 | `constitution.shadow_clear` | Constitution engine | Operator | The shadow slot has been cleared. Evidence: `previously_shadowed_constitution_hash` (absent when the slot was already empty at the time of call — the RPC is idempotent and the receipt records the operator's intent regardless). |
 | `constitution.shadow_promote` | Constitution engine | Operator | A shadow constitution has been promoted to active atomically (RFC 0018 §3.2). Evidence: `from_active_constitution_hash`, `to_active_constitution_hash` (this is the shadow's hash, which now addresses the new active), `to_constitution_version`, `schema_version`. Distinct from `constitution.activate` for audit clarity — auditors want to know whether a constitution arrived via direct activation or via shadow-preview-then-promote. |
+| `replay.session.create` | Replay engine | Operator | An operator created a replay session (RFC 0018 §4.5). Lands in the **production** receipt store (audit trail of who created what session). Evidence: `replay_session_id` (UUIDv7), `candidate_constitution_hash`, `candidate_constitution_version`, `receipt_window_from_unix_ns`, `receipt_window_to_unix_ns`, `action_kind_filter` (comma-joined string; empty = wildcard), `replay_mode` (`"cold"` \| `"warm"`), `warm_lookback_hours` (only present when `replay_mode == "warm"`). |
+| `replay.session.close` | Replay engine | Operator | A replay session has been closed — either explicitly via `ReplayService.CloseSession` or automatically after the inactivity TTL. Lands in the **production** receipt store. Evidence: `replay_session_id`, `receipts_replayed_total` (u64), `close_reason` (`"explicit"` \| `"ttl"`), `session_create_receipt_id` (content-address of the corresponding `replay.session.create` receipt for direct join). |
+
+Within-session evaluation receipts (`constitution.evaluate.{pass,deny}`, `procedure.{enter,transition,timeout}`, `enforcement.{detect,coach,quarantine,evict,reverse}`, etc.) use the SAME action-kind strings as production but land in the session's isolated store and carry an additional `replay_session_id` evidence entry. See §4.3 for the full semantics.
 
 ## 6. What's NOT in scope (this RFC)
 
@@ -234,10 +283,11 @@ Five new entries land in [`/spec/receipt/canonical-actions.md`](../receipt/canon
 
 This RFC introduces additive surfaces:
 
-- **Proto.** Four new RPCs on `ConstitutionService`; existing RPCs are byte-identical. Existing SDKs continue working.
-- **Receipts.** Five new action-kinds; existing action-kinds are unchanged. The `constitution.evaluate.{pass,deny}` evidence list gains an optional `shadow_constitution_hash` field that is absent when no shadow is configured — auditing tools that walked evidence by key continue to work; tools that asserted exhaustive evidence-key sets need a one-line update.
-- **CLI.** `yutha-ops` gains `activate-shadow`, `clear-shadow`, `promote-shadow` subcommands. Existing subcommands unchanged.
-- **Python SDK.** `ConstitutionAPI` gains `activate_shadow`, `clear_shadow`, `promote_shadow`, `get_active_shadow` methods. Existing methods unchanged.
+- **Proto.** Four new RPCs on `ConstitutionService` (Phase 3b) and a new `ReplayService` with five RPCs (Phase 3c); existing RPCs are byte-identical. Existing SDKs continue working.
+- **Receipts.** Seven new action-kinds (five shadow-related, two replay-session-lifecycle); existing action-kinds are unchanged. The `constitution.evaluate.{pass,deny}` evidence list gains an optional `shadow_constitution_hash` field that is absent when no shadow is configured. Within-replay-session evaluation receipts gain a `replay_session_id` evidence entry — production-side audit tooling that hasn't been updated for replay treats these receipts identically to production ones unless it opts in to filter on the new key. Tools that asserted exhaustive evidence-key sets need a one-line update.
+- **Stores.** New `ReplayStore` trait in `yutha-receipt`. New `yutha-replay` crate hosts the `ReplaySession` orchestrator. Existing `ReceiptStore` callers are unchanged.
+- **CLI.** `yutha-ops` gains `activate-shadow`, `clear-shadow`, `promote-shadow` (Phase 3b) and `replay` subcommands (Phase 3c). Existing subcommands unchanged.
+- **Python SDK.** `ConstitutionAPI` gains the four shadow methods (Phase 3b). New `ReplayAPI` carries `create_session`, `run_session` (async iterator over progress), `query_replay_receipts`, `close_session`, `list_sessions` (Phase 3c). Existing methods unchanged.
 
 Per [memory: `feedback-no-backcompat-pre-phase2`](#), the repo is pre-Phase-2-public, so breaking changes would be acceptable here — they just aren't necessary because the design is naturally additive.
 
@@ -251,12 +301,26 @@ Per [memory: `feedback-no-backcompat-pre-phase2`](#), the repo is pre-Phase-2-pu
 
 ## 9. As-shipped notes
 
-*(To be filled in at Phase 3c close. Phase 3b ships the shadow-mode half; Phase 3c ships the replay half and amends §4 with the final RPC surface, the final session-state semantics, and any divergence from this RFC.)*
-
 ### 9.1 Phase 3b as-shipped notes
 
-*(To be filled in at Phase 3b close, after sub-phases 3b-C through 3b-G ship.)*
+Committed locally 2026-06-09 (push held for Phase 3 workstream close at Phase 3h). Per-sub-phase summary lives in the auto-memory's `project-phase-3-simulation-observability` "Phase 3b as-shipped state" section. Notable substrate-level decisions made during implementation:
+
+- The shadow path skips procedure-state mutation (§3.1) — implementation introduces an `EvaluationMode { Active, Shadow }` enum threaded through a private `evaluate_against(request, activated, mode)` helper in `CedarPlusEvaluator`. Trait `ConstitutionEvaluator::evaluate` is now a thin delegate; `evaluate_pair` calls the helper twice.
+- Cross-schema shadow eval failures (§3.3) surface as a synthesized `Decision::Deny` with `deny_reason = "shadow_schema_incompatible"` via a `schema_incompatible_deny(request)` helper. Caught at all three Cedar shape-construction failure points: entity build, context build, Cedar `Request::new`.
+- The engine fan-out filter (§3.5) lives at `crates/yutha-control-plane/src/main.rs::spawn_enforcement_forwarder` — a single `view.action_kind.starts_with("constitution.evaluate.shadow.")` check skips shadow receipts before they reach `EnforcementEngine::on_receipt`. `PublishingReceiptStore::build_view` stays pure; `EnforcementEngine` stays shadow-agnostic.
+- The atomic promote semantic (§3.2) is enforced by `CedarPlusEvaluator::promote_shadow()`'s lock ordering — shadow write lock first, then active write lock, then receipt emission. The `enforcement.activate(promoted)` rebind happens at the gRPC handler level (`ConstitutionHandler::promote_shadow`) AFTER the substrate-side swap completes.
+- Conformance regression guard: scenario S10 (`crates/yutha-conformance/src/scenarios/s10_shadow_mode.rs`) covers slot independence + receipt action-kind partitioning + RFC 0018 §3.4 evidence shape against the persisted receipts.
 
 ### 9.2 Phase 3c as-shipped notes
 
-*(To be filled in at Phase 3c close.)*
+Committed locally 2026-06-10 (push held for Phase 3 workstream close at Phase 3h). Per-sub-phase summary lives in the auto-memory's `project-phase-3-simulation-observability` "Phase 3c as-shipped state" section. Notable substrate-level decisions made during implementation:
+
+- **Production-store isolation is by construction, not by filter** (§4.1). The session's `Arc<dyn ReceiptStore>` is distinct from the production handle the gRPC services hold; `ReplaySession::run_window` only ever calls `append` against the session-scoped handle. The `AnchorDriver` is wired against the production handle only, so replay emissions never even appear on the anchoring candidate path. The invariant has two regression guards: `crates/yutha-anchor-sui/src/candidate_source.rs::replay_receipts_never_appear_in_candidates` (anchoring side) and conformance scenario S11 (session-scoped emissions land only in the session store, production count unchanged across the run).
+- **Session-internal causal chain via `last_step_emissions`** (§4.3). Implemented as a `tokio::sync::Mutex<Vec<Hash>>` on `ReplaySession`; `play_receipt` captures it at the top of the call, uses the snapshot as `CausalRef::predecessors` on every emission of that step, then unconditionally writes the step's emitted-receipt-ids back at the end. The unconditional reset means the chain only carries across *consecutive* emitting steps — a no-effect step resets the head to `[]`. Conformance scenario S11 uses `count_threshold: 1` so every replayed receipt emits, exercising the chain across all four steps.
+- **`replay_session_id` evidence marker on every within-session enforcement receipt** (§4.3). `ReplaySession::emit_session_enforcement_receipt` prepends the marker via `Evidence::new("replay_session_id", "type.yutha.dev/v1/String", session_id.to_string().into_bytes())` before any effect-specific evidence. Same canonical action-kinds as production (`enforcement.detect` / `coach` / `quarantine` / `evict` / `reverse`) — the marker is the only distinguisher.
+- **Cold + warm init share `create_cold` as the substrate** (§4.2). `create_warm` calls `create_cold` to land the engine + activated constitution, then iterates the lookback window through `engine.on_receipt` + `engine.poll_scheduled` with `let _effects = ...` to discard the lookback's effects — only the post-`from_unix_ns` window produces session-scoped emissions. Lookback hours capped at `u32`; the wall-clock for the synthetic timestamps uses `1970-01-01T00:00:00Z` / `9999-12-31T23:59:59Z` since `MemoryReceiptStore::query` by time-range gates on `monotonic_ns`, not the RFC 3339 string.
+- **Replay-session lifecycle audit lands in the production store, not the session store** (§4.6). `ReplayHandler::create_session` and `close_session` emit `replay.session.create` / `replay.session.close` receipts against `state.receipt_store` (production), bracketing the session for downstream auditors. Within-session enforcement emissions are otherwise the only writes to the session-scoped store.
+- **`ReplaySessionId` is UUIDv7 with `FromStr`** matching `AgentId` / `SwarmId`'s convention; this corrected an earlier 3c-B spec draft that called for UUIDv4. The `FromStr` impl (instead of an inherent `from_str`) was a clippy-driven cleanup during 3c-C — callers use idiomatic `s.parse::<ReplaySessionId>()`.
+- **`MemoryReplayStore` is the Phase 3c-shipped backend.** Per-session state is `HashMap<ReplaySessionId, Arc<MemoryStore>>` plus a `HashMap<ReplaySessionId, ReplaySessionMetadata>` slot for the `touch_session` lifecycle counters. `PostgresReplayStore` ships as a follow-on (tracked separately in the auto-memory `project-phase-3-simulation-observability` follow-on list); the operator-facing surface (gRPC + Python SDK + `yutha-ops`) is backend-agnostic so the swap is contained to the registry wiring in `main.rs`.
+- **Operator surface across all three layers.** `ReplayService` gRPC (Create / Run server-stream / Query / Close / List) in `crates/yutha-control-plane/src/grpc/replay.rs` (~450 lines); `yutha.ReplayAPI` on the Python SDK client with `_wrap_run_session_stream` async generator + 5 dataclasses + `ReplayMode` enum; `yutha-ops` CLI subcommands `replay-create` / `replay-run` / `replay-query` / `replay-close` / `replay-list` mirroring the Python surface. The CLI's `replay-create` defaults to `--mode cold` and `--warm-lookback-hours 24` to match the substrate defaults.
+- **Operator-facing operational story.** `docs/operator/replay.md` is the operator's runbook; covers cold vs warm, same-control-plane semantic isolation (different `Arc`s) vs real compute/Postgres load (shared), the two-process-against-shared-Postgres mitigation when load matters, session TTL + auto-close emission with `close_reason = "ttl"`, the never-anchors invariant, and the explicit no-rate-limit-today caveat. The shadow-mode page's "replay not yet shipped" caveat was retired and now cross-links to the replay page as the backward-looking diligence pair.
