@@ -112,6 +112,14 @@ from yutha.models import (
     SwarmBroadcast,
     TimeOfDayCaveat,
 )
+from yutha.sim import (
+    PersonaState,
+    SimError,
+    SimulationOutcome,
+    TerminalReason,
+    parse_outcome_json,
+    run_scenario,
+)
 
 __all__ = [
     "__version__",
@@ -148,6 +156,13 @@ __all__ = [
     "ReceiptCountDelta",
     "ChainDivergence",
     "DiffError",
+    # Simulation harness (Phase 3e).
+    "run_scenario",
+    "parse_outcome_json",
+    "SimulationOutcome",
+    "PersonaState",
+    "TerminalReason",
+    "SimError",
     "BearerSession",
     "make_interceptors",
     "make_channel",

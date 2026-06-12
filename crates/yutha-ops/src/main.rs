@@ -29,6 +29,11 @@
 //!     production + session stores, attaches receipt-count deltas +
 //!     enforcement chain divergences to the rendered output.
 //!     Behavioural mode IS a server call (auth via the usual seed).
+//!   * `sim <scenario.yaml> [--format {human,json,markdown}]
+//!     [--output-file <path>]` — run an in-memory simulation
+//!     scenario against the canonical persona bundle
+//!     (`support_agent` + `refund_attacker` + `broken_tool`). Phase
+//!     3e / Pillar 1. Pure-local — no server, no seed.
 //!
 //! Auth is driven by a single 32-byte `--seed` hex value (or
 //! `YUTHA_BOOTSTRAP_SEED`). The CLI derives every identity from it
@@ -353,6 +358,35 @@ enum Cmd {
         #[arg(long)]
         out_engine_config: Option<PathBuf>,
     },
+
+    /// Run a simulation scenario (Phase 3e / Pillar 1). Loads the
+    /// scenario YAML, instantiates the canonical persona bundle
+    /// (`support_agent` + `refund_attacker` + `broken_tool`),
+    /// stands up the in-memory stack, and runs the persona loop.
+    /// Pure-local — no server connection, no seed required.
+    ///
+    /// Output is the full [`yutha_sim::SimulationOutcome`] rendered
+    /// according to `--format`. `human` (default) prints a digest
+    /// suitable for terminal viewing; `json` emits the serde JSON
+    /// shape that the Python wrapper (3e-I) parses; `markdown`
+    /// renders a section per persona for embedding into operator
+    /// docs.
+    ///
+    /// See `crates/yutha-sim/examples/scenarios/` for the canonical
+    /// fixture layout.
+    Sim {
+        /// Path to the YAML scenario file. The `cedar_path` and
+        /// `engine_config_path` declarations inside the YAML are
+        /// resolved relative to the YAML file's parent directory.
+        scenario: PathBuf,
+        /// Output format. Default `human`.
+        #[arg(long, default_value = "human")]
+        format: String,
+        /// Optional file path to write the rendered output to.
+        /// Defaults to stdout.
+        #[arg(long)]
+        output_file: Option<PathBuf>,
+    },
 }
 
 #[tokio::main]
@@ -370,6 +404,18 @@ async fn main() -> anyhow::Result<()> {
     } = cli.cmd
     {
         return cmd_compile(input, out_cedar, out_engine_config);
+    }
+
+    // Phase 3e: `sim` is pure-local — runs the in-memory harness,
+    // never touches the server. Dispatch before the seed-gated
+    // tail.
+    if let Cmd::Sim {
+        scenario,
+        format,
+        output_file,
+    } = cli.cmd
+    {
+        return cmd_sim(scenario, format, output_file).await;
     }
 
     // Static-only `diff` runs offline — no seed, no channel. The
@@ -404,8 +450,8 @@ async fn main() -> anyhow::Result<()> {
     let seed_hex = cli.seed.as_ref().ok_or_else(|| {
         anyhow::anyhow!(
             "--seed / YUTHA_BOOTSTRAP_SEED is required for activate / grep / \
-             revoke / print-operator-pubkey. (Only `compile` runs purely \
-             locally without it.)"
+             revoke / print-operator-pubkey. (`compile`, `sim`, and the \
+             static-only `diff` path run purely locally without it.)"
         )
     })?;
     let seed = decode_seed(seed_hex)?;
@@ -529,7 +575,7 @@ async fn main() -> anyhow::Result<()> {
             )
             .await
         }
-        Cmd::Compile { .. } | Cmd::PrintOperatorPubkey => {
+        Cmd::Compile { .. } | Cmd::PrintOperatorPubkey | Cmd::Sim { .. } => {
             unreachable!("dispatched above")
         }
     }
@@ -572,6 +618,145 @@ fn cmd_compile(
         engine = engine_path.display(),
     );
     Ok(())
+}
+
+// ---- Phase 3e sim subcommand ----
+
+/// Run an in-memory simulation against a YAML scenario fixture.
+///
+/// Three output formats:
+///
+/// - `human` — terminal-friendly digest (default).
+/// - `json` — serde_json of [`yutha_sim::SimulationOutcome`]. The
+///   Python wrapper (3e-I) parses this directly.
+/// - `markdown` — section-per-persona render, suitable for
+///   embedding in operator docs.
+async fn cmd_sim(
+    scenario: PathBuf,
+    format: String,
+    output_file: Option<PathBuf>,
+) -> anyhow::Result<()> {
+    use yutha_sim::{
+        load_scenario_yaml, register_canonical_personas, PersonaRegistry, SimulationHarness,
+    };
+
+    let cfg = load_scenario_yaml(&scenario)
+        .await
+        .with_context(|| format!("load scenario {scenario:?}"))?;
+    // Progress messages go to stderr so the Python wrapper (3e-I) can
+    // pipe stdout straight into json.loads.
+    eprintln!(
+        "loaded scenario from {}: {} agents, {} steps, tick_ms={}",
+        scenario.display(),
+        cfg.agents.len(),
+        cfg.steps,
+        cfg.tick_ms,
+    );
+
+    let mut registry = PersonaRegistry::new();
+    register_canonical_personas(&mut registry);
+
+    let harness = SimulationHarness::new(cfg, &registry)
+        .await
+        .context("construct simulation harness")?;
+    let outcome = harness.run().await.context("run simulation")?;
+
+    let rendered = match format.as_str() {
+        "json" => render_sim_json(&outcome)?,
+        "markdown" => render_sim_markdown(&outcome),
+        "human" => render_sim_human(&outcome),
+        other => bail!("unknown --format {other}: expected json / markdown / human"),
+    };
+
+    match output_file {
+        Some(path) => {
+            std::fs::write(&path, &rendered)
+                .with_context(|| format!("write output to {path:?}"))?;
+            eprintln!("wrote {} bytes to {}", rendered.len(), path.display());
+        }
+        None => {
+            println!("{rendered}");
+        }
+    }
+    Ok(())
+}
+
+fn render_sim_json(outcome: &yutha_sim::SimulationOutcome) -> anyhow::Result<String> {
+    serde_json::to_string_pretty(outcome).context("serialise SimulationOutcome to JSON")
+}
+
+fn render_sim_human(outcome: &yutha_sim::SimulationOutcome) -> String {
+    use std::collections::BTreeMap;
+    use std::fmt::Write;
+    let mut s = String::new();
+    let _ = writeln!(s, "=== Simulation outcome ===");
+    let _ = writeln!(s, "total_steps:     {}", outcome.total_steps);
+    let _ = writeln!(
+        s,
+        "terminal_reason: {}",
+        match outcome.terminal_reason {
+            yutha_sim::TerminalReason::BudgetExhausted => "budget_exhausted",
+            yutha_sim::TerminalReason::AllPersonasIdle => "all_personas_idle",
+        }
+    );
+    let _ = writeln!(s, "total_receipts:  {}", outcome.receipts.len());
+    let mut by_kind: BTreeMap<&str, u32> = BTreeMap::new();
+    for r in &outcome.receipts {
+        *by_kind.entry(r.action_kind.as_str()).or_insert(0) += 1;
+    }
+    let _ = writeln!(s, "\nReceipts by action_kind:");
+    for (kind, count) in by_kind {
+        let _ = writeln!(s, "  {kind:<40} {count}");
+    }
+    let _ = writeln!(s, "\nPersona summary:");
+    for p in &outcome.persona_states {
+        let _ = writeln!(
+            s,
+            "  {:<32} agent={}  intents_emitted={}",
+            p.name, p.agent_id, p.intents_emitted,
+        );
+    }
+    s
+}
+
+fn render_sim_markdown(outcome: &yutha_sim::SimulationOutcome) -> String {
+    use std::collections::BTreeMap;
+    use std::fmt::Write;
+    let mut s = String::new();
+    let _ = writeln!(s, "# Simulation outcome\n");
+    let _ = writeln!(s, "- total_steps: **{}**", outcome.total_steps);
+    let _ = writeln!(
+        s,
+        "- terminal_reason: **{}**",
+        match outcome.terminal_reason {
+            yutha_sim::TerminalReason::BudgetExhausted => "budget_exhausted",
+            yutha_sim::TerminalReason::AllPersonasIdle => "all_personas_idle",
+        }
+    );
+    let _ = writeln!(s, "- total_receipts: **{}**\n", outcome.receipts.len());
+
+    let mut by_kind: BTreeMap<&str, u32> = BTreeMap::new();
+    for r in &outcome.receipts {
+        *by_kind.entry(r.action_kind.as_str()).or_insert(0) += 1;
+    }
+    let _ = writeln!(s, "## Receipts by action kind\n");
+    let _ = writeln!(s, "| action_kind | count |");
+    let _ = writeln!(s, "| --- | --- |");
+    for (kind, count) in by_kind {
+        let _ = writeln!(s, "| `{kind}` | {count} |");
+    }
+
+    let _ = writeln!(s, "\n## Persona summary\n");
+    let _ = writeln!(s, "| persona | agent_id | intents_emitted |");
+    let _ = writeln!(s, "| --- | --- | --- |");
+    for p in &outcome.persona_states {
+        let _ = writeln!(
+            s,
+            "| `{}` | `{}` | {} |",
+            p.name, p.agent_id, p.intents_emitted,
+        );
+    }
+    s
 }
 
 // ---- Phase 3d diff subcommand (static path; behavioural lands in 3d-G) ----

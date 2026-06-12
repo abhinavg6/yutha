@@ -1,0 +1,38 @@
+# 3e-G example scenario — refund_attacker probes the cap.
+#
+# Pair one well-behaved SupportAgent (baseline noise) with one
+# adversarial RefundAttacker. The attacker's amount doubles every
+# step: 100¢ → 200¢ → 400¢ → 800¢ → 1600¢ → 3200¢ → ...
+#
+# The 1600¢ probe is the first to clear the cap (1000¢) in
+# refund-cap.cedar. From that point, every subsequent attacker
+# emit produces a `constitution.evaluate.deny`. Two consecutive
+# denies trip the detect; the four-stage chain (detect → coach →
+# quarantine → evict) follows over the next 4 steps as the
+# scheduler cooldowns elapse.
+#
+# `tick_ms: 1000` matches the engine cooldown of `1s` so each
+# step advances one stage transition.
+
+constitution:
+  cedar_path: ./refund-cap.cedar
+  engine_config_path: ./refund-cap.engine.yaml
+
+agents:
+  - persona: support_agent
+    config:
+      message_text: "support: please look at ticket T-9001"
+      tags: ["support"]
+      estimated_cost_usd_cents: 5
+  - persona: refund_attacker
+    config:
+      initial_amount_cents: 100
+      step_multiplier: 2.0
+      tags: ["refund"]
+
+# Step budget. The chain takes ~10 steps to fully run (5 to climb
+# to the cap, 2 to fire detect, then one each for coach/quarantine/
+# evict). 20 gives slack for SupportAgent emissions to dominate
+# the receipt log post-quarantine.
+steps: 20
+tick_ms: 1000

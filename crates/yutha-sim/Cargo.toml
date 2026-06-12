@@ -1,0 +1,54 @@
+[package]
+name = "yutha-sim"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+authors.workspace = true
+description = "Simulation harness + canonical personas for Yutha constitutions. Drive a candidate constitution against synthetic agent traffic in an in-memory stack — no control plane needed. Phase 3e / Pillar 1."
+readme = "README.md"
+
+[dependencies]
+# `serde` feature on yutha-core + yutha-receipt is required so the
+# ScenarioConfig + SimulationOutcome data shapes round-trip through
+# YAML (3e-G) and JSON (3e-H CLI rendering, 3e-I Python wrapper).
+yutha-core = { workspace = true, features = ["serde"] }
+yutha-crypto.workspace = true
+yutha-receipt = { workspace = true, features = ["serde"] }
+yutha-passport.workspace = true
+yutha-capability.workspace = true
+yutha-signer.workspace = true
+yutha-cedar-plus.workspace = true
+
+# Persona trait is async — match the existing async substrate in the
+# conformance scenarios.
+async-trait.workspace = true
+# `fs` for tokio::fs::read_to_string in the constitution loader; `sync`
+# for Mutex/RwLock used by the trait surface and downstream personas.
+tokio = { workspace = true, features = ["fs", "sync"] }
+
+# Scenario config + simulation outcome are serde-driven so 3e-G
+# (YAML scenario format) and 3e-H (yutha-ops sim CLI rendering) can
+# round-trip them.
+serde = { workspace = true, features = ["derive"] }
+serde_json.workspace = true
+# YAML scenario format parser (3e-G).
+serde_yaml.workspace = true
+
+# Error type.
+thiserror.workspace = true
+
+# Logging.
+tracing.workspace = true
+
+# Synthetic wall-clock advance — the harness drives the engine's
+# scheduler via RFC 3339 timestamps without touching tokio::time.
+time.workspace = true
+
+# AgentId parsing in persona configs goes through Uuid::parse_str.
+uuid.workspace = true
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }

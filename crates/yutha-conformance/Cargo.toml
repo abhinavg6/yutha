@@ -26,15 +26,20 @@ yutha-cedar-plus.workspace = true
 yutha-replay.workspace = true
 # S12 exercises the Phase 3d constitution diff engine.
 yutha-diff.workspace = true
+# S13 drives the Phase 3e simulation harness end-to-end.
+yutha-sim.workspace = true
 
 async-trait.workspace = true
 futures.workspace = true
-tokio.workspace = true
+tokio = { workspace = true, features = ["fs"] }
 thiserror.workspace = true
 # S4: needs serde_json (eval-request context attrs + enforcement evidence)
 # and time (synthetic wall-clock advance for poll_scheduled).
 serde_json.workspace = true
 time.workspace = true
+# S13 writes constitution fixtures to a temp dir before handing
+# them to the SimulationHarness (which reads paths from disk).
+tempfile.workspace = true
 
 [dev-dependencies]
 tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }

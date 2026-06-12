@@ -23,6 +23,8 @@ yutha-proto.workspace = true
 # yutha-diff engine that computes + renders the diff.
 yutha-cedar-plus.workspace = true
 yutha-diff.workspace = true
+# Phase 3e: `sim` subcommand wraps the in-memory simulation harness.
+yutha-sim.workspace = true
 
 anyhow.workspace = true
 clap.workspace = true

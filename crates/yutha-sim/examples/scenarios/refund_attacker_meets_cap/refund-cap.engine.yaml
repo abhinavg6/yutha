@@ -1,0 +1,32 @@
+# 3e-G example engine config — refund-attacker probe.
+#
+# Single enforcement_rules entry covering all four stages
+# (detect → coach → quarantine → evict). 1-second cooldowns so the
+# harness can drive the chain via synthetic time advance
+# (`tick_ms: 1000` in the scenario YAML aligns with this).
+#
+# `count_threshold: 2` means two `constitution.evaluate.deny`
+# receipts in the sliding window fire the detect — the smallest
+# non-trivial threshold the engine's window matcher exercises.
+
+schema_version: "1.1.0"
+predicates: []
+scoring_rules: []
+procedures: []
+enforcement_rules:
+  - name: refund_cap_chain
+    detect:
+      trigger:
+        receipt_kind: constitution.evaluate.deny
+      count_threshold: 2
+      time_window: 60s
+      group_by: principal
+    coach:
+      cooldown: 1s
+      guidance_template: "Refund amount exceeds the cap. Stop probing."
+    quarantine:
+      escalate_after: 1s
+    evict:
+      escalate_after: 1s
+      require_countersign: false
+    severity: high
