@@ -134,23 +134,28 @@ nav:
       - operator/index.md
       - Quickstart: operator/quickstart.md
       - Authoring constitutions: operator/authoring-constitutions.md
-      - Shadow-mode preview: operator/shadow-mode.md
-      - Replay-mode preview: operator/replay.md
-      - Constitution diff: operator/constitution-diff.md
-      - Operator credentials: operator/operator-credentials.md
-      - Enterprise identity (end-to-end): operator/enterprise-identity.md
-      - Signer backends (key custody):
-          - Overview: operator/signers.md
-          - Vault: operator/vault-signer.md
-          - GCP KMS: operator/gcp-kms-signer.md
-          - Azure Key Vault: operator/azure-kv-signer.md
-      - Attestor backends (admission attestation):
-          - Overview: operator/attestors.md
-          - SPIFFE/SPIRE: operator/spiffe-attestor.md
-          - OIDC: operator/oidc-attestor.md
-      - Monitoring & receipts: operator/monitoring.md
-      - Sui anchoring: operator/sui-anchoring.md
-      - Deployment: operator/deployment.md
+      - Previewing rule changes:
+          - Overview: operator/previewing-changes.md
+          - Shadow mode (on live traffic): operator/shadow-mode.md
+          - Replay (against past traffic): operator/replay.md
+          - Diff two rule sets: operator/constitution-diff.md
+          - Simulation (synthetic traffic): operator/simulation.md
+      - Identity & credentials:
+          - Operator credentials: operator/operator-credentials.md
+          - Enterprise identity (end-to-end): operator/enterprise-identity.md
+          - Signer backends (key custody):
+              - Overview: operator/signers.md
+              - Vault: operator/vault-signer.md
+              - GCP KMS: operator/gcp-kms-signer.md
+              - Azure Key Vault: operator/azure-kv-signer.md
+          - Attestor backends (admission attestation):
+              - Overview: operator/attestors.md
+              - SPIFFE/SPIRE: operator/spiffe-attestor.md
+              - OIDC: operator/oidc-attestor.md
+      - Running in production:
+          - Monitoring & receipts: operator/monitoring.md
+          - Sui anchoring: operator/sui-anchoring.md
+          - Deployment: operator/deployment.md
   - Developer Guide:
       - developer/index.md
       - Quickstart: developer/quickstart.md

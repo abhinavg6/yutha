@@ -190,11 +190,10 @@ When this demo was first authored the gRPC EnvelopeHandler
 synthesized placeholder values for `principal.framework`,
 `principal.passport_tier`, and `principal.reputation` — Cedar
 policies keying on them silently degraded to permit-all. The
-Phase 3a substrate work (task #282, shipped 2026-05-31) wired
-the passport resolver + enforcement-engine reputation snapshot
-into the gRPC eval path, so the framework-gated rule above now
-fires honestly. The demo continues to use the tag-presence form
-so its narrative stays focused on the enforcement-chain
+passport resolver and the enforcement-engine reputation snapshot
+are now wired into the gRPC eval path, so the framework-gated rule
+above fires honestly. The demo continues to use the tag-presence
+form so its narrative stays focused on the enforcement-chain
 mechanics; updating it to the framework-gated form is a clean
 single-line change you can make locally if you want to see the
 substrate-correct shape end-to-end.
@@ -479,9 +478,9 @@ A few directions to extend the example:
   layers compose: even if a bug in the approver's code adds the
   tag, the cap layer would deny before the constitution gets a
   chance to evaluate.
-- **Switch to the `principal.framework`-gated form.** Now that
-  Phase 3a has wired the passport resolver into the gRPC eval
-  path, the substrate-correct version of this constitution
+- **Switch to the `principal.framework`-gated form.** With the
+  passport resolver wired into the gRPC eval path, the
+  substrate-correct version of this constitution
   (`principal.framework == "ap-invoice-approver"`) fires
   honestly. Swap the tag check in the demo's constitution YAML
   for the framework check, recompile, re-activate, and you'll see

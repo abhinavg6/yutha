@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "yutha"
-version = "0.1.0a3"
+version = "0.1.0a4"
 description = "Python SDK for the Yutha agent-coordination control plane."
 readme = "README.md"
 requires-python = ">=3.11"

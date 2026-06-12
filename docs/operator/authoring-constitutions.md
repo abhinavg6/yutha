@@ -1,20 +1,10 @@
 # Authoring constitutions
 
-A hands-on guide for operators writing the document the control
-plane evaluates every consequential action against. The
-[Concepts page](../concepts/constitution.md) covers what a
-constitution *is* and why Cedar+ is shaped the way it is; the
-[Operator Quickstart](quickstart.md) walks one end-to-end
-author → compile → activate → enforce loop. This page sits in
-between — the practical reference for the rule kinds the
-authoring DSL exposes, what each compiles to, and how to iterate
-without painting yourself into a corner.
+A constitution is the rule set your swarm runs under. Authoring one is the operator's job — you decide what agents may do, what they must not do, what trade-offs you prefer, and what should happen when an agent crosses the line. This page is the practical reference for *how* you write one.
 
-You'll come away knowing the six rule kinds the DSL exposes, how
-each lands as Cedar source or engine-config YAML, what `yutha-ops
-compile` and `yutha-ops activate` validate at each step, how to
-roll forward and back, and which workload schemas you need to
-load at server startup for your rules to typecheck.
+If you're new to the idea, the [Concepts page](../concepts/constitution.md) covers what a constitution *is* and why it's shaped the way it is; the [Operator quickstart](quickstart.md) walks one end-to-end author → compile → activate → enforce loop. This page sits in between — a hands-on reference for the rule kinds the authoring DSL exposes, what each compiles to, and how to iterate without painting yourself into a corner.
+
+You'll come away knowing the six rule kinds the DSL exposes, how each lands as Cedar source or engine-config YAML, what `yutha-ops compile` and `yutha-ops activate` validate at each step, how to roll forward and back, and which workload schemas you need to load at server startup for your rules to typecheck.
 
 ---
 
@@ -255,11 +245,11 @@ to populate `estimated_cost_*`) surfaces as
 
 !!! note "Budget tracking is still placeholder substrate today"
 
-    Phase 3a wired real passport-derived attributes (`framework`,
-    `passport_tier`, `passport_hash`) and real engine-tracked
-    `reputation` into every evaluation. **Budget remaining is
-    still placeholder** — the enforcement engine doesn't yet
-    track per-agent budget consumption, so
+    Real passport-derived attributes (`framework`,
+    `passport_tier`, `passport_hash`) and engine-tracked
+    `reputation` are now populated on every evaluation. **Budget
+    remaining is still placeholder** — the enforcement engine
+    doesn't yet track per-agent budget consumption, so
     `principal.budget_remaining_*` evaluates to `i64::MAX` for
     every request. Forbid rules keying on it silently permit-all
     until budget-norms (RFC 0011 §4) ship in the engine. Author

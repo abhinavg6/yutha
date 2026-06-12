@@ -1,4 +1,4 @@
-# Constitution diff (Phase 3d)
+# Diff two rule sets
 
 `yutha-ops diff` is the operator's CI-ready inspection tool for
 constitution changes. Give it two `(cedar source, engine-config
@@ -9,13 +9,14 @@ the replay engine to also tell you how the candidate would have
 *behaved* differently than the active constitution did over that
 window.
 
-It's the third leg of the Phase 3 / Pillar 1 diligence triad —
-alongside [shadow mode](shadow-mode.md) (forward-looking preview
-against incoming traffic) and [replay mode](replay.md) (backward-
-looking preview against a past window). Diff is what you reach for
-when you have *two* candidate constitutions in hand and want a
-structured PR-friendly summary of how they differ + (optionally)
-what their behavioural delta would have been on real traffic.
+Diff is one of four ways to preview a rule change before promoting
+it — alongside [shadow mode](shadow-mode.md) (preview on live
+traffic), [replay](replay.md) (preview against a past time window),
+and [simulation](simulation.md) (preview against synthetic traffic
+you script). Diff is what you reach for when you have *two*
+candidate rule sets in hand and want a structured PR-friendly
+summary of how they differ — and, optionally, what their behaviour
+delta would have been on real traffic.
 
 This page is the operator runbook. The substrate side lives in
 [`crates/yutha-diff/`](https://github.com/abhinavg6/yutha/tree/main/crates/yutha-diff)
@@ -203,16 +204,16 @@ production store for the full audit chain.
   `action_kind` query uses `limit: 10_000`. If your window contains
   more receipts of a single kind than that, the tally is
   incomplete. Workaround: narrow `--window-from`/`--window-to` or
-  use `--filter` to reduce per-kind volume. Pagination is a Phase 3
+  use `--filter` to reduce per-kind volume. Pagination is a planned
   follow-on.
 - **The candidate's Cedar policies are NOT re-evaluated against the
   production envelopes.** The replay engine consumes the production
   `constitution.evaluate.*` receipts as input and computes the
   candidate's *enforcement chain* delta — it doesn't re-render
-  Cedar evaluations. That's a deliberate Phase 3c MVP scoping
-  decision (the production entity-snapshot isn't preserved on
-  receipts). Per-envelope Cedar divergence is the natural follow-
-  on; until then, the receipt-count delta is the closest signal.
+  Cedar evaluations. That's a deliberate scoping choice — production
+  receipts don't preserve the entity snapshot needed to re-evaluate.
+  Per-envelope Cedar divergence is the natural follow-on; until then,
+  the receipt-count delta is the closest signal.
 
 ---
 
@@ -301,8 +302,8 @@ wrappers around the same subprocess. See
 
 The JSON output's `diff_schema_version` field plus the per-section
 counts make a natural set of OTel span attributes for an "operator
-ran a diff" trace event. Phase 3f's RFC 0019 will codify the
-semantic conventions; until then, operator choice.
+ran a diff" trace event. Future OpenTelemetry conventions for
+Yutha will codify the attribute names; until then, operator choice.
 
 ---
 

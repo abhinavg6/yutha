@@ -1,21 +1,11 @@
-# Shadow-mode constitution preview
+# Shadow mode (on live traffic)
 
-The shadow slot lets you preview a constitution against real
-traffic before it gates anything. You activate the candidate as a
-shadow; every envelope evaluates against both the active slot and
-the shadow slot; the active continues to gate the cap layer and
-enforcement engine, the shadow only emits observation-only receipts
-you can query. When you're satisfied the candidate is what you
-want, you promote the shadow into the active slot atomically.
+Shadow mode is the most realistic way to preview a rule change before turning it on: load your candidate rule set into a *shadow* slot next to the active one, and let every envelope evaluate against both. The active rule set continues to gate live agents — they see no difference. The shadow rule set quietly emits *observation-only* receipts (`constitution.evaluate.shadow.pass` / `constitution.evaluate.shadow.deny`) you can query at your leisure. Read those receipts, decide if the candidate behaves the way you want it to, and when you're satisfied, atomically *promote* the shadow into the active slot.
 
-This page is the operator's guide to that workflow. It complements
-[Authoring constitutions](authoring-constitutions.md), which covers
-authoring and activating in the active slot — shadow mode is the
-preview layer on top of the same authoring loop.
+It's the right preview to reach for when you have ongoing live traffic that represents normal behaviour and you can afford to wait a day or a week before promoting. If you'd rather get an answer right now from a past time window, see [replay](replay.md). If your change is structural and you want a PR-friendly comparison, see [diff](constitution-diff.md). If the behaviour you want to catch isn't in your live traffic at all, see [simulation](simulation.md).
 
-The substrate side lives at
-[RFC 0018](https://github.com/abhinavg6/yutha/blob/main/spec/rfcs/0018-shadow-mode-and-replay.md);
-this page is the operator-facing translation.
+This page is the operator runbook. The substrate side lives at
+[RFC 0018](https://github.com/abhinavg6/yutha/blob/main/spec/rfcs/0018-shadow-mode-and-replay.md).
 
 ---
 

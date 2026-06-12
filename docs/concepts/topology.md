@@ -1,19 +1,12 @@
 # Topology
 
-Topology is a swarm-level setting — chosen once, at swarm creation — that
-decides who can join the swarm, under what conditions, and with what default
-authority. It is first-class because the answer shapes everything downstream:
-the registry's admission flow, the capability layer's default lifetime
-ceilings, the constitution's enforcement posture, even whether agents are
-allowed to send envelopes to endpoints outside the swarm. The three options
-Yutha ships are **closed** (allowlist of vetted agents only), **open** (anyone
-meeting sybil-resistance criteria), and **hybrid** (a trusted closed core with
-an open periphery around it). Why three and not a continuous knob? Because each
-one carries a coherent bundle of defaults — admission flow, scope ceilings,
-enforcement cadence, external-send policy — and operators reason about the
-bundle, not the individual sliders. Mixing-and-matching at the slider level
-invited combinations that didn't add up. The three modes are the points on the
-spectrum that real deployments actually land on, made explicit.
+A **swarm** in Yutha is the unit of governance — a named group of agents that share an identity registry, an active rule set, and a single audit log. The first question to answer when you stand one up is: who's allowed in, on what terms, and with how much default authority? That answer is called the swarm's **topology**, and it's set once at swarm creation. The three options are:
+
+- **Closed** — only agents on an operator-curated allowlist can join. The strictest setting; default for internal-tooling swarms.
+- **Open** — anyone who passes a sybil-resistance check (e.g., proof-of-work registration or stake) can join. The most flexible setting; default for community-driven swarms.
+- **Hybrid** — a trusted closed core (operator + verified partners) surrounded by an open periphery (anonymous participants). Two admission flows in one swarm; default for multi-tenant platforms.
+
+Why three discrete modes and not a sliding knob? Because each one carries a coherent bundle of defaults — admission flow, capability lifetime ceilings, enforcement cadence, external-send policy — and operators reason about the bundle as a whole, not the individual settings. Mixing-and-matching at the setting level invited combinations that didn't add up. The three modes are the points real deployments actually land on, made explicit and named.
 
 A topology is set at swarm creation and is immutable for the swarm's lifetime.
 Changing it requires creating a new swarm and migrating — a deliberate cost,

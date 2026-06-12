@@ -19,6 +19,12 @@ The Python package [`yutha`](https://pypi.org/project/yutha/) is the canonical c
 
 **Joining an Attestor-enabled swarm?** `AdmissionAPI.register(passport, external_credential=...)` takes an optional `external_credential: bytes` parameter — your SPIFFE JWT-SVID or OIDC ID-token. Defaults to empty (the native-attestor path used by every demo and integration test). The operator-side [Attestor backends overview](../operator/attestors.md) covers what the seam does and when an operator turns it on; the SDK-side change is just that one keyword argument.
 
+**Previewing rule changes from Python.** Three preview tools each ship a Python helper that wraps the corresponding `yutha-ops` subcommand. They're imported from the top-level `yutha` package and shell out to the operator CLI so the Cedar+ stack stays single-sourced in Rust:
+
+- [`yutha.run_scenario`](https://github.com/abhinavg6/yutha/blob/main/sdks/python/src/yutha/sim.py) — run a simulation scenario against the canonical persona bundle, return a typed `SimulationOutcome`. CI-friendly. See [Simulation harness](../operator/simulation.md).
+- [`yutha.diff_constitutions`](https://github.com/abhinavg6/yutha/blob/main/sdks/python/src/yutha/diff.py) — structural diff of two `(cedar, engine_config)` pairs; optional behavioural diff against a replay window. See [Constitution diff](../operator/constitution-diff.md).
+- [`YuthaClient.replay`](https://github.com/abhinavg6/yutha/blob/main/sdks/python/src/yutha/client.py) — the `ReplayAPI` for the in-band replay-mode preview path. See [Replay-mode preview](../operator/replay.md).
+
 ## Install at a glance
 
 ```bash

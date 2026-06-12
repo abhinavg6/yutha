@@ -1,33 +1,15 @@
-# Replay-mode constitution preview
+# Replay (against past traffic)
 
-The replay engine lets you preview a constitution against a **past
-receipt window** — what the candidate would have decided on traffic
-that already happened. It's the backward-looking half of the diligence
-pair that [shadow mode](shadow-mode.md) opened: shadow tells you what
-the candidate would do on the next envelope; replay tells you what it
-would have done across yesterday's, or last week's, or last
-quarter's.
+Replay lets you preview a candidate rule set against a past window of traffic — what the candidate would have decided on envelopes that already came through. It's the answer to "if I'd promoted this rule change last Tuesday, what would have been different?" without having to actually wait a day for live data to accumulate, the way [shadow mode](shadow-mode.md) requires.
 
-You point a candidate constitution at a window of past receipts. The
-control plane spins up a per-session [`EnforcementEngine`] activated
-with the candidate plus a per-session [`ReceiptStore`] handle. The
-candidate's engine walks the window, and any
-[`enforcement.detect` / `enforcement.coach` / `enforcement.quarantine`
-/ `enforcement.evict`] effects it would have emitted land **only** in
-the session-scoped store. Your production receipt store is never
-written to — replay is observation-only by construction.
+You point the candidate at a window (a start and end time). The control plane spins up an isolated copy of the enforcement engine with the candidate rule set loaded, walks the receipts in that window through it, and writes any new emissions (the four-stage enforcement chain receipts the candidate would have produced) into a per-session, isolated store. Your production receipt log is never touched — replay is observation-only by construction.
 
-When the session is over, you query the per-session store the same way
-you query production (`yutha-ops grep`, `client.receipt.query`, etc.),
-diff against production, and decide whether to promote the candidate.
+When the session finishes, you query the per-session store the same way you query production (`yutha-ops grep`, `client.receipt.query`, etc.), compare against the production tally for the same window, and decide whether to promote.
 
-This page is the operator's guide to that workflow. It complements
-[shadow mode](shadow-mode.md) (the forward-looking preview) and
-[Authoring constitutions](authoring-constitutions.md) (the
-constitution authoring loop both previews share). The substrate side
-lives at
-[RFC 0018 §4](https://github.com/abhinavg6/yutha/blob/main/spec/rfcs/0018-shadow-mode-and-replay.md);
-this page is the operator-facing translation.
+It's the right preview to reach for when you want a fast retrospective answer and you have a representative past window in your receipt log. The other three preview tools cover the cases this one doesn't: [shadow mode](shadow-mode.md) for live traffic, [diff](constitution-diff.md) for a structural comparison of two rule sets, [simulation](simulation.md) for synthetic traffic shapes that don't exist yet in your logs.
+
+This page is the operator runbook. The substrate side lives at
+[RFC 0018 §4](https://github.com/abhinavg6/yutha/blob/main/spec/rfcs/0018-shadow-mode-and-replay.md).
 
 ---
 

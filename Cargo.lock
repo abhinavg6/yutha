@@ -6567,7 +6567,7 @@ dependencies = [
 
 [[package]]
 name = "yutha-attestor"
-version = "0.1.0-alpha.1"
+version = "0.1.0-alpha.4"
 dependencies = [
  "async-trait",
  "hex",
@@ -6580,7 +6580,7 @@ dependencies = [
 
 [[package]]
 name = "yutha-attestor-oidc"
-version = "0.1.0-alpha.1"
+version = "0.1.0-alpha.4"
 dependencies = [
  "async-trait",
  "axum 0.8.9",
@@ -6606,7 +6606,7 @@ dependencies = [
 
 [[package]]
 name = "yutha-attestor-spiffe"
-version = "0.1.0-alpha.1"
+version = "0.1.0-alpha.4"
 dependencies = [
  "async-trait",
  "base64 0.22.1",
@@ -6628,7 +6628,7 @@ dependencies = [
 
 [[package]]
 name = "yutha-backend-postgres-receipt"
-version = "0.1.0-alpha.1"
+version = "0.1.0-alpha.4"
 dependencies = [
  "async-trait",
  "sqlx",
@@ -6644,7 +6644,7 @@ dependencies = [
 
 [[package]]
 name = "yutha-backend-s3-blob"
-version = "0.1.0-alpha.1"
+version = "0.1.0-alpha.4"
 dependencies = [
  "async-trait",
  "aws-config",
@@ -6657,7 +6657,7 @@ dependencies = [
 
 [[package]]
 name = "yutha-backend-sui-anchor"
-version = "0.1.0-alpha.1"
+version = "0.1.0-alpha.4"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -6680,7 +6680,7 @@ dependencies = [
 
 [[package]]
 name = "yutha-backend-walrus-receipt"
-version = "0.1.0-alpha.1"
+version = "0.1.0-alpha.4"
 dependencies = [
  "async-trait",
  "thiserror 1.0.69",
@@ -6693,7 +6693,7 @@ dependencies = [
 
 [[package]]
 name = "yutha-capability"
-version = "0.1.0-alpha.1"
+version = "0.1.0-alpha.4"
 dependencies = [
  "async-trait",
  "serde",
@@ -6711,7 +6711,7 @@ dependencies = [
 
 [[package]]
 name = "yutha-cedar-plus"
-version = "0.1.0-alpha.1"
+version = "0.1.0-alpha.4"
 dependencies = [
  "async-trait",
  "cedar-policy",
@@ -6733,11 +6733,12 @@ dependencies = [
 
 [[package]]
 name = "yutha-conformance"
-version = "0.1.0-alpha.1"
+version = "0.1.0-alpha.4"
 dependencies = [
  "async-trait",
  "futures",
  "serde_json",
+ "tempfile",
  "thiserror 1.0.69",
  "time",
  "tokio",
@@ -6752,12 +6753,13 @@ dependencies = [
  "yutha-registry",
  "yutha-replay",
  "yutha-signer",
+ "yutha-sim",
  "yutha-transport",
 ]
 
 [[package]]
 name = "yutha-control-plane"
-version = "0.1.0-alpha.1"
+version = "0.1.0-alpha.4"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -6798,7 +6800,7 @@ dependencies = [
 
 [[package]]
 name = "yutha-core"
-version = "0.1.0-alpha.1"
+version = "0.1.0-alpha.4"
 dependencies = [
  "prost 0.12.6",
  "serde",
@@ -6811,7 +6813,7 @@ dependencies = [
 
 [[package]]
 name = "yutha-crypto"
-version = "0.1.0-alpha.1"
+version = "0.1.0-alpha.4"
 dependencies = [
  "ed25519-dalek",
  "proptest",
@@ -6823,7 +6825,7 @@ dependencies = [
 
 [[package]]
 name = "yutha-diff"
-version = "0.1.0-alpha.1"
+version = "0.1.0-alpha.4"
 dependencies = [
  "cedar-policy",
  "serde",
@@ -6835,7 +6837,7 @@ dependencies = [
 
 [[package]]
 name = "yutha-ops"
-version = "0.1.0-alpha.1"
+version = "0.1.0-alpha.4"
 dependencies = [
  "anyhow",
  "clap",
@@ -6855,11 +6857,12 @@ dependencies = [
  "yutha-crypto",
  "yutha-diff",
  "yutha-proto",
+ "yutha-sim",
 ]
 
 [[package]]
 name = "yutha-passport"
-version = "0.1.0-alpha.1"
+version = "0.1.0-alpha.4"
 dependencies = [
  "async-trait",
  "serde",
@@ -6876,7 +6879,7 @@ dependencies = [
 
 [[package]]
 name = "yutha-proto"
-version = "0.1.0-alpha.1"
+version = "0.1.0-alpha.4"
 dependencies = [
  "prost 0.12.6",
  "protoc-bin-vendored",
@@ -6886,7 +6889,7 @@ dependencies = [
 
 [[package]]
 name = "yutha-receipt"
-version = "0.1.0-alpha.1"
+version = "0.1.0-alpha.4"
 dependencies = [
  "async-trait",
  "proptest",
@@ -6904,7 +6907,7 @@ dependencies = [
 
 [[package]]
 name = "yutha-registry"
-version = "0.1.0-alpha.1"
+version = "0.1.0-alpha.4"
 dependencies = [
  "async-trait",
  "serde",
@@ -6923,7 +6926,7 @@ dependencies = [
 
 [[package]]
 name = "yutha-replay"
-version = "0.1.0-alpha.1"
+version = "0.1.0-alpha.4"
 dependencies = [
  "async-trait",
  "serde",
@@ -6941,7 +6944,7 @@ dependencies = [
 
 [[package]]
 name = "yutha-signer"
-version = "0.1.0-alpha.1"
+version = "0.1.0-alpha.4"
 dependencies = [
  "async-trait",
  "proptest",
@@ -6955,7 +6958,7 @@ dependencies = [
 
 [[package]]
 name = "yutha-signer-azure-kv"
-version = "0.1.0-alpha.1"
+version = "0.1.0-alpha.4"
 dependencies = [
  "async-trait",
  "azure_core",
@@ -6973,7 +6976,7 @@ dependencies = [
 
 [[package]]
 name = "yutha-signer-gcp-kms"
-version = "0.1.0-alpha.1"
+version = "0.1.0-alpha.4"
 dependencies = [
  "async-trait",
  "base64 0.22.1",
@@ -6990,7 +6993,7 @@ dependencies = [
 
 [[package]]
 name = "yutha-signer-vault"
-version = "0.1.0-alpha.1"
+version = "0.1.0-alpha.4"
 dependencies = [
  "async-trait",
  "base64 0.22.1",
@@ -7006,8 +7009,30 @@ dependencies = [
 ]
 
 [[package]]
+name = "yutha-sim"
+version = "0.1.0-alpha.4"
+dependencies = [
+ "async-trait",
+ "serde",
+ "serde_json",
+ "serde_yaml",
+ "thiserror 1.0.69",
+ "time",
+ "tokio",
+ "tracing",
+ "uuid",
+ "yutha-capability",
+ "yutha-cedar-plus",
+ "yutha-core",
+ "yutha-crypto",
+ "yutha-passport",
+ "yutha-receipt",
+ "yutha-signer",
+]
+
+[[package]]
 name = "yutha-transport"
-version = "0.1.0-alpha.1"
+version = "0.1.0-alpha.4"
 dependencies = [
  "async-trait",
  "futures",

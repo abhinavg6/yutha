@@ -10,7 +10,7 @@ hide:
 
 !!! info "Status — early-stage pre-release"
 
-    Yutha is at **[v0.1.0-alpha.3](https://github.com/abhinavg6/yutha/releases/tag/v0.1.0-alpha.3)** — solid enough to play with end-to-end, intentionally pre-1.0. The shape of the project is settled; wire formats and API surfaces may shift before 1.0. Pin tightly if you build on it, and [open an issue](https://github.com/abhinavg6/yutha/issues) if you hit something.
+    Yutha is at **[v0.1.0-alpha.4](https://github.com/abhinavg6/yutha/releases/tag/v0.1.0-alpha.4)** — solid enough to play with end-to-end, intentionally pre-1.0. This release adds the [preview-rule-changes](operator/previewing-changes.md) tools: shadow mode, replay, diff, and simulation. The shape of the project is settled; wire formats and API surfaces may shift before 1.0. Pin tightly if you build on it, and [open an issue](https://github.com/abhinavg6/yutha/issues) if you hit something.
 
 **Yutha** — from the Sanskrit [यूथ (*yūtha*)](https://www.wisdomlib.org/definition/yutha) meaning a herd, troop, or band moving together — is open-source infrastructure for groups of AI agents. Two friends running hobby agents in a Discord, a marketing team coordinating a half-dozen agents inside one company, a regulated workflow with hundreds of agents across departments, or thousands of agents collaborating across organizations: same primitives, same audit log, same enforcement, same Yutha.
 
@@ -99,9 +99,11 @@ These are not framework problems. They're substrate problems. They show up no ma
 
 **Capabilities, not permissions.** Authority is granted as bounded, attenuable *capabilities* — first-class tokens that say *who* may do *what* for *how long* on *which targets*. Capabilities can be narrowed (never widened) when delegated, revoked atomically, and cascaded across delegation chains. Cap checks happen at the control plane, not in each agent's code.
 
-**Constitutions, declaratively.** Norms governing a swarm are written in Cedar+, an extension of AWS's [Cedar](https://github.com/cedar-policy) policy language with soft scoring rules and procedural state machines. The control plane evaluates every consequential action against the active constitution. Violations progress through a four-stage enforcement loop — detect, coach, quarantine, evict — never as a single all-or-nothing decision.
+**Constitutions, declaratively.** The rules governing a swarm are written in a small policy language called Cedar+ (a superset of AWS's [Cedar](https://github.com/cedar-policy) that adds soft scoring and procedural state machines). The control plane evaluates every consequential action against the active rule set. Violations progress through a four-stage response — detect, coach, quarantine, evict — never as a single all-or-nothing decision.
 
-**Optional cryptographic verification.** When the operator needs to prove the audit trail to a third party — a regulator, a customer, a downstream system — Yutha can anchor Merkle roots of receipt batches to a public blockchain ([Sui](https://www.sui.io/) today). Anyone can independently verify the seal without trusting the operator.
+**Preview rule changes before promoting them.** Four built-in preview tools let you check what a candidate rule change will do before turning it on: shadow mode (evaluate the candidate alongside the active rule set on live traffic), replay (run the candidate against a past time window), diff (structural comparison of two rule sets, with an optional behaviour delta), and simulation (synthetic adversarial traffic you script).
+
+**Optional cryptographic verification.** When the operator needs to prove the audit trail to a third party — a regulator, a customer, a downstream system — Yutha can publish receipt batches to a public blockchain ([Sui](https://www.sui.io/) today) in a way that lets anyone independently verify the trail wasn't tampered with. The operator doesn't have to be trusted; the math is the audit.
 
 **Pluggable backends.** Receipt storage in Postgres for production or in-memory for development, optional anchoring on Sui, optional enterprise identity (HashiCorp Vault / GCP KMS / Azure Managed HSM for key custody; SPIFFE/SPIRE or OIDC for workload attestation) — same APIs, swap the implementation behind the spec.
 
@@ -177,7 +179,7 @@ Each card below maps to a walkthrough under [Examples](examples/index.md). All s
 
     ---
 
-    Buyer-side LangGraph intake + three CrewAI vendor agents on one swarm. Bounded capabilities pin each vendor to the RFPs it was invited to; the constitution forbids cross-vendor data leakage; a bad-acting vendor walks the four-stage enforcement loop. The first runnable demo of a heterogeneous-framework swarm — and a clean upgrade path to federation once Phase 4 lands.
+    Buyer-side LangGraph intake + three CrewAI vendor agents on one swarm. Bounded capabilities pin each vendor to the RFPs it was invited to; the constitution forbids cross-vendor data leakage; a bad-acting vendor walks the four-stage enforcement loop. The first runnable demo of a heterogeneous-framework swarm — and a clean upgrade path to cross-organisation federation when that work lands.
 
     [:octicons-arrow-right-24: Walkthrough](examples/procurement-platform.md)
 
@@ -203,7 +205,7 @@ Yutha is intentionally not a lot of things. Drawing the boundary explicitly is p
 
 Yutha is open-source, Apache 2.0, stewarded by a single maintainer right now. The reference implementation runs end-to-end across the Rust control plane and Python SDK; four framework adapters (LangGraph, CrewAI, OpenAI Agents, Microsoft Agent Framework) are functional with a runnable end-to-end example each; the conformance suite covers the receipt log, send-path enforcement, operator revocation, constitution evaluation, the four-stage enforcement loop, and the verifiability anchor.
 
-A handful of directions have been thought through but aren't built yet — pre-production swarm simulation, cross-swarm federation primitives, adapters in non-Python languages. They live as design notes in the RFC archive. Whether and when they ship depends on what the community ends up needing. The [GitHub repo](https://github.com/abhinavg6/yutha) is the place to follow along or propose something.
+A handful of directions have been thought through but aren't built yet — cross-swarm federation primitives, an OpenTelemetry exporter for receipts, adapters in non-Python languages. They live as design notes in the RFC archive. Whether and when they ship depends on what the community ends up needing. The [GitHub repo](https://github.com/abhinavg6/yutha) is the place to follow along or propose something.
 
 ## Read next
 
