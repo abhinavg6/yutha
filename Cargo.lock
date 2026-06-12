@@ -6649,6 +6649,8 @@ dependencies = [
  "async-trait",
  "aws-config",
  "aws-sdk-s3",
+ "hex",
+ "sha2 0.10.9",
  "thiserror 1.0.69",
  "tokio",
  "tracing",
