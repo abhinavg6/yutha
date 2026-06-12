@@ -72,7 +72,7 @@ A conformant registry implementation:
 - **Rejects duplicate AgentId** registration unless the new passport is a key rotation (same AgentId, different key, signed by an `agent.rotate_key` capability or operator override).
 - **Returns RegistrationResult** with the registration receipt's hash on accept; with rejection_reason on reject.
 
-Conformance tests in `/conformance/interface/registry/` exercise each of these explicitly. See the registry sub-suite Core level (per `/docs/conformance/conformance-suite.md` §3.1) for the full required matrix.
+Conformance tests in `/conformance/interface/registry/` exercise each of these explicitly. See the registry sub-suite Core level (per `/docs/internal/conformance-suite.md` §3.1) for the full required matrix.
 
 ## 6. Key rotation, revocation, and reissue
 

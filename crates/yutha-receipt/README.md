@@ -27,5 +27,5 @@ A8 (malicious operator) is the primary adversary this crate defends against — 
 
 - [`/spec/receipt/receipt-v1.proto`](../../spec/receipt/receipt-v1.proto)
 - [`/spec/receipt/rationale.md`](../../spec/receipt/rationale.md)
-- [`/docs/conformance/conformance-suite.md`](../../docs/conformance/conformance-suite.md) §3.3
+- [`/docs/internal/conformance-suite.md`](../../docs/internal/conformance-suite.md) §3.3
 - [RFC 0004](../../spec/rfcs/0004-receipt-v1.md)

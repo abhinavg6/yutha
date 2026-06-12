@@ -15,15 +15,20 @@ Open-source infrastructure for groups of AI agents. Identity, capability, accoun
 /crates      — Rust workspace: control plane, registry, capability, transport,
                receipts, Cedar+ engine, Signer trait + external Signer backends
                (Vault, GCP KMS, Azure Managed HSM), Attestor trait + external
-               Attestor backends (SPIFFE, OIDC), ops CLI, proto crate,
-               conformance suite
+               Attestor backends (SPIFFE, OIDC), preview tooling (yutha-replay,
+               yutha-sim, yutha-diff), ops CLI, proto crate, conformance suite
 /backends    — Pluggable backends: postgres-receipt (production receipt
                store), sui-anchor (optional verifiability layer)
 /contracts   — Move package for Sui receipt anchoring (sources/, tests/)
 /sdks        — Framework adapters (sdks/python/ ships today: LangGraph,
-               CrewAI, OpenAI Agents, Microsoft Agent Framework)
+               CrewAI, OpenAI Agents, Microsoft Agent Framework). Latest
+               release: yutha 0.1.0a4 on PyPI.
 /interop     — Cross-language differential testing (interop/go/)
-/docs        — Source for the MkDocs Material site published at yutha.ai
+/docs        — Source for the MkDocs Material site published at yutha.ai.
+               docs/internal/ holds engineering reference docs that aren't on
+               the published nav (PRD, threat model, build plan, constitution
+               design memo, conformance suite, ADRs, per-release notes). The
+               canonical release record lives on GitHub Releases.
 /scripts     — Repo tooling (e.g. build-llms-full.py)
 ```
 
@@ -120,6 +125,7 @@ cargo run -p yutha-control-plane -- \
 | The control plane gRPC service definitions | `/crates/yutha-proto/proto/` |
 | The control plane server | `/crates/yutha-control-plane/` |
 | The Cedar+ engine (constitution evaluation, enforcement loop) | `/crates/yutha-cedar-plus/` |
+| The preview-rule-changes tools (replay, sim, diff) | `/crates/yutha-replay/`, `/crates/yutha-sim/`, `/crates/yutha-diff/` |
 | The receipt store implementations | `/crates/yutha-receipt/`, `/backends/postgres-receipt/` |
 | The Python client surface | `/sdks/python/src/yutha/client.py` |
 | The LangGraph adapter | `/sdks/python/src/yutha/langgraph/` |
@@ -130,7 +136,10 @@ cargo run -p yutha-control-plane -- \
 | The conformance suite | `/crates/yutha-conformance/` |
 | RFCs (proposals + accepted history) | `/spec/rfcs/` |
 | Operator end-to-end playbook | `/docs/operator/quickstart.md` |
+| Operator preview-before-promote tooling | `/docs/operator/previewing-changes.md` (overview), `shadow-mode.md`, `replay.md`, `constitution-diff.md`, `simulation.md` |
 | Developer end-to-end playbook | `/docs/developer/langgraph.md` (LangGraph), `crewai.md` (CrewAI), `/docs/examples/research-crew.md` (OpenAI Agents), `/docs/examples/devops-incident.md` (Microsoft Agent Framework) |
+| Internal engineering reference docs (PRD, threat model, build plan, constitution design memo, conformance suite, ADRs, per-release notes) | `/docs/internal/` |
+| Latest release notes | `/docs/internal/v0.1.0-alpha.4.md` (canonical: GitHub Releases) |
 
 ## What an agent typically gets wrong here
 

@@ -1,6 +1,6 @@
 # ADR 0001: Language Choice for Core Control Plane
 
-> **Repo location:** `/docs/decisions/0001-language-choice.md`
+> **Repo location:** `/docs/internal/0001-language-choice.md`
 > **Status:** Proposed
 > **Date:** TBD (proposed during PRD v0.4 review)
 > **Deciders:** Workstream B (Control Plane), Workstream L (Security), foundation governance once established

@@ -338,7 +338,7 @@ Rejected. Forking is not a viable path for enterprise adoption. The point of thi
 
 ## 6. Threat-model impact
 
-This RFC strengthens defenses against [A7 (supply-chain attacker)](../../threat-model.md#a7-supply-chain-attacker) and [A8 (malicious operator)](../../threat-model.md#a8-malicious-operator), and slightly improves [A1 (hostile agent participant)](../../threat-model.md#a1-hostile-agent-participant).
+This RFC strengthens defenses against [A7 (supply-chain attacker)](../../docs/internal/threat-model.md#a7-supply-chain-attacker) and [A8 (malicious operator)](../../docs/internal/threat-model.md#a8-malicious-operator), and slightly improves [A1 (hostile agent participant)](../../docs/internal/threat-model.md#a1-hostile-agent-participant).
 
 - **A7 — supply chain.** Today, any code path that gets `SigningKey::from_seed_bytes(&seed)` can sign anything the agent could sign. A malicious dependency (LangChain, CrewAI, OpenAI Agents, …) that exfiltrates the bytes wins. With `Signer`, the dependency would need to either steal the seed bytes *before* `InProcessSigner` consumes them, or coopt the running `Signer` to sign attacker-chosen bytes. The latter is harder to do silently (signing operations against a KMS leave audit-log entries).
 - **A8 — malicious operator.** A cloud-KMS-backed signer raises the bar: the operator can no longer simply read agent keys from disk and forge envelopes after the fact. They'd need to retain IAM access to the KMS key. (Note: an operator who *currently* has IAM still wins; this isn't a defense against an operator-as-attacker, but it raises the cost from "scrape a file" to "leave audit entries.")
@@ -424,4 +424,4 @@ Working assumption: implementation's problem. The trait is intentionally narrow.
 - [RFC 0009 — Operator credentials](./0009-operator-credentials.md) — bearer-token / operator-revoke flow; `sign` call site #4
 - [RFC 0014 — Sui receipt anchoring](./0014-sui-receipt-anchoring.md) — separate `Sealer` trait shaped similarly; the trait-plus-impl-crates pattern this RFC follows
 - [RFC 8032 — Edwards-Curve Digital Signature Algorithm (Ed25519)](https://datatracker.ietf.org/doc/html/rfc8032)
-- [Threat model](../../threat-model.md) — A1, A7, A8 are the load-bearing adversaries
+- [Threat model](../../docs/internal/threat-model.md) — A1, A7, A8 are the load-bearing adversaries

@@ -489,7 +489,7 @@ Rejected as the only path. For small SaaS use cases (hundreds of tenants), proce
 
 ## 6. Threat-model impact
 
-This RFC strengthens defenses against [A1 (hostile agent participant)](../../threat-model.md#a1-hostile-agent-participant), [A6 (Sybil attacker)](../../threat-model.md#a6-sybil-attacker), and slightly against [A8 (malicious operator)](../../threat-model.md#a8-malicious-operator).
+This RFC strengthens defenses against [A1 (hostile agent participant)](../../docs/internal/threat-model.md#a1-hostile-agent-participant), [A6 (Sybil attacker)](../../docs/internal/threat-model.md#a6-sybil-attacker), and slightly against [A8 (malicious operator)](../../docs/internal/threat-model.md#a8-malicious-operator).
 
 - **A1 — hostile agent.** Today, a malicious actor in possession of the swarm's bootstrap seed can register an arbitrary agent in open mode. With a SPIFFE Attestor, they additionally need a valid SVID — which SPIRE issues only to attested workloads. Cost rises from "have the seed" to "compromise the SPIRE agent or attest as a valid workload."
 - **A6 — Sybil.** Open admission's sole sybil defense today is "passports must have an `expires_at`." With an OIDC Attestor, sybil cost becomes "one IdP-issued token per fake agent" — orders of magnitude more friction than "one keypair generation per fake agent."
@@ -608,4 +608,4 @@ For v1: document that the agent is responsible for re-registering with a fresh c
 - [SPIFFE JWT-SVID](https://github.com/spiffe/spiffe/blob/main/standards/JWT-SVID.md) — the credential format the SPIFFE Attestor verifies
 - [OpenID Connect Core 1.0](https://openid.net/specs/openid-connect-core-1_0.html) — the standard the OIDC Attestor implements against
 - [RFC 7519 — JSON Web Token (JWT)](https://datatracker.ietf.org/doc/html/rfc7519) — the wire format both reference Attestors verify
-- [Threat model](../../threat-model.md) — A1, A6, A8 are the load-bearing adversaries
+- [Threat model](../../docs/internal/threat-model.md) — A1, A6, A8 are the load-bearing adversaries

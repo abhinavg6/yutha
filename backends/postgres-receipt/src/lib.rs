@@ -1,7 +1,7 @@
 //! Postgres backend for the Yutha [`yutha_receipt::ReceiptStore`].
 //!
 //! Default backend for self-hosted deployments. Targets Core + Full
-//! conformance per [`/docs/conformance/conformance-suite.md`](../../docs/conformance/conformance-suite.md)
+//! conformance per [`/docs/internal/conformance-suite.md`](../../docs/internal/conformance-suite.md)
 //! §3.3; Verifiable-tier sealing is left to the Walrus backend.
 //!
 //! ## Schema

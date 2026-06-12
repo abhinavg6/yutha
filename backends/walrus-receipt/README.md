@@ -14,7 +14,7 @@ Verifiable-tier reference implementation of the Yutha `ReceiptStore`. Uses Walru
 
 ## Conformance
 
-Targets **Verifiable** tier per [`/docs/conformance/conformance-suite.md`](../../docs/conformance/conformance-suite.md) §3.3. The same Core + Full tests run against this backend; additionally:
+Targets **Verifiable** tier per [`/docs/internal/conformance-suite.md`](../../docs/internal/conformance-suite.md) §3.3. The same Core + Full tests run against this backend; additionally:
 
 - Receipts are mutually recognizable across organizations using only public keys.
 - Cryptographic chain enables cross-store verification without trusting either operator.
@@ -24,4 +24,4 @@ Targets **Verifiable** tier per [`/docs/conformance/conformance-suite.md`](../..
 ## Reference
 
 - [`/spec/receipt/`](../../spec/receipt/)
-- [`/docs/build-plan.md`](../../docs/build-plan.md) §6 — Phase 1 verifiable-backend gate.
+- [`/docs/internal/build-plan.md`](../../docs/internal/build-plan.md) §6 — Phase 1 verifiable-backend gate.

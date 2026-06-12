@@ -1,7 +1,7 @@
 //! Receipt-store conformance suite.
 //!
 //! Implements the Core-tier checks from
-//! [`/docs/conformance/conformance-suite.md`](../../../docs/conformance/conformance-suite.md) §3.3.
+//! [`/docs/internal/conformance-suite.md`](../../../docs/internal/conformance-suite.md) §3.3.
 //! Backends pass a factory; the suite runs against a freshly-constructed
 //! store per test.
 //!

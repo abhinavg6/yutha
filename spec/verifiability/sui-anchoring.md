@@ -648,4 +648,4 @@ Yutha's reference Move source defaults to **operator-keeps-UpgradeCap**; operato
 - Move reference source (after H4): `/contracts/sui/receipt_anchor/`
 - Sui Move language: <https://docs.sui.io/concepts/sui-move-concepts>
 - Sui Ed25519 cryptography primitives: <https://docs.sui.io/standards/cryptography>
-- Build-plan: [`/build-plan.md`](../../build-plan.md)
+- Build-plan: [`/docs/internal/build-plan.md`](../../docs/internal/build-plan.md)

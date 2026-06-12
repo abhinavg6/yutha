@@ -1,6 +1,6 @@
 # Yutha Build Plan
 
-> **Repo location:** `/docs/build-plan.md`
+> **Repo location:** `/docs/internal/build-plan.md`
 > **Version:** v0.2 (working draft)
 > **Status:** Synthesizes the PRD v0.1, ADR 0001 (language choice), threat model v0.1, Cedar+ design v0.1, and conformance suite v0.1. Reflects the Concord → Yutha rename and the deferred-foundation governance posture.
 > **Naming note:** the project is being renamed from **Concord** to **Yutha** (Sanskrit *यूथ*, "a coordinated swarm or flock"). This document uses the new name throughout. The cross-document rename across the PRD, threat model, ADR 0001, the constitution-language design doc, and the conformance suite is held until trademark clearance returns; asset namespaces (domains, GitHub org, package registries, social handles) are being locked immediately.
@@ -627,10 +627,10 @@ These are not open in any single source doc but become open when the docs are re
 ## 19. Index of source documents
 
 - `/docs/Concord_PRD.docx` — Product requirements (Abhinav Garg, v0.1). Filename retained until coordinated rename pass.
-- `/docs/decisions/0001-language-choice.md` — ADR: Rust core + polyglot edges.
-- `/docs/security/threat-model.md` — Adversaries A1–A9; assets and trust boundaries.
-- `/docs/design/constitution-language.md` — Cedar+ design; LLM authoring; static analyzer as security boundary.
-- `/docs/conformance/conformance-suite.md` — Conformance levels, sub-suites, behavioral scenarios S1–S5, performance SLAs.
+- `/docs/internal/0001-language-choice.md` — ADR: Rust core + polyglot edges.
+- `/docs/internal/threat-model.md` — Adversaries A1–A9; assets and trust boundaries.
+- `/docs/internal/constitution-language.md` — Cedar+ design; LLM authoring; static analyzer as security boundary.
+- `/docs/internal/conformance-suite.md` — Conformance levels, sub-suites, behavioral scenarios S1–S5, performance SLAs.
 - *Project rename memo (Concord → Yutha)* — naming rationale, sequencing, hold-until-clearance instruction.
 
 ---

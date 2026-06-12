@@ -61,7 +61,7 @@ The defense is structural separation. The envelope is signed by the agent's key 
 A conformant transport implementation:
 
 - **Verifies envelope signatures** against the sender's passport. Rejects on mismatch with `ENVELOPE_ERROR_SIGNATURE_INVALID`.
-- **Enforces nonce + epoch + TTL** with the spec'd default windows, per `/docs/conformance/conformance-suite.md` §3.4. Rejects with `ENVELOPE_ERROR_REPLAY_DETECTED` or `ENVELOPE_ERROR_EXPIRED`.
+- **Enforces nonce + epoch + TTL** with the spec'd default windows, per `/docs/internal/conformance-suite.md` §3.4. Rejects with `ENVELOPE_ERROR_REPLAY_DETECTED` or `ENVELOPE_ERROR_EXPIRED`.
 - **Honors capability-gated admission** when the swarm's topology declares `require_capability_for_send = true`. Every Send through `EnvelopeService.Send` MUST present a `capability_id` whose check passes against an action descriptor synthesized from the envelope; a deny rejects the send with `PERMISSION_DENIED` and emits a `capability.check.deny` receipt. See RFC 0007.
 - **Preserves causal metadata** end-to-end. Tests verify that an envelope with N predecessors arrives at the recipient with the same N predecessors and identical bytes.
 - **Routes per recipient.oneof** to exactly one delivery path. Unicast, role-broadcast, swarm-broadcast, external — each has its own conformance test.

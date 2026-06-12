@@ -200,4 +200,4 @@ Implementations that don't upgrade continue to work for v1.0 constitutions — t
 - Wall-clock semantics: [RFC 0008](./0008-wall-clock-bound-checks.md)
 - Default-deny posture: PRD §13.2
 - Cedar reference: <https://docs.cedarpolicy.com/>
-- Threat model: `/docs/security/threat-model.md`
+- Threat model: `/docs/internal/threat-model.md`

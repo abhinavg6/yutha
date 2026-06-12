@@ -145,7 +145,7 @@ Six things this work explicitly will not do, restated so they remain visible dur
 ## 8. References
 
 - The scoping doc — direction agreed for this work; tracked in project notes.
-- [Threat model](../../threat-model.md) — A1 (hostile agent), A6 (Sybil), A7 (supply-chain), A8 (malicious operator) are the load-bearing adversaries for this work.
+- [Threat model](../../docs/internal/threat-model.md) — A1 (hostile agent), A6 (Sybil), A7 (supply-chain), A8 (malicious operator) are the load-bearing adversaries for this work.
 - [RFC 0002 — Passport v1](../rfcs/0002-passport-v1.md) — the artifact `Attestor` produces verified-identity records for and `Signer` signs.
 - [RFC 0007 — send-path capability check](../rfcs/0007-send-path-cap-check.md) — the call site `Signer` replaces in the agent's bearer-token mint path.
 - [RFC 0009 — operator credentials](../rfcs/0009-operator-credentials.md) — operator-revoke is the enforcement hook for the deferred lifecycle work.

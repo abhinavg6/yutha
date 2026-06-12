@@ -1,6 +1,6 @@
 # Constitution Language Design
 
-> **Repo location:** `/docs/design/constitution-language.md`
+> **Repo location:** `/docs/internal/constitution-language.md`
 > **Version:** v0.1 (working draft)
 > **Status:** Initial design; design-partner input required before Phase 2 scope freeze
 > **Owners:** Workstream G (Constitution Engine), Workstream A (Specs), Workstream L (Security)

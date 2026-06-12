@@ -254,6 +254,6 @@ Captured in [`extensions.md`](../constitution/extensions.md) §8. Most relevant 
 - Rationale: [`/spec/constitution/rationale.md`](../constitution/rationale.md)
 - Schema at v1.1: [`/spec/constitution/schema.cedarschema`](../constitution/schema.cedarschema)
 - Predecessor: [RFC 0010](./0010-constitution-language-v1.md)
-- Design partner doc: [`/constitution-language.md`](../../constitution-language.md)
+- Design partner doc: [`/docs/internal/constitution-language.md`](../../docs/internal/constitution-language.md)
 - Cedar reference: <https://docs.cedarpolicy.com/>
-- Build-plan §7 (Phase 2): [`/build-plan.md`](../../build-plan.md)
+- Build-plan §7 (Phase 2): [`/docs/internal/build-plan.md`](../../docs/internal/build-plan.md)

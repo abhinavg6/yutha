@@ -190,5 +190,5 @@ Reputation starts at the spec default (typically 1.0) for agents already in the 
 - Predecessors: [RFC 0010](./0010-constitution-language-v1.md), [RFC 0011](./0011-cedar-plus-extensions.md), [RFC 0012](./0012-evaluation-model-and-sandbox.md)
 - Substrate dependency: [RFC 0009](./0009-operator-credentials.md) (operator-revoke + cascade)
 - Receipt spec: [`/spec/receipt/rationale.md`](../receipt/rationale.md), [`/spec/receipt/canonical-actions.md`](../receipt/canonical-actions.md)
-- Build-plan §7 (Phase 2 exit criteria): [`/build-plan.md`](../../build-plan.md)
-- Threat model: `/docs/security/threat-model.md`
+- Build-plan §7 (Phase 2 exit criteria): [`/docs/internal/build-plan.md`](../../docs/internal/build-plan.md)
+- Threat model: `/docs/internal/threat-model.md`

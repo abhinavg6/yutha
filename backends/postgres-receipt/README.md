@@ -55,7 +55,7 @@ Append-only enforcement uses Postgres role permissions (the application role get
 
 ## Conformance
 
-Targets Core + Full per [`/docs/conformance/conformance-suite.md`](../../docs/conformance/conformance-suite.md) §3.3. Verifiable tier lives in `walrus-receipt`.
+Targets Core + Full per [`/docs/internal/conformance-suite.md`](../../docs/internal/conformance-suite.md) §3.3. Verifiable tier lives in `walrus-receipt`.
 
 ## Reference
 

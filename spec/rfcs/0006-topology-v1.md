@@ -68,6 +68,6 @@ See rationale §10.
 
 - [`/spec/topology/`](../topology/)
 - [`/spec/capability/`](../capability/) — depended-on
-- [`/docs/security/threat-model.md`](../../docs/security/threat-model.md) — A6 primarily
+- [`/docs/internal/threat-model.md`](../../docs/internal/threat-model.md) — A6 primarily
 - PRD §8.3 (fixed/open/dynamic topologies)
 - Build plan §2 (two-sided North Star), §4.9 (topology as first-class)

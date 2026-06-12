@@ -6,7 +6,7 @@
 
 This directory holds the Yutha public surface — every wire format, every signed artifact, and every protocol that other implementations must follow to interoperate. The reference implementation in `/crates/` proves the specs run; the specs are what other implementations adopt.
 
-This is the load-bearing claim of the project: **specs are the product, code is the proof.** Every architectural decision in `/docs/build-plan.md` reduces to "do the specs lock this down, and does the conformance suite verify it?"
+This is the load-bearing claim of the project: **specs are the product, code is the proof.** Every architectural decision in `/docs/internal/build-plan.md` reduces to "do the specs lock this down, and does the conformance suite verify it?"
 
 ---
 
@@ -159,8 +159,8 @@ The RFC repository is public from PR #1. No spec change happens off-list.
 
 ## 10. Index of related documents
 
-- [`/docs/build-plan.md`](../docs/build-plan.md) — synthesis of how Yutha gets built across phases. Workstream A's deliverables are in §5.
-- [`/docs/decisions/0001-language-choice.md`](../docs/decisions/0001-language-choice.md) — Rust-core ADR; the crypto baseline above is partially derived from this.
-- [`/docs/security/threat-model.md`](../docs/security/threat-model.md) — adversaries A1–A9. Each spec's `rationale.md` cites which adversaries the spec mitigates.
-- [`/docs/conformance/conformance-suite.md`](../docs/conformance/conformance-suite.md) — conformance levels and sub-suites.
-- [`/docs/design/constitution-language.md`](../docs/design/constitution-language.md) — Cedar+ design (Phase 2 spec target).
+- [`/docs/internal/build-plan.md`](../docs/internal/build-plan.md) — synthesis of how Yutha gets built across phases. Workstream A's deliverables are in §5.
+- [`/docs/internal/0001-language-choice.md`](../docs/internal/0001-language-choice.md) — Rust-core ADR; the crypto baseline above is partially derived from this.
+- [`/docs/internal/threat-model.md`](../docs/internal/threat-model.md) — adversaries A1–A9. Each spec's `rationale.md` cites which adversaries the spec mitigates.
+- [`/docs/internal/conformance-suite.md`](../docs/internal/conformance-suite.md) — conformance levels and sub-suites.
+- [`/docs/internal/constitution-language.md`](../docs/internal/constitution-language.md) — Cedar+ design (Phase 2 spec target).

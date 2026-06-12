@@ -72,7 +72,7 @@ See rationale §10.
 ## 11. References
 
 - [`/spec/capability/`](../capability/)
-- [`/docs/security/threat-model.md`](../../docs/security/threat-model.md) — A3 primarily
+- [`/docs/internal/threat-model.md`](../../docs/internal/threat-model.md) — A3 primarily
 - PRD §13.2 (default-deny)
 - Macaroons: Birgisson et al. (2014)
 - Build plan §4.6 (default-deny / fail-safe / reversible-before-irreversible)

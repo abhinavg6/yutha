@@ -81,7 +81,7 @@ See rationale §10.
 ## 11. References
 
 - [`/spec/receipt/`](../receipt/)
-- [`/docs/security/threat-model.md`](../../docs/security/threat-model.md) — A8 primarily
-- [`/docs/conformance/conformance-suite.md`](../../docs/conformance/conformance-suite.md) §3.3
+- [`/docs/internal/threat-model.md`](../../docs/internal/threat-model.md) — A8 primarily
+- [`/docs/internal/conformance-suite.md`](../../docs/internal/conformance-suite.md) §3.3
 - PRD §3.3, §8.3, §13.3 (privacy/selective disclosure)
 - Build plan §4.1 (the load-bearing wall)

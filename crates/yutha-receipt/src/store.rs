@@ -21,7 +21,7 @@ use yutha_core::Hash;
 
 /// A store of append-only, content-addressed, signed receipts.
 ///
-/// Conformance levels per [`/docs/conformance/conformance-suite.md`](../../../docs/conformance/conformance-suite.md) §3.3:
+/// Conformance levels per [`/docs/internal/conformance-suite.md`](../../../docs/internal/conformance-suite.md) §3.3:
 /// - **Core**: append, lookup by content-address, content-address consistency, tamper detection.
 /// - **Full**: range queries by time/agent/action; bulk export with verifiable manifest; durable across restart; concurrent appends.
 /// - **Verifiable**: cross-org mutual recognition; selective disclosure; sealing into Merkle batches.

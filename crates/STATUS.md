@@ -94,7 +94,7 @@ If anything fails, the most likely culprits are: (a) a dependency version that h
 
 ## A note on docs layout
 
-The five design documents (PRD, ADR 0001, threat-model, constitution-language, conformance-suite) plus build-plan.md currently live at the workspace root, not under `/docs/` as the build plan §3 calls for. I left them where they are because moving user-placed files without permission felt overstepping. When you're ready, a single `git mv` consolidates them under `/docs/{decisions,security,design,conformance}/` per the layout in `/docs/build-plan.md` §3. Cross-references in the spec rationale docs point to those `/docs/` paths in anticipation; they'll start resolving once the move happens.
+The five design documents (PRD, ADR 0001, threat-model, constitution-language, conformance-suite) plus build-plan.md currently live at the workspace root, not under `/docs/` as the build plan §3 calls for. I left them where they are because moving user-placed files without permission felt overstepping. When you're ready, a single `git mv` consolidates them under `/docs/{decisions,security,design,conformance}/` per the layout in `/docs/internal/build-plan.md` §3. Cross-references in the spec rationale docs point to those `/docs/` paths in anticipation; they'll start resolving once the move happens.
 
 ## What comes next (suggested ordering)
 

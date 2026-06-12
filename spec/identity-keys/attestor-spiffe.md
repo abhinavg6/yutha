@@ -441,7 +441,7 @@ The cases MUST be regenerable from a documented seed; the vectors directory ship
 
 ## 12. Threat-model impact
 
-This Attestor implements [RFC 0016 §6](../rfcs/0016-attestor-interface.md#6-threat-model-impact)'s A1 / A6 / A8 mitigations against [the threat model](../../threat-model.md):
+This Attestor implements [RFC 0016 §6](../rfcs/0016-attestor-interface.md#6-threat-model-impact)'s A1 / A6 / A8 mitigations against [the threat model](../../docs/internal/threat-model.md):
 
 ### 12.1 A1 — hostile agent participant
 
@@ -499,4 +499,4 @@ The receipt evidence's `attestor_id = "spiffe"` is constant across all SPIFFE-at
 - [SPIFFE Workload API](https://github.com/spiffe/spiffe/blob/main/standards/SPIFFE_Workload_API.md) — Workload API stream protocol
 - [RFC 7519 — JSON Web Token (JWT)](https://datatracker.ietf.org/doc/html/rfc7519) — JWT format
 - [maxlambrecht/rust-spiffe](https://github.com/maxlambrecht/rust-spiffe) — the Rust SDK the reference impl builds on
-- [Threat model](../../threat-model.md) — A1, A6, A8 are the load-bearing adversaries
+- [Threat model](../../docs/internal/threat-model.md) — A1, A6, A8 are the load-bearing adversaries

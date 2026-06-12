@@ -5,7 +5,7 @@
 
 This directory holds the Yutha constitution-language spec — the schema-of-schemas every Cedar+ constitution conforms to, plus the canonical workload/topology schemas that ship with Yutha out of the box.
 
-The design partner doc lives at [`/constitution-language.md`](../../constitution-language.md) (workspace root; will move to `/docs/design/` in the coordinated rename pass). Read that for the strategic intent; read [`rationale.md`](./rationale.md) for the spec-layer decisions and threat-model linkage.
+The design partner doc lives at [`/docs/internal/constitution-language.md`](../../docs/internal/constitution-language.md). Read that for the strategic intent; read [`rationale.md`](./rationale.md) for the spec-layer decisions and threat-model linkage.
 
 ---
 

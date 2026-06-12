@@ -348,5 +348,5 @@ There is no in-place migration of pre-existing receipts. Operators who want hist
 - Existing `receipt_seal` table migration: [`/backends/postgres-receipt/migrations/20260510120000_initial_schema.sql`](../../backends/postgres-receipt/migrations/20260510120000_initial_schema.sql)
 - Sui Move language reference: <https://docs.sui.io/concepts/sui-move-concepts>
 - Sui native crypto (`ed25519_verify`): <https://docs.sui.io/standards/cryptography>
-- Build-plan §verifiability: [`/build-plan.md`](../../build-plan.md)
-- Threat model: `/docs/security/threat-model.md`
+- Build-plan §verifiability: [`/docs/internal/build-plan.md`](../../docs/internal/build-plan.md)
+- Threat model: `/docs/internal/threat-model.md`

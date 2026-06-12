@@ -4,7 +4,7 @@
 > **Version:** v1.0 draft
 > **RFC:** 0010
 > **Phase:** 2 (Coordination & Norms)
-> **Design partner doc:** [`/constitution-language.md`](../../constitution-language.md) — held at workspace root until coordinated rename pass; `rationale.md` is the spec-layer summary.
+> **Design partner doc:** [`/docs/internal/constitution-language.md`](../../docs/internal/constitution-language.md) — `rationale.md` here is the spec-layer summary.
 > **Threat-model linkage:** A1 (hostile agent — bounded), A3 (prompt injection — secondary defense), A4 (deceptive norm authorship — primary defense), A6 (sybil — partial), A7 (norm drift — primary defense), A9 (compromised supervisor — partial)
 
 ## 1. What is a constitution, in one paragraph
@@ -15,7 +15,7 @@ A constitution is a signed, versioned, declarative policy document that defines 
 
 Four decisions structure the design:
 
-- **Cedar over Rego/Datalog/bespoke DSL.** Cedar has a published formal semantics, a sound static analyzer that proves termination, and a permit/forbid + conditions shape that maps directly onto agent gating. We build on top of stock Cedar (the open-source `cedar-policy` Rust crate) — we do not fork. Extensions arrive in v1.1+ via RFC 0011 as a layered "Cedar+" surface that compiles down to stock Cedar plus auxiliary state machines, never widening Cedar's decidability properties. Alternatives considered (and rejected for v1) at [`/constitution-language.md`](../../constitution-language.md) §"Design space and prior art".
+- **Cedar over Rego/Datalog/bespoke DSL.** Cedar has a published formal semantics, a sound static analyzer that proves termination, and a permit/forbid + conditions shape that maps directly onto agent gating. We build on top of stock Cedar (the open-source `cedar-policy` Rust crate) — we do not fork. Extensions arrive in v1.1+ via RFC 0011 as a layered "Cedar+" surface that compiles down to stock Cedar plus auxiliary state machines, never widening Cedar's decidability properties. Alternatives considered (and rejected for v1) at [`/docs/internal/constitution-language.md`](../../docs/internal/constitution-language.md) §"Design space and prior art".
 
 - **Three-layer authoring with the LLM at build-time only.** Layer 1 (plain English) is the front door for non-engineers. Layer 2 (Cedar+) is canonical; reviewers read Cedar+, the static analyzer verifies Cedar+. Layer 3 (compiled decision tree) is what the engine evaluates. The LLM only translates Layer 1 to Layer 2 at authoring time. Runtime evaluation is pure Cedar+ — the LLM is never on the request path. This invariant is build-time enforced (CI tests verify no LLM dependency is reachable from the evaluator) and is the structural reason A4 (deceptive norm authorship) is bounded: a malicious LLM cannot produce policies the static analyzer accepts.
 

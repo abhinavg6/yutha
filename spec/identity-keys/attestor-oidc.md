@@ -571,7 +571,7 @@ A separate `#[ignore]`-gated `docker-keycloak` test path is described in the ope
 
 ## 12. Threat-model impact
 
-This Attestor implements [RFC 0016 §6](../rfcs/0016-attestor-interface.md#6-threat-model-impact)'s A1 / A6 / A8 mitigations against [the threat model](../../threat-model.md):
+This Attestor implements [RFC 0016 §6](../rfcs/0016-attestor-interface.md#6-threat-model-impact)'s A1 / A6 / A8 mitigations against [the threat model](../../docs/internal/threat-model.md):
 
 ### 12.1 A1 — hostile agent participant
 
@@ -641,4 +641,4 @@ OAuth 2.0 / OIDC define token-exchange (RFC 8693) and refresh tokens for long-ru
 - [RFC 7518 — JSON Web Algorithms (JWA)](https://datatracker.ietf.org/doc/html/rfc7518) — `alg` enumeration
 - [`jwks` crate](https://crates.io/crates/jwks) — the Rust crate the reference impl uses for JWKS parse + discovery
 - [`jsonwebtoken` crate](https://crates.io/crates/jsonwebtoken) — the Rust crate the reference impl uses for JWT verify
-- [Threat model](../../threat-model.md) — A1, A6, A8 are the load-bearing adversaries
+- [Threat model](../../docs/internal/threat-model.md) — A1, A6, A8 are the load-bearing adversaries

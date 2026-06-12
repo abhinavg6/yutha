@@ -1,6 +1,6 @@
 # Concord Threat Model
 
-> **Repo location:** `/docs/security/threat-model.md`
+> **Repo location:** `/docs/internal/threat-model.md`
 > **Version:** v0.1 (working draft)
 > **Status:** Initial pass; expect revisions as subsystems mature
 > **Owners:** Workstream L (Security)

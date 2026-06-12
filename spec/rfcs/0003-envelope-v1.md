@@ -66,6 +66,6 @@ See rationale §9.
 ## 11. References
 
 - [`/spec/envelope/`](../envelope/)
-- [`/docs/security/threat-model.md`](../../docs/security/threat-model.md) — A3, A5
+- [`/docs/internal/threat-model.md`](../../docs/internal/threat-model.md) — A3, A5
 - PRD §8.3
 - Speech-act theory: Searle (1969), FIPA-ACL (cautionary tale on overshooting)

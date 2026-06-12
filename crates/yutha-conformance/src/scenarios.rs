@@ -1,6 +1,6 @@
 //! Behavioral conformance scenarios.
 //!
-//! Mirrors [`/docs/conformance/conformance-suite.md`](../../../docs/conformance/conformance-suite.md) §4 reference scenarios.
+//! Mirrors [`/docs/internal/conformance-suite.md`](../../../docs/internal/conformance-suite.md) §4 reference scenarios.
 //! These scenarios stand up the full in-memory stack (all five Workstream B
 //! crates plus the receipt store) and verify swarm-level invariants.
 //!

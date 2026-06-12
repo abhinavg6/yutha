@@ -1,6 +1,6 @@
 # Concord Conformance Suite
 
-> **Repo location:** `/docs/conformance/conformance-suite.md`
+> **Repo location:** `/docs/internal/conformance-suite.md`
 > **Version:** v0.1 (working draft)
 > **Status:** Initial design; finalized scope required before Phase 1 freeze
 > **Owners:** Workstream A (Specs), with co-ownership across Workstreams B, C, D, E (each responsible for their interface's sub-suite)
@@ -322,7 +322,7 @@ Targets are revisited as the suite matures and real backends generate benchmark 
 
 ## Security conformance
 
-Targeted tests per adversary in the threat model (`/docs/security/threat-model.md`).
+Targeted tests per adversary in the threat model (`/docs/internal/threat-model.md`).
 
 For each of A1 through A9:
 

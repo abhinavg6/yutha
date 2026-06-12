@@ -112,6 +112,6 @@ A later RFC may supersede an earlier one. The earlier RFC's status changes to "S
 ## 11. References
 
 - [`/spec/README.md`](../README.md) — versioning and RFC pointer
-- [`/docs/build-plan.md`](../../docs/build-plan.md) — §13 governance posture; defers foundation
+- [`/docs/internal/build-plan.md`](../../docs/internal/build-plan.md) — §13 governance posture; defers foundation
 - [`/docs/community/CONTRIBUTING.md`](../../docs/community/CONTRIBUTING.md)
 - Prior art: Rust RFCs (rust-lang/rfcs), IETF RFCs, Python PEPs, Go proposals

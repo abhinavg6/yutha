@@ -15,7 +15,7 @@ Introduces `/spec/constitution/` to the Yutha spec surface. The directory ships 
 
 This is the first of four spec-stage RFCs that build out Phase 2. RFC 0010 establishes the Cedar+ surface and the schema-stability contract. Subsequent RFCs add language extensions (0011), evaluation semantics + sandbox (0012), and the four-stage enforcement loop (0013). Code lands after the spec quartet closes.
 
-RFC 0010 also closes the two schema-side open questions flagged in `/constitution-language.md`: schema authoring posture (operators extend canonical schemas by signed delta; bespoke schemas are a v1.1+ relaxation), and schema evolution semantics (constitutions pin a schema version at bootstrap and evaluate under that version forever, unless an amendment also bumps the version).
+RFC 0010 also closes the two schema-side open questions flagged in `/docs/internal/constitution-language.md`: schema authoring posture (operators extend canonical schemas by signed delta; bespoke schemas are a v1.1+ relaxation), and schema evolution semantics (constitutions pin a schema version at bootstrap and evaluate under that version forever, unless an amendment also bumps the version).
 
 ## 2. Motivation
 
@@ -145,7 +145,7 @@ Recapped from [`rationale.md`](../constitution/rationale.md) §6. The constituti
 - **A4 (deceptive norm authorship)** — static analyzer rejects unsafe predicates regardless of authoring source; LLM is build-time-only and unreachable from the evaluator (CI-enforced invariant).
 - **A7 (norm drift)** — every amendment is signed, content-addressed, receipt-emitting; drift becomes auditable.
 
-And contributes to the bounded defense of A1, A3 (secondary to capabilities), A6, A9. See `/docs/security/threat-model.md` for the full adversary set.
+And contributes to the bounded defense of A1, A3 (secondary to capabilities), A6, A9. See `/docs/internal/threat-model.md` for the full adversary set.
 
 ## 6. Open questions for review
 
@@ -180,9 +180,9 @@ Step 3 + 4 require the `yutha-cedar-plus` crate, which is workstream-F code work
 
 ## 9. References
 
-- Design partner doc: [`/constitution-language.md`](../../constitution-language.md) (workspace root; held until rename pass)
+- Design partner doc: [`/docs/internal/constitution-language.md`](../../docs/internal/constitution-language.md)
 - Spec rationale: [`/spec/constitution/rationale.md`](../constitution/rationale.md)
-- Build-plan §7 (Phase 2): [`/build-plan.md`](../../build-plan.md)
+- Build-plan §7 (Phase 2): [`/docs/internal/build-plan.md`](../../docs/internal/build-plan.md)
 - Cedar 3.x reference: <https://docs.cedarpolicy.com/>
-- ADR 0001 (Language choice — Cedar over alternatives): [`/0001-language-choice.md`](../../0001-language-choice.md)
+- ADR 0001 (Language choice — Cedar over alternatives): [`/docs/internal/0001-language-choice.md`](../../docs/internal/0001-language-choice.md)
 - Companion RFCs (forthcoming): 0011 (extensions), 0012 (evaluation), 0013 (enforcement)

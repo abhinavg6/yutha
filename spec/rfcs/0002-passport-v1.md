@@ -74,6 +74,6 @@ See rationale §8.
 ## 11. References
 
 - [`/spec/passport/`](../passport/)
-- [`/docs/security/threat-model.md`](../../docs/security/threat-model.md) — A1, A2, A3, A6, A8
+- [`/docs/internal/threat-model.md`](../../docs/internal/threat-model.md) — A1, A2, A3, A6, A8
 - PRD §8.3 (passport)
 - ADR 0001 (language choice; informs crypto baseline)

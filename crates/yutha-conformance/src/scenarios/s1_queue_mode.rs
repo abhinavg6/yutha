@@ -1,7 +1,7 @@
 //! Behavioral scenario **S1: customer-support queue mode** (Phase 1 anchor).
 //!
-//! Per [`/docs/conformance/conformance-suite.md`](../../../../docs/conformance/conformance-suite.md) §4 S1
-//! and [PRD §8.5](../../../../docs/Concord_PRD.docx).
+//! Per [`/docs/internal/conformance-suite.md`](../../../../docs/internal/conformance-suite.md) §4 S1
+//! and [PRD §8.5](../../../../docs/internal/Yutha_PRD.docx).
 //!
 //! What this Phase 1 implementation covers:
 //! - 5 agents registered, sourced from 2 different framework strings.
