@@ -6746,6 +6746,7 @@ dependencies = [
  "yutha-cedar-plus",
  "yutha-core",
  "yutha-crypto",
+ "yutha-diff",
  "yutha-passport",
  "yutha-receipt",
  "yutha-registry",
@@ -6821,6 +6822,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "yutha-diff"
+version = "0.1.0-alpha.1"
+dependencies = [
+ "cedar-policy",
+ "serde",
+ "serde_json",
+ "thiserror 1.0.69",
+ "yutha-cedar-plus",
+ "yutha-core",
+]
+
+[[package]]
 name = "yutha-ops"
 version = "0.1.0-alpha.1"
 dependencies = [
@@ -6837,8 +6850,10 @@ dependencies = [
  "tonic 0.11.0",
  "tracing",
  "tracing-subscriber",
+ "yutha-cedar-plus",
  "yutha-core",
  "yutha-crypto",
+ "yutha-diff",
  "yutha-proto",
 ]
 

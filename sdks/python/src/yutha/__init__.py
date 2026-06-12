@@ -58,6 +58,18 @@ from yutha.crypto import (
     sha256,
     verify,
 )
+from yutha.diff import (
+    BehaviouralDiff,
+    CedarPolicyEntry,
+    ChainDivergence,
+    ConstitutionDiff,
+    DiffError,
+    NamedItemChange,
+    NamedItemsDiff,
+    ReceiptCountDelta,
+    diff_constitutions,
+    diff_constitutions_against_window,
+)
 from yutha.identity import (
     AgentId,
     CausalRef,
@@ -125,6 +137,17 @@ __all__ = [
     "ReplaySessionClosed",
     "ReplaySessionInfo",
     "ReceiptAPI",
+    # Constitution diff (Phase 3d).
+    "diff_constitutions",
+    "diff_constitutions_against_window",
+    "ConstitutionDiff",
+    "NamedItemsDiff",
+    "NamedItemChange",
+    "CedarPolicyEntry",
+    "BehaviouralDiff",
+    "ReceiptCountDelta",
+    "ChainDivergence",
+    "DiffError",
     "BearerSession",
     "make_interceptors",
     "make_channel",

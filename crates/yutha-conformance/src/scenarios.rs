@@ -61,9 +61,20 @@
 //!   marker, and step N+1's predecessors point at step N's emissions
 //!   (session-internal causal chain — never the original receipt's
 //!   predecessors).
+//! - **S12: Constitution diff engine end-to-end (Phase 3d
+//!   regression guard).** Three back-to-back invocations of
+//!   `yutha_diff::diff_constitutions` against hand-crafted
+//!   Constitution values. Locks five load-bearing properties:
+//!   identity-diff-is-empty, Cedar policy add detected by `@id`,
+//!   Cedar policy modify retains both sides for the renderer's
+//!   Before/After, engine-config item modify is field-level (one
+//!   `count_threshold` flip surfaces as exactly one `modified` entry
+//!   with both sides intact), and schema-version pin change
+//!   surfaces independently.
 
 pub mod s10_shadow_mode;
 pub mod s11_replay_session;
+pub mod s12_constitution_diff;
 pub mod s1_queue_mode;
 pub mod s2_send_path_cap_check;
 pub mod s4_enforcement_loop;
@@ -75,6 +86,7 @@ pub mod s9_principal_attrs;
 
 pub use s10_shadow_mode::{run_s10, S10Outcome};
 pub use s11_replay_session::{run_s11, S11Outcome};
+pub use s12_constitution_diff::{run_s12, S12Outcome};
 pub use s1_queue_mode::{run_s1, S1Outcome};
 pub use s2_send_path_cap_check::{run_s2, S2Outcome};
 pub use s4_enforcement_loop::{run_s4, S4Outcome};

@@ -24,6 +24,8 @@ yutha-registry.workspace = true
 yutha-cedar-plus.workspace = true
 # S11 drives the Phase 3c replay orchestration layer end-to-end.
 yutha-replay.workspace = true
+# S12 exercises the Phase 3d constitution diff engine.
+yutha-diff.workspace = true
 
 async-trait.workspace = true
 futures.workspace = true

@@ -1,0 +1,9 @@
+# Baseline engine config — only the schema-version pin, no
+# predicates, no scoring rules, no procedures, no enforcement rules.
+# Used as the "before" side of the diff smoke tests.
+
+schema_version: "1.1.0"
+predicates: []
+scoring_rules: []
+procedures: []
+enforcement_rules: []

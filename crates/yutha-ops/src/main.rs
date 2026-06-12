@@ -18,6 +18,17 @@
 //!   * `compile <yaml-file>` — compile a plain-English YAML DSL
 //!     document into Cedar + engine-config files. No server
 //!     connection, no seed needed.
+//!   * `diff --left-cedar <A.cedar> --left-engine-config <A.yaml>
+//!     --right-cedar <B.cedar> --right-engine-config <B.yaml>
+//!     [--format {json,markdown,html}]
+//!     [--window-from <ns> --window-to <ns> [--filter <kind>]...]`
+//!     — structural diff of two constitutions. Static-only path is
+//!     offline (no seed, no channel). Setting both `--window-from`
+//!     and `--window-to` switches into behavioural mode — composes
+//!     the replay engine against the right-hand candidate, queries
+//!     production + session stores, attaches receipt-count deltas +
+//!     enforcement chain divergences to the rendered output.
+//!     Behavioural mode IS a server call (auth via the usual seed).
 //!
 //! Auth is driven by a single 32-byte `--seed` hex value (or
 //! `YUTHA_BOOTSTRAP_SEED`). The CLI derives every identity from it
@@ -48,7 +59,7 @@ use tonic::metadata::MetadataValue;
 use tonic::transport::Channel;
 use tonic::Request;
 
-use yutha_core::{AgentId, SpecVersion, SwarmId, Timestamp};
+use yutha_core::{AgentId, Hash, HashAlgorithm, SpecVersion, SwarmId, Timestamp};
 use yutha_crypto::sign::SigningKey;
 use yutha_proto::common::v1 as common;
 use yutha_proto::control_plane::v1::{
@@ -263,6 +274,66 @@ enum Cmd {
     /// seed via `sha256(seed || 0x03)`).
     PrintOperatorPubkey,
 
+    /// Diff two constitutions structurally + (optionally) render to
+    /// JSON / Markdown / HTML. Phase 3d / Pillar 1. The static-only
+    /// path is pure-local — does NOT require a server connection or
+    /// `--seed`. The behavioural-diff path (`--against-window`)
+    /// composes the replay engine and IS a server call; that lands
+    /// in 3d-G.
+    Diff {
+        /// Cedar policy source for the **left** (baseline)
+        /// constitution.
+        #[arg(long)]
+        left_cedar: PathBuf,
+        /// Engine-config YAML for the left constitution.
+        #[arg(long)]
+        left_engine_config: PathBuf,
+        /// Cedar policy source for the **right** (candidate)
+        /// constitution.
+        #[arg(long)]
+        right_cedar: PathBuf,
+        /// Engine-config YAML for the right constitution.
+        #[arg(long)]
+        right_engine_config: PathBuf,
+        /// Human-friendly version label for the left side; surfaces
+        /// in the rendered diff title. Defaults to `"left"`.
+        #[arg(long, default_value = "left")]
+        left_version: String,
+        /// Human-friendly version label for the right side.
+        #[arg(long, default_value = "right")]
+        right_version: String,
+        /// Output format. Defaults to `markdown` (the most
+        /// PR-review-friendly option). `json` for CI / OpenTelemetry
+        /// consumers; `html` for stakeholder-review pages.
+        #[arg(long, default_value = "markdown")]
+        format: String,
+        /// Write the rendered diff to this path instead of stdout.
+        /// Defaults to stdout — pipe to a file or another tool as
+        /// usual.
+        #[arg(long)]
+        output_file: Option<PathBuf>,
+        /// Behavioural-diff window lower bound (`monotonic_ns`).
+        /// Setting BOTH `--window-from` and `--window-to` switches
+        /// the diff into behavioural mode — composes the replay
+        /// engine against the right-hand candidate, queries
+        /// production + session stores, attaches receipt-count
+        /// deltas + enforcement chain divergences to the rendered
+        /// output. Behavioural mode IS a server call (auth via the
+        /// usual `--seed`); static-only diff is offline.
+        #[arg(long)]
+        window_from: Option<u64>,
+        /// Behavioural-diff window upper bound (`monotonic_ns`).
+        /// Must be supplied together with `--window-from`.
+        #[arg(long)]
+        window_to: Option<u64>,
+        /// Action-kind whitelist for behavioural diff. Repeatable.
+        /// Empty = use the default canonical set
+        /// (`envelope.send` + `constitution.evaluate.*` +
+        /// `enforcement.*`). Ignored on the static-only path.
+        #[arg(long = "filter")]
+        filter: Vec<String>,
+    },
+
     /// Compile a plain-English YAML DSL document to Cedar + engine
     /// config. The compile path does NOT require a connection to the
     /// server (and the `--seed` argument is unused) — emit the two
@@ -299,6 +370,35 @@ async fn main() -> anyhow::Result<()> {
     } = cli.cmd
     {
         return cmd_compile(input, out_cedar, out_engine_config);
+    }
+
+    // Static-only `diff` runs offline — no seed, no channel. The
+    // behavioural variant (`--window-from`/`--window-to` set) needs
+    // gRPC and falls through to the seed-gated dispatch below.
+    if let Cmd::Diff {
+        left_cedar,
+        left_engine_config,
+        right_cedar,
+        right_engine_config,
+        left_version,
+        right_version,
+        format,
+        output_file,
+        window_from: None,
+        window_to: None,
+        filter: _,
+    } = cli.cmd
+    {
+        return cmd_diff_static(
+            left_cedar,
+            left_engine_config,
+            right_cedar,
+            right_engine_config,
+            left_version,
+            right_version,
+            format,
+            output_file,
+        );
     }
 
     let seed_hex = cli.seed.as_ref().ok_or_else(|| {
@@ -399,6 +499,36 @@ async fn main() -> anyhow::Result<()> {
             reason,
             cascade,
         } => cmd_revoke(channel, &identity, agent_id, reason, cascade).await,
+        Cmd::Diff {
+            left_cedar,
+            left_engine_config,
+            right_cedar,
+            right_engine_config,
+            left_version,
+            right_version,
+            format,
+            output_file,
+            window_from,
+            window_to,
+            filter,
+        } => {
+            cmd_diff_behavioural(
+                channel,
+                &identity,
+                left_cedar,
+                left_engine_config,
+                right_cedar,
+                right_engine_config,
+                left_version,
+                right_version,
+                format,
+                output_file,
+                window_from,
+                window_to,
+                filter,
+            )
+            .await
+        }
         Cmd::Compile { .. } | Cmd::PrintOperatorPubkey => {
             unreachable!("dispatched above")
         }
@@ -442,6 +572,470 @@ fn cmd_compile(
         engine = engine_path.display(),
     );
     Ok(())
+}
+
+// ---- Phase 3d diff subcommand (static path; behavioural lands in 3d-G) ----
+
+#[allow(clippy::too_many_arguments)]
+fn cmd_diff_static(
+    left_cedar: PathBuf,
+    left_engine_config: PathBuf,
+    right_cedar: PathBuf,
+    right_engine_config: PathBuf,
+    left_version: String,
+    right_version: String,
+    format: String,
+    output_file: Option<PathBuf>,
+) -> anyhow::Result<()> {
+    let format = yutha_diff::OutputFormat::parse_flag(&format).ok_or_else(|| {
+        anyhow::anyhow!(
+            "--format must be one of `json` / `markdown` / `md` / `html` (got `{format}`)"
+        )
+    })?;
+
+    let left = load_constitution_for_diff(&left_cedar, &left_engine_config, &left_version)?;
+    let right = load_constitution_for_diff(&right_cedar, &right_engine_config, &right_version)?;
+
+    let diff =
+        yutha_diff::diff_constitutions(&left, &right).with_context(|| "compute structural diff")?;
+
+    let rendered = yutha_diff::render_to_string(&diff, format)
+        .with_context(|| format!("render diff to {}", format.name()))?;
+
+    match output_file {
+        Some(path) => {
+            std::fs::write(&path, &rendered).with_context(|| format!("write diff to {path:?}"))?;
+            eprintln!(
+                "diff rendered ({}) to {} ({} bytes).",
+                format.name(),
+                path.display(),
+                rendered.len()
+            );
+        }
+        None => {
+            // Print to stdout; trailing newline is already in the
+            // rendered payload (every renderer terminates cleanly).
+            print!("{rendered}");
+        }
+    }
+    Ok(())
+}
+
+/// Construct a `yutha_cedar_plus::Constitution` from the operator-
+/// supplied cedar source + engine-config YAML for the diff's left or
+/// right side.
+///
+/// `constitution_hash` and `swarm_id` are set to placeholder zeroes
+/// — the structural diff doesn't care about either. `schema_version`
+/// is read from the parsed engine config (the loader requires
+/// `Constitution.schema_version` and `engine_config.schema_version`
+/// to match; we honour that by mirroring the engine-config value).
+fn load_constitution_for_diff(
+    cedar_path: &std::path::Path,
+    engine_config_path: &std::path::Path,
+    version_label: &str,
+) -> anyhow::Result<yutha_cedar_plus::Constitution> {
+    let cedar_source = std::fs::read_to_string(cedar_path)
+        .with_context(|| format!("read cedar source {cedar_path:?}"))?;
+    let engine_yaml = std::fs::read_to_string(engine_config_path)
+        .with_context(|| format!("read engine config {engine_config_path:?}"))?;
+    let engine_config = yutha_cedar_plus::parse_engine_config_yaml(&engine_yaml)
+        .with_context(|| format!("parse engine config {engine_config_path:?}"))?;
+
+    let schema_version = if engine_config.schema_version.is_empty() {
+        "1.1.0".to_string()
+    } else {
+        engine_config.schema_version.clone()
+    };
+
+    Ok(yutha_cedar_plus::Constitution {
+        // Placeholder zeros — the diff is on source text + parsed
+        // engine config, not on the content-address.
+        constitution_hash: Hash::new(HashAlgorithm::Sha256, vec![0u8; 32])
+            .expect("32-byte sha256 placeholder is well-formed"),
+        spec_version: SpecVersion::parse("1.0.0").expect("hardcoded spec version parses"),
+        schema_version,
+        constitution_version: version_label.to_string(),
+        parent_version: None,
+        swarm_id: SwarmId::from_bytes(&[0u8; 16]).expect("16-byte zero swarm id is well-formed"),
+        cedar_source,
+        engine_config,
+        issued_at: Timestamp::now(),
+    })
+}
+
+/// The canonical action-kinds the behavioural diff tallies receipts
+/// across when the operator doesn't pass `--filter`. Two clumps:
+/// the "what happened on the wire" set (`envelope.send` +
+/// `constitution.evaluate.*`) and the "what the enforcement chain
+/// emitted" set (`enforcement.*` covering all five stages).
+const DEFAULT_BEHAVIOURAL_ACTION_KINDS: &[&str] = &[
+    "envelope.send",
+    "constitution.evaluate.pass",
+    "constitution.evaluate.deny",
+    "enforcement.detect",
+    "enforcement.coach",
+    "enforcement.quarantine",
+    "enforcement.evict",
+    "enforcement.reverse",
+];
+
+/// Behavioural-diff subcommand body (`yutha-ops diff
+/// --window-from <ns> --window-to <ns>`). Computes the static
+/// structural diff first (offline-safe), then composes the replay
+/// engine against the right-hand candidate, queries production +
+/// session stores, and populates the `behavioural` field on the
+/// rendered output.
+#[allow(clippy::too_many_arguments)]
+async fn cmd_diff_behavioural(
+    channel: Channel,
+    identity: &SeedIdentity,
+    left_cedar: PathBuf,
+    left_engine_config: PathBuf,
+    right_cedar: PathBuf,
+    right_engine_config: PathBuf,
+    left_version: String,
+    right_version: String,
+    format: String,
+    output_file: Option<PathBuf>,
+    window_from: Option<u64>,
+    window_to: Option<u64>,
+    filter: Vec<String>,
+) -> anyhow::Result<()> {
+    let format = yutha_diff::OutputFormat::parse_flag(&format).ok_or_else(|| {
+        anyhow::anyhow!("--format must be one of `json` / `markdown` / `md` / `html`")
+    })?;
+    let (window_from, window_to) = match (window_from, window_to) {
+        (Some(a), Some(b)) => (a, b),
+        _ => bail!(
+            "behavioural diff requires BOTH --window-from and --window-to (monotonic_ns); \
+             omit BOTH for the static-only diff"
+        ),
+    };
+    if window_to < window_from {
+        bail!("--window-to ({window_to}) must be >= --window-from ({window_from})");
+    }
+
+    // Static diff first — caller gets the structural delta even if
+    // the behavioural pass below fails partway through.
+    let left = load_constitution_for_diff(&left_cedar, &left_engine_config, &left_version)?;
+    let right = load_constitution_for_diff(&right_cedar, &right_engine_config, &right_version)?;
+    let mut diff =
+        yutha_diff::diff_constitutions(&left, &right).with_context(|| "compute structural diff")?;
+
+    // Build the proto Constitution for the replay candidate (right
+    // side). The proto carries engine_config as YAML; reuse the raw
+    // file text rather than round-tripping through serde_yaml so the
+    // server sees byte-for-byte what the operator authored.
+    let right_engine_yaml = std::fs::read_to_string(&right_engine_config)
+        .with_context(|| format!("read engine config {right_engine_config:?}"))?;
+    let right_cedar_source = std::fs::read_to_string(&right_cedar)
+        .with_context(|| format!("read cedar source {right_cedar:?}"))?;
+    let now = Timestamp::now();
+    let candidate_proto = Constitution {
+        spec_version: Some((&SpecVersion::parse("1.0.0")?).into()),
+        schema_version: if right.schema_version.is_empty() {
+            "1.1.0".to_string()
+        } else {
+            right.schema_version.clone()
+        },
+        constitution_version: right_version.clone(),
+        parent_version: None,
+        swarm_id: Some((&identity.swarm_id).into()),
+        cedar_source: right_cedar_source,
+        engine_config_yaml: right_engine_yaml,
+        issued_at: Some((&now).into()),
+    };
+
+    // Decide which action_kinds to tally. Empty filter → canonical
+    // default set; non-empty → operator-supplied whitelist.
+    let action_kinds: Vec<String> = if filter.is_empty() {
+        DEFAULT_BEHAVIOURAL_ACTION_KINDS
+            .iter()
+            .map(|s| (*s).to_string())
+            .collect()
+    } else {
+        filter.clone()
+    };
+
+    let operator_token = mint_operator_token(identity)?;
+    let agent_token = mint_agent_token(identity)?;
+
+    // ---- 1. Create the replay session against the right candidate ----
+    let mut replay_client = ReplayServiceClient::new(channel.clone());
+    let mut create_req = Request::new(CreateReplaySessionRequest {
+        candidate: Some(candidate_proto),
+        window: Some(ReplaySessionWindow {
+            from_unix_ns: window_from,
+            to_unix_ns: window_to,
+            // Pass the filter through verbatim so the replay engine
+            // doesn't waste cycles on receipts the diff won't tally.
+            action_kind_filter: filter.clone(),
+        }),
+        mode: ProtoReplayMode::Cold.into(),
+        warm_lookback_hours: 0,
+    });
+    create_req.metadata_mut().insert(
+        "authorization",
+        MetadataValue::try_from(format!("bearer operator {operator_token}"))?,
+    );
+    let created = replay_client.create_session(create_req).await?.into_inner();
+    let replay_session_id = created.replay_session_id.clone();
+    eprintln!("created replay session {replay_session_id}");
+
+    // ---- 2. Run the window (drain the server-streaming response) ----
+    let mut run_req = Request::new(RunReplaySessionRequest {
+        replay_session_id: replay_session_id.clone(),
+    });
+    run_req.metadata_mut().insert(
+        "authorization",
+        MetadataValue::try_from(format!("bearer operator {operator_token}"))?,
+    );
+    let mut stream = replay_client.run_session(run_req).await?.into_inner();
+    let mut last_progress_ns: u64 = 0;
+    let mut total_replayed: u64 = 0;
+    while let Some(p) = stream.message().await? {
+        total_replayed = p.receipts_replayed;
+        last_progress_ns = p.progress_unix_ns;
+        if p.window_complete {
+            break;
+        }
+    }
+    eprintln!(
+        "replay run complete: {total_replayed} receipts processed (progress_ns={last_progress_ns})",
+    );
+
+    // ---- 3. Tally receipts from both stores for each action_kind ----
+    let mut counts: std::collections::BTreeMap<(String, String), (u64, u64)> =
+        std::collections::BTreeMap::new();
+    let mut chain: std::collections::BTreeMap<(String, String, String), (u64, u64)> =
+        std::collections::BTreeMap::new();
+    let mut receipt_client = ReceiptServiceClient::new(channel.clone());
+
+    for kind in &action_kinds {
+        // Production: agent-bearer auth, ReceiptService.Query
+        // ByActionKind. Large limit (operator who needs more should
+        // narrow with --filter or --window).
+        let prod_receipts = fetch_production_by_action_kind(
+            &mut receipt_client,
+            &agent_token,
+            kind,
+            window_from,
+            window_to,
+        )
+        .await?;
+        // Candidate-session: operator-bearer auth,
+        // ReplayService.QueryReplayReceipts by action_kind scoped to
+        // the session.
+        let session_receipts = fetch_session_by_action_kind(
+            &mut replay_client,
+            &operator_token,
+            &replay_session_id,
+            kind,
+        )
+        .await?;
+
+        for r in &prod_receipts {
+            let subject = evidence_str(r, "subject_agent_id").unwrap_or_default();
+            let entry = counts.entry((kind.clone(), subject)).or_insert((0, 0));
+            entry.0 = entry.0.saturating_add(1);
+        }
+        for r in &session_receipts {
+            let subject = evidence_str(r, "subject_agent_id").unwrap_or_default();
+            let entry = counts.entry((kind.clone(), subject)).or_insert((0, 0));
+            entry.1 = entry.1.saturating_add(1);
+        }
+
+        // Enforcement chain divergences: only the `enforcement.*`
+        // family contributes here. Key by
+        // (target_agent_id, enforcement_rule_id, stage).
+        if let Some(stage) = enforcement_stage(kind) {
+            for r in &prod_receipts {
+                let target = evidence_str(r, "target_agent_id").unwrap_or_default();
+                let rule = evidence_str(r, "enforcement_rule_id").unwrap_or_default();
+                let entry = chain
+                    .entry((target, rule, stage.to_string()))
+                    .or_insert((0, 0));
+                entry.0 = entry.0.saturating_add(1);
+            }
+            for r in &session_receipts {
+                let target = evidence_str(r, "target_agent_id").unwrap_or_default();
+                let rule = evidence_str(r, "enforcement_rule_id").unwrap_or_default();
+                let entry = chain
+                    .entry((target, rule, stage.to_string()))
+                    .or_insert((0, 0));
+                entry.1 = entry.1.saturating_add(1);
+            }
+        }
+    }
+
+    // ---- 4. Populate the BehaviouralDiff ----
+    let receipt_count_deltas: Vec<yutha_diff::ReceiptCountDelta> = counts
+        .into_iter()
+        .map(
+            |((action_kind, subject_agent_id), (production_count, candidate_count))| {
+                yutha_diff::ReceiptCountDelta {
+                    action_kind,
+                    subject_agent_id,
+                    production_count,
+                    candidate_count,
+                }
+            },
+        )
+        .collect();
+    let chain_divergences: Vec<yutha_diff::ChainDivergence> = chain
+        .into_iter()
+        .filter_map(|((target_agent_id, enforcement_rule_id, stage), (p, c))| {
+            // Only surface entries where the two stores disagree —
+            // identical chain emissions are noise in the renderer.
+            if p == c {
+                None
+            } else {
+                Some(yutha_diff::ChainDivergence {
+                    target_agent_id,
+                    enforcement_rule_id,
+                    stage,
+                    production_count: p,
+                    candidate_count: c,
+                })
+            }
+        })
+        .collect();
+
+    diff.behavioural = Some(yutha_diff::BehaviouralDiff {
+        window_from_unix_ns: window_from,
+        window_to_unix_ns: window_to,
+        replay_session_id: replay_session_id.clone(),
+        receipt_count_deltas,
+        chain_divergences,
+    });
+
+    // ---- 5. Close the replay session ----
+    let mut close_req = Request::new(CloseReplaySessionRequest {
+        replay_session_id: replay_session_id.clone(),
+    });
+    close_req.metadata_mut().insert(
+        "authorization",
+        MetadataValue::try_from(format!("bearer operator {operator_token}"))?,
+    );
+    let _ = replay_client.close_session(close_req).await?;
+    eprintln!("closed replay session {replay_session_id}");
+
+    // ---- 6. Render the combined diff ----
+    let rendered = yutha_diff::render_to_string(&diff, format)
+        .with_context(|| format!("render diff to {}", format.name()))?;
+    match output_file {
+        Some(path) => {
+            std::fs::write(&path, &rendered).with_context(|| format!("write diff to {path:?}"))?;
+            eprintln!(
+                "diff rendered ({}) to {} ({} bytes).",
+                format.name(),
+                path.display(),
+                rendered.len()
+            );
+        }
+        None => print!("{rendered}"),
+    }
+    Ok(())
+}
+
+/// Fetch production receipts of a given action_kind that fell in
+/// `[from_ns, to_ns]`. Server-side query is by action_kind only;
+/// the time-window filter happens client-side after fetch (matches
+/// the existing `cmd_grep` pattern).
+async fn fetch_production_by_action_kind(
+    client: &mut ReceiptServiceClient<Channel>,
+    agent_token: &str,
+    action_kind: &str,
+    from_ns: u64,
+    to_ns: u64,
+) -> anyhow::Result<Vec<yutha_proto::receipt::v1::Receipt>> {
+    let inner = QueryRequest {
+        by: Some(yutha_proto::receipt::v1::query_request::By::ByActionKind(
+            ActionKindQuery {
+                action_kind: action_kind.to_string(),
+            },
+        )),
+        // High but bounded — see operator doc for the
+        // diff-page-not-paginated caveat.
+        limit: 10_000,
+        page_token: Vec::new(),
+    };
+    let mut req = Request::new(QueryReceiptsRequest { query: Some(inner) });
+    req.metadata_mut().insert(
+        "authorization",
+        MetadataValue::try_from(format!("bearer agent {agent_token}"))?,
+    );
+    let resp = client.query(req).await?.into_inner();
+    Ok(resp
+        .receipts
+        .into_iter()
+        .filter(|r| receipt_in_window(r, from_ns, to_ns))
+        .collect())
+}
+
+/// Fetch session-scoped receipts of a given action_kind from the
+/// replay session's isolated store. No time-window filter needed —
+/// the session was created with the window in scope already.
+async fn fetch_session_by_action_kind(
+    client: &mut ReplayServiceClient<Channel>,
+    operator_token: &str,
+    session_id: &str,
+    action_kind: &str,
+) -> anyhow::Result<Vec<yutha_proto::receipt::v1::Receipt>> {
+    let inner = QueryRequest {
+        by: Some(yutha_proto::receipt::v1::query_request::By::ByActionKind(
+            ActionKindQuery {
+                action_kind: action_kind.to_string(),
+            },
+        )),
+        limit: 10_000,
+        page_token: Vec::new(),
+    };
+    let mut req = Request::new(QueryReplayReceiptsRequest {
+        replay_session_id: session_id.to_string(),
+        query: Some(inner),
+    });
+    req.metadata_mut().insert(
+        "authorization",
+        MetadataValue::try_from(format!("bearer operator {operator_token}"))?,
+    );
+    let resp = client.query_replay_receipts(req).await?.into_inner();
+    Ok(resp.receipts)
+}
+
+/// `true` when `r.occurred_at.monotonic_ns` falls within
+/// `[from_ns, to_ns]` inclusive. Receipts without an `occurred_at`
+/// field (shouldn't happen on production data) are dropped.
+fn receipt_in_window(r: &yutha_proto::receipt::v1::Receipt, from_ns: u64, to_ns: u64) -> bool {
+    let Some(ts) = r.occurred_at.as_ref() else {
+        return false;
+    };
+    ts.monotonic_ns >= from_ns && ts.monotonic_ns <= to_ns
+}
+
+/// Pull a UTF-8 evidence value by key from a receipt's evidence
+/// array. Returns `None` when the key is absent or the value bytes
+/// aren't valid UTF-8.
+fn evidence_str(r: &yutha_proto::receipt::v1::Receipt, key: &str) -> Option<String> {
+    r.evidence
+        .iter()
+        .find(|e| e.key == key)
+        .and_then(|e| std::str::from_utf8(&e.value).ok().map(|s| s.to_string()))
+}
+
+/// Extract the stage suffix from an `enforcement.<stage>` action
+/// kind. Returns `None` for any other action_kind so callers can
+/// filter the enforcement family out cheaply.
+fn enforcement_stage(action_kind: &str) -> Option<&'static str> {
+    match action_kind {
+        "enforcement.detect" => Some("detect"),
+        "enforcement.coach" => Some("coach"),
+        "enforcement.quarantine" => Some("quarantine"),
+        "enforcement.evict" => Some("evict"),
+        "enforcement.reverse" => Some("reverse"),
+        _ => None,
+    }
 }
 
 // =============================================================================

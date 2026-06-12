@@ -1459,8 +1459,9 @@ async fn main() -> anyhow::Result<()> {
             // emissions survive control-plane restarts; RFC 0018 §4.1
             // isolation is enforced at the schema level via the
             // `replay_*` table family.
-            let replay = Arc::new(yutha_backend_postgres_receipt::PostgresReplayStore::new(pool))
-                as Arc<dyn yutha_receipt::ReplayStore>;
+            let replay = Arc::new(yutha_backend_postgres_receipt::PostgresReplayStore::new(
+                pool,
+            )) as Arc<dyn yutha_receipt::ReplayStore>;
             (
                 Arc::clone(&store) as Arc<dyn ReceiptStore>,
                 store as Arc<dyn yutha_receipt::SealStore>,

@@ -136,6 +136,7 @@ nav:
       - Authoring constitutions: operator/authoring-constitutions.md
       - Shadow-mode preview: operator/shadow-mode.md
       - Replay-mode preview: operator/replay.md
+      - Constitution diff: operator/constitution-diff.md
       - Operator credentials: operator/operator-credentials.md
       - Enterprise identity (end-to-end): operator/enterprise-identity.md
       - Signer backends (key custody):

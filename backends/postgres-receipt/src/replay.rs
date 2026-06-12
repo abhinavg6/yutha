@@ -475,9 +475,9 @@ impl ReceiptStore for PostgresSessionScopedStore {
             let occurred_at_ns: i64 = row.try_get("occurred_at_ns").map_err(|e| {
                 ReceiptError::Backend(format!("replay cursor decode occurred_at_ns: {e}"))
             })?;
-            let receipt_id: Vec<u8> = row
-                .try_get("receipt_id")
-                .map_err(|e| ReceiptError::Backend(format!("replay cursor decode receipt_id: {e}")))?;
+            let receipt_id: Vec<u8> = row.try_get("receipt_id").map_err(|e| {
+                ReceiptError::Backend(format!("replay cursor decode receipt_id: {e}"))
+            })?;
             last_cursor = Some(Cursor {
                 occurred_at_ns,
                 receipt_id_digest: receipt_id,

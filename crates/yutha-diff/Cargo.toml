@@ -1,0 +1,30 @@
+[package]
+name = "yutha-diff"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+authors.workspace = true
+description = "Structural + behavioural diff for Yutha constitutions. Compares two (Cedar source, engine config) pairs and renders the divergence as JSON / Markdown / HTML. Phase 3d / Pillar 1 (simulation + observability)."
+readme = "README.md"
+
+[dependencies]
+yutha-cedar-plus.workspace = true
+
+# Cedar policies — parse to PolicySet, walk by PolicyId.
+cedar-policy.workspace = true
+
+# Serde for the canonical-bytes equality check on engine-config items
+# and for the JSON output renderer.
+serde.workspace = true
+serde_json.workspace = true
+
+# Error type.
+thiserror.workspace = true
+
+[dev-dependencies]
+# Test fixtures construct Constitution values that carry Hash /
+# SwarmId / Timestamp from yutha-core.
+yutha-core.workspace = true

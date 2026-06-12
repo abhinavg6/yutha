@@ -1,0 +1,28 @@
+# Tightened engine config — same schema-version pin as baseline,
+# plus one new enforcement rule pattern-matching denies on
+# `forbid-large-refunds`. All four stages declared (detect → coach
+# → quarantine → evict) so the diff against baseline shows a full
+# chain addition.
+
+schema_version: "1.1.0"
+predicates: []
+scoring_rules: []
+procedures: []
+enforcement_rules:
+  - name: large_refund_detector
+    detect:
+      trigger:
+        receipt_kind: constitution.evaluate.deny
+        forbid_rule_id: forbid-large-refunds
+      count_threshold: 3
+      time_window: 60m
+      group_by: principal
+    coach:
+      cooldown: 5m
+      guidance_template: "Refunds over $500 require supervisor approval."
+    quarantine:
+      escalate_after: 1h
+    evict:
+      escalate_after: 24h
+      require_countersign: true
+    severity: high

@@ -98,11 +98,7 @@ fn fresh_metadata() -> ReplaySessionMetadata {
 async fn signed_receipt(
     actor: AgentId,
     swarm_id: SwarmId,
-) -> (
-    yutha_receipt::Receipt,
-    AgentId,
-    yutha_core::PublicKey,
-) {
+) -> (yutha_receipt::Receipt, AgentId, yutha_core::PublicKey) {
     let key = generate_keypair();
     let mut r = ReceiptBuilder::new()
         .spec_version(SpecVersion::parse("1.0.0").unwrap())
@@ -255,8 +251,7 @@ async fn postgres_replay_session_store_isolates_appends() {
 
 #[tokio::test]
 async fn postgres_replay_delete_session_cascades_receipts() {
-    let Some((pool, schema)) =
-        fresh_pool("postgres_replay_delete_session_cascades_receipts").await
+    let Some((pool, schema)) = fresh_pool("postgres_replay_delete_session_cascades_receipts").await
     else {
         return;
     };

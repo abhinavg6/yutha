@@ -18,6 +18,11 @@ path = "src/main.rs"
 yutha-core.workspace = true
 yutha-crypto.workspace = true
 yutha-proto.workspace = true
+# Phase 3d: `diff` subcommand needs the Cedar+ parser to lift the
+# two engine-config YAML files into Constitution values, plus the
+# yutha-diff engine that computes + renders the diff.
+yutha-cedar-plus.workspace = true
+yutha-diff.workspace = true
 
 anyhow.workspace = true
 clap.workspace = true
